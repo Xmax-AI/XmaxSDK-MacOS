@@ -193,6 +193,9 @@ public protocol XmaxRealtimeManaging: Sendable {
 
     /// Starts generation, or updates current conditions if generation is already active.
     ///
+    /// A newer generation request replaces an unfinished one after its cleanup completes.
+    /// The replaced request ends with cancellation. Disconnect and close cancel pending requests.
+    ///
     /// - Parameters:
     ///   - context: The generation conditions; required initially. Later calls may pass `nil` to reuse cached conditions.
     ///   - faceRestoration: Whether to restore the original face; each call sends this setting.
@@ -204,7 +207,8 @@ public protocol XmaxRealtimeManaging: Sendable {
 
     /// Connects using the current local stream when needed and starts generation.
     ///
-    /// Reuses an existing connection. The returned remote stream can display results in the unified video view.
+    /// Reuses an existing connection and the same request-replacement behavior as the context-only overload.
+    /// The returned remote stream can display results in the unified video view.
     ///
     /// - Parameters:
     ///   - localStream: The local media stream created and owned by this manager.

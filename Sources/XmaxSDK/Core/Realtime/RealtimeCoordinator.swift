@@ -34,6 +34,9 @@ actor RealtimeCoordinator {
 
     /// Defines the resources released by a termination operation.
     enum TerminationScope: Int, Sendable {
+        /// Stops generation while retaining the established connection and local media.
+        case generation = -1
+
         /// Releases connection and generation resources while retaining local media.
         case connection
 
@@ -46,6 +49,8 @@ actor RealtimeCoordinator {
         /// - Returns: `true` if the operation belongs to this cleanup scope.
         func affects(_ kind: OperationKind) -> Bool {
             switch self {
+            case .generation:
+                kind == .generation || kind == .configuration || kind == .cameraSwitch
             case .connection:
                 kind != .media
             case .all:
@@ -120,6 +125,7 @@ actor RealtimeCoordinator {
 
     /// Operation management
     private var activeOperation: Operation?
+    private var generationRequest: GenerationRequest?
     private var termination: Termination?
     private var foregroundRequests = 0
 
@@ -154,7 +160,7 @@ actor RealtimeCoordinator {
         }
     }
 
-    /// Admits realtime operations serially and cleans up their resource scope on failure or cancellation.
+    /// Replaces pending generation requests while rejecting other operation conflicts.
     ///
     /// - Parameters:
     ///   - kind: The requested operation kind.
@@ -168,41 +174,73 @@ actor RealtimeCoordinator {
         operation body: @escaping @Sendable (Token) async throws -> Value
     ) async throws -> Value {
         foregroundRequests += 1
-        defer { foregroundRequests -= 1 }
+        defer {
+            foregroundRequests -= 1
+        }
+
+        if kind == .generation {
+            return try await runGeneration(
+                failureScope: failureScope,
+                operation: body
+            )
+        }
+
+        return try await runOperation(
+            kind: kind,
+            failureScope: failureScope,
+            operation: body
+        )
+    }
+
+    /// Waits for a background commit, then admits the current request under exclusive operation ownership.
+    private func runOperation<Value: Sendable>(
+        kind: OperationKind,
+        failureScope: TerminationScope?,
+        request: GenerationRequest? = nil,
+        operation body: @escaping @Sendable (Token) async throws -> Value
+    ) async throws -> Value {
         if let background = activeOperation, background.background {
-            // Commits an already-sent return configuration before foreground work uses the latest configuration.
+            // Finish committing the background configuration before applying a foreground request.
             await background.waitForCompletion()
             finish(background)
         }
+
         try Task.checkCancellation()
-        guard termination == nil, activeOperation == nil else {
+        if let request, generationRequest !== request {
+            throw Self.cancelledError()
+        }
+        guard termination == nil, activeOperation == nil,
+            request != nil || generationRequest == nil
+        else {
             let error = XmaxError(
                 code: .invalidConfiguration,
-                message: "Another realtime operation is in progress; " +
-                    "wait for it to finish"
+                message: "Another realtime operation is in progress; wait for it to finish"
             )
             await errorHandler.report(error)
             throw error
         }
 
-        // During generation, startGeneration only updates conditions and shares configuration admission with return resizing.
+        // An active generation request updates conditions using the shared configuration operation.
         let operationKind: OperationKind =
             kind == .generation && state.connectionState == .generating
-                ? .configuration : kind
+            ? .configuration : kind
         let operation = Operation(
             kind: operationKind,
-            failureScope: failureScope
+            failureScope: failureScope,
+            generationRequest: request
         )
         let token = Token(lease: operation.lease)
         let task = Task {
             try await body(token)
         }
+
         operation.cancel = {
             task.cancel()
         }
         operation.waitForCompletion = {
             _ = try? await task.value
         }
+
         activeOperation = operation
 
         do {
@@ -212,9 +250,15 @@ actor RealtimeCoordinator {
                 operation.lease.invalidate()
                 task.cancel()
             }
+
             try Task.checkCancellation()
             try token.ensureCurrent()
+
+            let completionState = operation.completionState
             finish(operation)
+            if let completionState {
+                await setState(completionState)
+            }
             return value
         } catch {
             return try await handleFailure(
@@ -232,21 +276,42 @@ actor RealtimeCoordinator {
     func runAdaptiveConfiguration(
         _ body: @escaping @Sendable (Token) async throws -> Void
     ) async throws -> Bool {
-        guard termination == nil, activeOperation == nil, foregroundRequests == 0,
-              state.connectionState == .generating else { return false }
-        let operation = Operation(kind: .configuration, failureScope: nil, background: true)
+        guard termination == nil, activeOperation == nil,
+            generationRequest == nil, foregroundRequests == 0,
+            state.connectionState == .generating
+        else {
+            return false
+        }
+
+        let operation = Operation(
+            kind: .configuration,
+            failureScope: nil,
+            background: true
+        )
         let token = Token(lease: operation.lease)
-        let task = Task { try await body(token) }
-        operation.cancel = { task.cancel() }
-        operation.waitForCompletion = { _ = try? await task.value }
+        let task = Task {
+            try await body(token)
+        }
+
+        operation.cancel = {
+            task.cancel()
+        }
+        operation.waitForCompletion = {
+            _ = try? await task.value
+        }
+
         activeOperation = operation
-        defer { finish(operation) }
+        defer {
+            finish(operation)
+        }
+
         try await withTaskCancellationHandler {
             try await task.value
         } onCancel: {
             operation.lease.invalidate()
             task.cancel()
         }
+
         try token.ensureCurrent()
         return true
     }
@@ -262,7 +327,28 @@ actor RealtimeCoordinator {
         token: Token
     ) async throws {
         try token.ensureCurrent()
+
+        if nextState.connectionState == .preparing,
+            let activeOperation, activeOperation.lease === token.lease,
+            activeOperation.kind == .media
+        {
+            activeOperation.didBeginMediaPreparation = true
+        }
+
         await setState(nextState)
+    }
+
+    /// Stages completion until operation ownership is released, before notifying listeners.
+    func complete(
+        _ nextState: RealtimeState,
+        token: Token
+    ) throws {
+        try token.ensureCurrent()
+        guard let activeOperation, activeOperation.lease === token.lease else {
+            throw Self.cancelledError()
+        }
+
+        activeOperation.completionState = nextState
     }
 
     /// Marks media preparation as ready once the current local preview is ready.
@@ -289,7 +375,7 @@ actor RealtimeCoordinator {
         let hasConnectionOperation = activeOperation.map {
             TerminationScope.connection.affects($0.kind)
         } ?? false
-        guard hasConnectionOperation || termination != nil ||
+        guard hasConnectionOperation || generationRequest != nil || termination != nil ||
                 (state.connectionState != .idle &&
                     state.connectionState != .preparing &&
                     state.connectionState != .ready) else {
@@ -327,7 +413,7 @@ actor RealtimeCoordinator {
     ) async {
         guard isCurrent() else { return }
         // Late remote errors cannot override an explicit stop during cleanup; local media failure still broadens cleanup.
-        if termination != nil, target != .all { return }
+        if let termination, termination.target != .generation, target != .all { return }
         let task = await requestTermination(
             target,
             error: error,
@@ -338,6 +424,110 @@ actor RealtimeCoordinator {
 }
 
 private extension RealtimeCoordinator {
+    /// A generation request's cancellation handle and resource-completion barrier.
+    final class GenerationRequest: @unchecked Sendable {
+
+        /// Cancels the request's worker; installed before publishing the request.
+        var cancel: @Sendable () -> Void = {}
+
+        /// Protects completion and its suspended successors.
+        private let lock = NSLock()
+
+        /// Whether all work and required cleanup have completed.
+        private var completed = false
+
+        /// The successors waiting for resource ownership to become available.
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        /// Waits for completion even when the waiting request has been cancelled.
+        func waitForCompletion() async {
+            await withCheckedContinuation { continuation in
+                let alreadyCompleted = lock.withLock {
+                    if completed {
+                        return true
+                    }
+                    waiters.append(continuation)
+                    return false
+                }
+
+                if alreadyCompleted {
+                    continuation.resume()
+                }
+            }
+        }
+
+        /// Releases successors after work and cleanup, before state callbacks are delivered.
+        func finish() {
+            let pending = lock.withLock {
+                completed = true
+                let pending = waiters
+                waiters.removeAll()
+                return pending
+            }
+
+            for waiter in pending {
+                waiter.resume()
+            }
+        }
+    }
+
+    /// Replaces the previous generation request and waits for its resource cleanup.
+    ///
+    /// - Parameters:
+    ///   - failureScope: The resources released if generation fails or is cancelled.
+    ///   - body: The generation work guarded by its operation token.
+    ///
+    /// - Returns: The latest request's successful result.
+    ///
+    /// - Throws: An error if another operation conflicts, generation fails, or the request is cancelled.
+    func runGeneration<Value: Sendable>(
+        failureScope: TerminationScope?,
+        operation body: @escaping @Sendable (Token) async throws -> Value
+    ) async throws -> Value {
+        try Task.checkCancellation()
+        guard (termination == nil || generationRequest != nil),
+            activeOperation == nil || activeOperation?.background == true
+                || activeOperation?.generationRequest != nil
+        else {
+            let error = XmaxError(
+                code: .invalidConfiguration,
+                message: "Another realtime operation is in progress; wait for it to finish"
+            )
+            await errorHandler.report(error)
+            throw error
+        }
+
+        let previous = generationRequest
+        let request = GenerationRequest()
+        let task = Task {
+            await previous?.waitForCompletion()
+            defer { request.finish() }
+
+            try Task.checkCancellation()
+            return try await runOperation(
+                kind: .generation,
+                failureScope: failureScope,
+                request: request,
+                operation: body
+            )
+        }
+
+        request.cancel = { task.cancel() }
+        generationRequest = request
+        previous?.cancel()
+        defer {
+            if generationRequest === request {
+                generationRequest = nil
+            }
+        }
+
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            request.cancel()
+        }
+    }
+
     /// Controls operation cancellation and failure cleanup through a thread-safe validity token.
     final class OperationLease: @unchecked Sendable {
 
@@ -426,6 +616,9 @@ private extension RealtimeCoordinator {
         let id = UUID()
         let kind: OperationKind
         let background: Bool
+        let generationRequest: GenerationRequest?
+        var didBeginMediaPreparation = false
+        var completionState: RealtimeState?
 
         /// Operation execution control
         let lease: OperationLease
@@ -444,10 +637,12 @@ private extension RealtimeCoordinator {
         init(
             kind: OperationKind,
             failureScope: TerminationScope?,
-            background: Bool = false
+            background: Bool = false,
+            generationRequest: GenerationRequest? = nil
         ) {
             self.kind = kind
             self.background = background
+            self.generationRequest = generationRequest
             lease = OperationLease(failureScope: failureScope)
         }
     }
@@ -497,33 +692,41 @@ private extension RealtimeCoordinator {
         _ error: any Error,
         operation: Operation
     ) async throws -> Value {
-        let operationWasCancelled = Self.isCancellation(error) ||
-            !operation.lease.isCurrent || Task.isCancelled
+        let operationWasCancelled =
+            Self.isCancellation(error) || !operation.lease.isCurrent || Task.isCancelled
 
         if operationWasCancelled {
-            // Cancelling a configuration request does not stop generation; external disconnect or close still waits for cleanup.
+            // Cancelling a configuration request does not stop generation; explicit termination still awaits cleanup.
             if (operation.kind == .configuration || operation.lease.failureScope == nil),
-               operation.terminationTask == nil,
-               termination == nil {
+                operation.terminationTask == nil,
+                termination == nil
+            {
                 finish(operation)
-                if operation.kind == .media, state.connectionState == .preparing {
+                if operation.didBeginMediaPreparation, state.connectionState == .preparing {
                     await setState(RealtimeState(connectionState: .idle))
                 }
                 throw Self.cancelledError()
             }
+
             let terminationTask: Task<Void, Never>
             if let assignedTask = operation.terminationTask {
                 terminationTask = assignedTask
             } else if let termination {
                 terminationTask = termination.task
             } else {
+                let isReplacement = operation.generationRequest != nil && generationRequest != nil
+                    && operation.generationRequest !== generationRequest
+                let scope = isReplacement && state.connectionState == .connected
+                    ? .generation : operation.lease.failureScope ?? TerminationScope.connection
                 terminationTask = await requestTermination(
-                    operation.lease.failureScope ?? .connection,
+                    scope,
                     origin: operation
                 )
             }
+
             await terminationTask.value
             finish(operation)
+
             if let failure = operation.lease.failure {
                 throw failure
             }
@@ -541,12 +744,13 @@ private extension RealtimeCoordinator {
             await terminationTask.value
         } else {
             finish(operation)
-            if operation.kind == .media, state.connectionState == .preparing {
+            if operation.didBeginMediaPreparation, state.connectionState == .preparing {
                 await setState(RealtimeState(connectionState: .idle))
             }
             await errorHandler.report(resolvedError)
             throw resolvedError
         }
+
         finish(operation)
         throw resolvedError
     }
@@ -565,6 +769,11 @@ private extension RealtimeCoordinator {
         reason: RealtimeReason = .normal,
         origin: Operation? = nil
     ) async -> Task<Void, Never> {
+        if origin == nil {
+            generationRequest?.cancel()
+            generationRequest = nil
+        }
+
         let pending: Termination
         if let termination {
             pending = termination
@@ -590,8 +799,9 @@ private extension RealtimeCoordinator {
         }
 
         if let activeOperation,
-           activeOperation !== origin,
-           pending.target.affects(activeOperation.kind) {
+            activeOperation !== origin,
+            pending.target.affects(activeOperation.kind)
+        {
             activeOperation.lease.invalidate(error: pending.error)
             activeOperation.terminationTask = pending.task
             activeOperation.cancel()
@@ -605,24 +815,28 @@ private extension RealtimeCoordinator {
         }
 
         if pending.target == .all, pending.captureStopTask == nil {
-            // Start independently of blocked operations or an in-flight disconnect cleanup.
+            // Stop local capture without waiting for blocked operation or remote cleanup.
             pending.captureStopTask = Task { [stopLocalCapture] in await stopLocalCapture() }
         }
-
-        await setState(
-            RealtimeState(
-                connectionState: .disconnecting,
-                sessionID: state.sessionID,
-                reason: nil
+        if pending.target != .generation {
+            await setState(
+                RealtimeState(
+                    connectionState: .disconnecting,
+                    sessionID: state.sessionID,
+                    reason: nil
+                )
             )
-        )
+        }
+
         return pending.task
     }
 
     /// Waits for operations to exit, releases resources, and publishes the completed cleanup state.
     ///
     /// - Parameter id: The termination record identifier; expired requests do not perform cleanup.
-    func performTermination(id: UUID) async {
+    func performTermination(
+        id: UUID
+    ) async {
         guard let pending = termination, pending.id == id else {
             return
         }
@@ -637,36 +851,44 @@ private extension RealtimeCoordinator {
 
             let requestedTarget = pending.target
             let taskID = state.taskID ?? ""
-            let result = await cleanup(requestedTarget, taskID)
+            let result = await cleanup(
+                requestedTarget,
+                taskID
+            )
             if let sessionID = result.sessionID {
                 pending.sessionID = sessionID
             }
 
-            guard pending.target == requestedTarget,
-                  pending.waitForOperations.isEmpty else {
+            guard pending.target == requestedTarget, pending.waitForOperations.isEmpty else {
                 continue
             }
 
             let connectionState: RealtimeConnectionState
-            if requestedTarget == .all {
+            if requestedTarget == .generation {
+                connectionState = .connected
+            } else if requestedTarget == .all {
                 connectionState = .idle
             } else {
                 connectionState = result.hasLocalMedia ? .ready : .idle
             }
+
             let finalState = RealtimeState(
                 connectionState: connectionState,
                 sessionID: pending.sessionID ?? state.sessionID,
-                reason: pending.reason
+                reason: requestedTarget == .generation ? nil : pending.reason
             )
-            // Completes internal cleanup before notifying listeners to prevent old work from overwriting reentrant close requests.
+
+            // Finish internal cleanup before notifying listeners so reentrant termination cannot be overwritten.
             if let activeOperation,
-               requestedTarget.affects(activeOperation.kind) {
+                requestedTarget.affects(activeOperation.kind)
+            {
                 finish(activeOperation)
             }
             let listener = state != finalState ? stateListener : nil
             state = finalState
             termination = nil
             errorHandler.invalidatePendingFailures(target: requestedTarget)
+
             if let listener {
                 await listener(finalState)
             }
@@ -680,10 +902,16 @@ private extension RealtimeCoordinator {
     /// Removes the current operation matching the specified record.
     ///
     /// - Parameter operation: The completed operation record.
-    func finish(_ operation: Operation) {
+    func finish(
+        _ operation: Operation
+    ) {
         if activeOperation?.id == operation.id {
             activeOperation = nil
         }
+        if generationRequest === operation.generationRequest {
+            generationRequest = nil
+        }
+        operation.generationRequest?.finish()
     }
 
     /// Updates realtime state and notifies listeners only when the state changes.

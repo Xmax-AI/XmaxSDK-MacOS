@@ -40,6 +40,7 @@ final class RealtimeErrorHandler: @unchecked Sendable {
     ///
     /// - Parameter target: The cleaned resource scope; connection cleanup invalidates connection failures, while full cleanup also invalidates media failures.
     func invalidatePendingFailures(target: RealtimeCoordinator.TerminationScope = .all) {
+        guard target != .generation else { return }
         lock.withLock {
             connectionRevision = UUID()
             if target == .all { mediaRevision = UUID() }

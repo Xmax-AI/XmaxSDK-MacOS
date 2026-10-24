@@ -239,6 +239,71 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         await components.manager.close()
     }
 
+    func testLatestGenerationRequestKeepsConnectionAndExternalInput() async throws {
+        let components = makeComponents()
+        let manager = components.manager
+        let source = ExternalSourceStub()
+        let local = try await manager.createExternalVideoStream(source: source)
+        let first = Task {
+            try await manager.startGeneration(localStream: local, context: RealtimeContext(prompt: "first"))
+        }
+        try await waitUntil { self.roomMessages(components.rtc, event: "start").count == 1 }
+        let latest = Task {
+            try await manager.startGeneration(context: RealtimeContext(prompt: "latest"))
+        }
+        try await waitUntil { self.roomMessages(components.rtc, event: "start").count == 2 }
+        do { _ = try await first.value; XCTFail("Replaced startup must be cancelled") }
+        catch { XCTAssertEqual((error as? XmaxError)?.code, .cancelled) }
+        XCTAssertEqual(source.stops, 0)
+        XCTAssertFalse(components.rtc.calls.contains(.leaveRoom))
+        XCTAssertFalse(components.rtc.calls.contains(.destroy))
+        let joins = components.rtc.calls.filter { if case .joinRoom = $0 { true } else { false } }
+        XCTAssertEqual(joins.count, 1)
+        let starts = roomMessages(components.rtc, event: "start")
+        XCTAssertEqual((starts.last?["params"] as? [String: Any])?["prompt"] as? String, "latest")
+        components.rtc.emitRemoteVideoAvailable(stream: RemoteStream(roomID: "room", userID: "bot"))
+        try await waitUntil {
+            components.rtc.calls.contains { if case .setRemoteVideoFrameListener(_, enabled: true) = $0 { true } else { false } }
+        }
+        try components.rtc.emitRemoteVideoFrame(width: 4, height: 4, presentationTimeStamp: .zero)
+        try await latest.value
+        let state = await manager.currentState
+        let owns = await components.media.owns(local)
+        XCTAssertEqual(state.connectionState, .generating)
+        XCTAssertTrue(owns)
+        await manager.close()
+        XCTAssertEqual(source.stops, 1)
+    }
+
+    func testExternalAspectRatioUsesSeparateGenerationCanvasAndContainPadding() async throws {
+        let service = MediaService()
+        let components = makeComponents(mediaService: service)
+        let source = ExternalSourceStub(videoFormat: RealtimeVideoFormat(width: 640, height: 480, fps: 30))
+        let local = try await components.manager.createExternalVideoStream(source: source)
+        let generation = Task {
+            try await components.manager.startGeneration(localStream: local, context: RealtimeContext(prompt: "test"))
+        }
+        try await waitUntil { !self.roomMessages(components.rtc, event: "start").isEmpty }
+        let event = try XCTUnwrap(roomMessages(components.rtc, event: "start").first)
+        let params = try XCTUnwrap(event["params"] as? [String: Any])
+        XCTAssertEqual(local.videoTrack?.videoFormat?.size, CGSize(width: 640, height: 480))
+        XCTAssertEqual(params["size"] as? [Int], [1920, 1024])
+        XCTAssertEqual(params["padding"] as? String, "contain")
+        await components.manager.close()
+        do { _ = try await generation.value; XCTFail("Expected close cancellation") }
+        catch { XCTAssertEqual((error as? XmaxError)?.code, .cancelled) }
+    }
+
+    private func roomMessages(_ rtc: RtcManagingStub, event: String) -> [[String: Any]] {
+        rtc.calls.compactMap { call in
+            guard case .sendRoomMessage(let text) = call,
+                  let data = text.data(using: .utf8),
+                  let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  message["event"] as? String == event else { return nil }
+            return message
+        }
+    }
+
     private func waitUntil(_ predicate: () async -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(2)
         while !(await predicate()) {
@@ -251,11 +316,12 @@ final class ExternalVideoIntegrationTests: XCTestCase {
 
     private func makeComponents(
         rtc: RtcManagingStub = RtcManagingStub(),
-        camera: (any CameraControlling)? = nil
+        camera: (any CameraControlling)? = nil,
+        mediaService: (any MediaServicing)? = nil
     ) -> (manager: XmaxRealtimeManager, media: MediaController, rtc: RtcManagingStub) {
         let errors = RealtimeErrorHandler()
         let timing = RealtimeTiming()
-        let service = MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4))
+        let service: any MediaServicing = mediaService ?? MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4))
         let render = RenderController(rtcManager: rtc, errorListener: { errors.forward($0, target: .connection) })
         let stream = StreamController(
             rtcManager: rtc,

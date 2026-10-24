@@ -114,10 +114,6 @@ actor MediaController: MediaControlling {
         activeSource?.kind == .external
     }
 
-    var usesContainPadding: Bool {
-        false
-    }
-
     /// Whether the current source includes SDK-managed local audio.
     var hasAudio: Bool {
         switch activeSource?.kind {

@@ -784,9 +784,9 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
             )
         }
 
-        let paddingContain = await mediaController.usesContainPadding
-        let generationSize = try paddingContain ? mediaService.resolveGenerationSize(videoFormat.size) : videoFormat.size
+        let generationSize = try mediaService.resolveGenerationSize(videoFormat.size)
         let generationFormat = videoFormat.resized(width: Int(generationSize.width), height: Int(generationSize.height))
+        let paddingContain = videoFormat.width * generationFormat.height != videoFormat.height * generationFormat.width
         try token.ensureCurrent()
 
         if current.connectionState == .generating,
@@ -830,7 +830,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
                     message: "Realtime connection was cancelled"
                 )
             }
-            try await coordinator.commit(
+            try await coordinator.complete(
                 RealtimeState(
                     connectionState: .generating,
                     sessionID: sessionID,
@@ -956,7 +956,7 @@ private extension XmaxRealtimeManager {
                     try await renderController.setFrameInterpolationEnabled(interpolation, videoFormat: format)
                 }
             } else {
-                format = QualityVideoFormat.resolve(configuration.baseline, level: level, downlink: false)
+                format = QualityVideoFormat.resolve(configuration.baseline, level: level, downlink: false, minimumInputPixels: configuration.minimumInputPixels)
                 try streamController.setVideoEncoderConfig(format)
             }
             try token.ensureCurrent()
@@ -1226,6 +1226,21 @@ private extension XmaxRealtimeManager {
         connectionManager: XmaxRealtimeConnectionManager,
         generationManager: XmaxRealtimeGenerationManager
     ) async -> RealtimeCoordinator.CleanupResult {
+
+        if scope == .generation {
+            do {
+                try await generationManager.stop(taskID: taskID)
+            } catch {
+                XmaxLogger.realtime.error(
+                    message: "停止实时生成失败 (Failed to Stop Realtime Generation)\n" +
+                        "└─ \(XmaxLogger.localized("原因：", "Reason: "))\(ErrorMessageFormatter.format(error))"
+                )
+            }
+            return RealtimeCoordinator.CleanupResult(
+                sessionID: await connectionManager.currentSessionID,
+                hasLocalMedia: await mediaController.currentTrack != nil
+            )
+        }
 
         if scope == .all {
             await mediaController.stopLocalCapture()

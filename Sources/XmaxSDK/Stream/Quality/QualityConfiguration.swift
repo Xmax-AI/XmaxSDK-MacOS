@@ -20,10 +20,11 @@ struct QualityConfiguration: Sendable {
     /// Transport tiers
     let uplinkLevel: Int
     let downlinkLevel: Int
+    let minimumInputPixels: Int
 
     /// Effective transport format
     var uplink: RealtimeVideoFormat {
-        QualityVideoFormat.resolve(baseline, level: uplinkLevel, downlink: false)
+        QualityVideoFormat.resolve(baseline, level: uplinkLevel, downlink: false, minimumInputPixels: minimumInputPixels)
     }
 
     var downlink: RealtimeVideoFormat {

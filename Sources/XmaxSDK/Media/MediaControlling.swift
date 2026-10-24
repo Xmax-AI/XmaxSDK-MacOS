@@ -31,9 +31,6 @@ protocol MediaControlling: Actor, InteractionControlling {
     /// Whether the current local source is caller-owned external video.
     var isExternalVideo: Bool { get }
 
-    /// Whether to preserve media aspect ratio with a separate generation canvas; false for cameras.
-    var usesContainPadding: Bool { get }
-
     /// Whether the current source includes SDK-managed local audio.
     var hasAudio: Bool { get }
 

@@ -62,7 +62,8 @@ final class QualityController: QualityControlling, RtcQualityListener,
         listenerLock.withLock {
             let history = QualityHistory(model: model, defaults: historyDefaults)
             self.history = history
-            uplinkQuality = QualityDirection(baseline: baseline, level: history.read(downlink: false), downlink: false)
+            let minimumInputPixels = RealtimeModel(rawValue: model)?.minimumInputPixels ?? 0
+            uplinkQuality = QualityDirection(baseline: baseline, level: history.read(downlink: false), downlink: false, minimumInputPixels: minimumInputPixels)
             downlinkQuality = QualityDirection(baseline: baseline, level: history.read(downlink: true), downlink: true)
             return configuration()!
         }
@@ -132,7 +133,7 @@ final class QualityController: QualityControlling, RtcQualityListener,
     /// - Returns: The baseline and tiers, or `nil` before preparation completes.
     private func configuration() -> QualityConfiguration? {
         guard let uplinkQuality, let downlinkQuality else { return nil }
-        return QualityConfiguration(baseline: uplinkQuality.baseline, uplinkLevel: uplinkQuality.level, downlinkLevel: downlinkQuality.level)
+        return QualityConfiguration(baseline: uplinkQuality.baseline, uplinkLevel: uplinkQuality.level, downlinkLevel: downlinkQuality.level, minimumInputPixels: uplinkQuality.minimumInputPixels)
     }
 
     /// Sets the upstream video statistics listener.

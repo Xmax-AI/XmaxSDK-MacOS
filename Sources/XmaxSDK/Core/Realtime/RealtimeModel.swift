@@ -44,8 +44,8 @@ public enum RealtimeModel: String, CaseIterable, Sendable {
         [CGSize(width: 1024, height: 1920), CGSize(width: 1920, height: 1024)]
     }
 
-    /// The minimum generation canvas pixel area; applies only without resolution buckets and does not upscale small media frames.
-    public var minimumInputPixels: Int { 600000 }
+    /// The minimum local media and uplink pixel area; also limits variable generation canvases.
+    public var minimumInputPixels: Int { 200000 }
 
     /// The maximum local media frame pixel area; also limits the generation canvas when no resolution buckets are defined.
     public var maximumInputPixels: Int { 2100000 }

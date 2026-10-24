@@ -154,14 +154,6 @@ final class ExternalVideoControllerTests: XCTestCase {
         let rtc = RtcManagingStub()
         let controller = makeController(ExternalInputRecorder(), rtc: rtc, media: MediaService())
         let source = ExternalSourceStub(videoFormat: RealtimeVideoFormat(width: 1080, height: 1920, fps: 60))
-        do {
-            _ = try await controller.create(source: source, videoFormat: nil)
-            XCTFail("Expected unsupported resolution")
-        } catch {
-            XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration)
-        }
-        XCTAssertNil(source.sink)
-        XCTAssertTrue(rtc.calls.isEmpty)
         for invalid in [
             RealtimeVideoFormat(width: 1024, height: 1920, fps: 0),
             RealtimeVideoFormat(width: 1024, height: 1920, fps: 30, maximumBitrate: -1)
@@ -184,6 +176,23 @@ final class ExternalVideoControllerTests: XCTestCase {
         XCTAssertEqual(source.sink?.videoFormat, format)
         XCTAssertEqual(rtc.calls, [.useExternalVideoSource])
         await controller.stop()
+    }
+
+    func testExternalDimensionsAreResolvedWithoutCameraBucketRestrictions() async throws {
+        for (input, expected) in [
+            (CGSize(width: 1080, height: 1920), CGSize(width: 1080, height: 1920)),
+            (CGSize(width: 200, height: 200), CGSize(width: 448, height: 448)),
+            (CGSize(width: 3840, height: 2160), CGSize(width: 1920, height: 1080))
+        ] {
+            let controller = makeController(ExternalInputRecorder(), media: MediaService())
+            let source = ExternalSourceStub(videoFormat: RealtimeVideoFormat(
+                width: Int(input.width), height: Int(input.height), fps: 30
+            ))
+            let stream = try await controller.create(source: source, videoFormat: nil)
+            XCTAssertEqual(source.sink?.videoFormat.size, expected)
+            XCTAssertEqual(stream.videoTrack?.videoFormat?.size, expected)
+            await controller.stop()
+        }
     }
 
     func testDefaultPreviewMethodsAndBackgroundSubmission() async throws {

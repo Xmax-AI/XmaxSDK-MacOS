@@ -29,7 +29,15 @@ final class EncodingController: EncodingControlling, Sendable {
     func configure(_ videoFormat: RealtimeVideoFormat) throws {
         try videoFormat.validate()
 
-        let (minimum, maximum) = try EncodingBitratePolicy.resolve(videoFormat)
+        guard videoFormat.width.isMultiple(of: 4), videoFormat.height.isMultiple(of: 4) else {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Uplink video width and height must be multiples of 4"
+            )
+        }
+        let budget = try EncodingBitratePolicy.resolve(videoFormat)
+        let maximum = budget.maximum
+        let minimum = videoFormat.minimumBitrate ?? min(500, maximum)
 
         let encoderPreference: VideoEncodingConfiguration.EncoderPreference = switch videoFormat.encoderPreference {
             case .auto: .auto

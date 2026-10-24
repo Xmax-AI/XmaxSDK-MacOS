@@ -1,85 +1,165 @@
 //
 //  QualityVideoFormat.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
 import Foundation
 
-/// Calculates transport tiers from the media baseline without changing capture or model generation format.
+/// Resolves transport levels without changing capture or generation formats.
 enum QualityVideoFormat {
 
-    /// Tier configuration
-    static let scales: [Double] = [1, 0.8, 0.65, 0.5, 0.5]
+    /// The per-level dimension scale factors.
+    static let scales: [Double] = [1, 0.9, 0.75, 0.6, 0.5]
+
+    /// The per-level target frame rates.
     static let frameRates = [30, 24, 24, 20, 16]
 
-    /// Calculates downstream dimension limits without pixel alignment or interpolation limits.
+    /// Resolves downlink dimension limits before alignment or interpolation constraints.
     ///
     /// - Parameters:
-    ///   - baseline: The original media format, unchanged by tier adjustments.
-    ///   - level: The target downstream tier in 1...5.
-    /// - Returns: Dimension limits preserving aspect ratio, potentially with fractional pixels.
-    static func resolveDownlinkMaximumSize(_ baseline: RealtimeVideoFormat, level: Int) -> CGSize {
-        let scale = sizeScale(baseline, level: level)
-        return CGSize(width: Double(baseline.width) * scale, height: Double(baseline.height) * scale)
+    ///   - baseline: The media baseline, unchanged by adaptation.
+    ///   - level: The target downlink quality level.
+    ///
+    /// - Returns: The aspect-preserving maximum dimensions, allowing fractional pixels.
+    static func resolveDownlinkMaximumSize(
+        _ baseline: RealtimeVideoFormat,
+        level: Int
+    ) -> CGSize {
+        let scale = sizeScale(
+            baseline,
+            level: level
+        )
+        return CGSize(
+            width: Double(baseline.width) * scale,
+            height: Double(baseline.height) * scale
+        )
     }
 
-    /// Calculates transport format for a direction and tier from the baseline.
+    /// Resolves a transport format for a direction and level.
     ///
     /// - Parameters:
-    ///   - baseline: The original local media format.
-    ///   - level: The target tier, clamped to `1...5`.
-    ///   - downlink: Whether downstream; uses 24 fps downstream and at most the baseline frame rate upstream.
-    /// - Returns: The transport format with dimensions, frame rate, and encoding options mapped.
-    static func resolve(_ baseline: RealtimeVideoFormat, level: Int, downlink: Bool) -> RealtimeVideoFormat {
+    ///   - baseline: The resolved local media baseline.
+    ///   - level: The target quality level.
+    ///   - downlink: Whether this is downlink. Downlink uses 24 fps; uplink does not exceed the
+    ///     baseline rate.
+    ///   - minimumInputPixels: The minimum uplink area, in pixels; ignored for downlink.
+    ///
+    /// - Returns: The resolved transport format; uplink dimensions are multiples of 4.
+    static func resolve(
+        _ baseline: RealtimeVideoFormat,
+        level: Int,
+        downlink: Bool,
+        minimumInputPixels: Int = 0
+    ) -> RealtimeVideoFormat {
         let index = min(5, max(1, level)) - 1
-        let scale = sizeScale(baseline, level: level)
-        let size = scaledSize(baseline.size, scale: scale)
+        let scale = sizeScale(
+            baseline,
+            level: level
+        )
+        let size = scaledSize(
+            baseline.size,
+            scale: scale,
+            alignment: downlink ? 2 : 4,
+            minimumPixels: downlink ? 0 : minimumInputPixels
+        )
         return RealtimeVideoFormat(
-            width: Int(size.width), height: Int(size.height),
-            fps: downlink ? 24 : min(baseline.fps, frameRates[index]),
+            width: Int(size.width),
+            height: Int(size.height),
+            fps: downlink
+                ? 24
+                : min(
+                    baseline.fps,
+                    frameRates[index]
+                ),
             minimumBitrate: downlink ? nil : baseline.minimumBitrate,
             maximumBitrate: downlink ? nil : baseline.maximumBitrate,
             encoderPreference: baseline.encoderPreference
         )
     }
 
-    /// Scales dimensions down, preferring exact aspect ratio and even alignment.
+    /// Downscales dimensions, preferring exact aspect ratio at the required alignment.
     ///
     /// - Parameters:
-    ///   - size: The original integer-pixel dimensions.
-    ///   - scale: The target dimension scale factor.
-    /// - Returns: Even-aligned dimensions, rounding down to pixel precision when exact aspect ratio cannot be preserved.
-    static func scaledSize(_ size: CGSize, scale: Double) -> CGSize {
+    ///   - size: The original integer pixel dimensions.
+    ///   - scale: The requested dimension scale.
+    ///   - alignment: The required multiple for each output dimension.
+    ///   - minimumPixels: The minimum output area, capped at the source area to prevent upscaling.
+    ///
+    /// - Returns: Aligned dimensions respecting the minimum area without upscaling, preferring exact
+    ///   aspect ratio.
+    static func scaledSize(
+        _ size: CGSize,
+        scale: Double,
+        alignment: Int,
+        minimumPixels: Int = 0
+    ) -> CGSize {
         let width = Int(size.width)
         let height = Int(size.height)
         var divisor = width
         var remainder = height
-        while remainder != 0 { (divisor, remainder) = (remainder, divisor % remainder) }
-        let units = Int(floor(Double(divisor) * scale + 0.0000001)) / 2 * 2
-        if units >= 2 {
-            return CGSize(width: width / divisor * units, height: height / divisor * units)
+        while remainder != 0 {
+            (divisor, remainder) = (remainder, divisor % remainder)
         }
+
+        let pixels = Double(width) * Double(height)
+        let minimumScale = sqrt(min(Double(max(0, minimumPixels)), pixels) / pixels)
+        let minimumUnits = Int(ceil(Double(divisor) * minimumScale / Double(alignment))) * alignment
+        let units = Int(floor(Double(divisor) * scale + 0.0000001)) / alignment * alignment
+        let resolvedUnits = max(units, minimumUnits)
+        if units >= alignment, resolvedUnits <= divisor {
+            return CGSize(
+                width: width / divisor * resolvedUnits,
+                height: height / divisor * resolvedUnits
+            )
+        }
+
         return CGSize(
-            width: max(2, Int(floor(Double(width) * scale / 2)) * 2),
-            height: max(2, Int(floor(Double(height) * scale / 2)) * 2)
+            width: max(
+                alignment,
+                max(
+                    Int(floor(Double(width) * scale / Double(alignment))) * alignment,
+                    Int(ceil(Double(width) * minimumScale / Double(alignment))) * alignment
+                )
+            ),
+            height: max(
+                alignment,
+                max(
+                    Int(floor(Double(height) * scale / Double(alignment))) * alignment,
+                    Int(ceil(Double(height) * minimumScale / Double(alignment))) * alignment
+                )
+            )
         )
     }
 
-    /// Calculates tier scaling while preserving the minimum short side and avoiding upscaling.
+    /// Resolves a scale retaining the minimum short edge without upscaling.
     ///
     /// - Parameters:
-    ///   - baseline: The original media format.
-    ///   - level: The target tier in 1...5.
-    /// - Returns: A dimension scale factor at most 1.
-    private static func sizeScale(_ baseline: RealtimeVideoFormat, level: Int) -> Double {
+    ///   - baseline: The media baseline format.
+    ///   - level: The target quality level.
+    ///
+    /// - Returns: The dimension scale, no greater than 1.
+    private static func sizeScale(
+        _ baseline: RealtimeVideoFormat,
+        level: Int
+    ) -> Double {
         let index = min(5, max(1, level)) - 1
-        let shortSide = min(baseline.width, baseline.height)
-        return max(scales[index], Double(min(shortSide, 240)) / Double(shortSide))
+        let shortSide = min(
+            baseline.width,
+            baseline.height
+        )
+        return max(
+            scales[index],
+            Double(
+                min(
+                    shortSide,
+                    240
+                )
+            ) / Double(shortSide)
+        )
     }
 }

@@ -59,7 +59,7 @@ re-enumerate devices before starting another stream.
 
 ## Video format and encoding
 
-Current models accept `1920 × 1024` or `1024 × 1920` input, with a default landscape
+Current models accept `1920 × 1024` or `1024 × 1920` camera input, with a default landscape
 format at 30 fps. Pass a supported format to configure upload encoding:
 
 ```swift
@@ -74,13 +74,17 @@ let format = RealtimeVideoFormat(
 let localStream = try await realtime.createLocalCameraStream(videoFormat: format)
 ```
 
-Bitrates are in kbps. The default minimum is 100 kbps; 0 removes the minimum.
+Bitrates are in kbps. The default encoder minimum is 500 kbps, capped by the
+resolved maximum; an explicit 0 removes the minimum.
 Omitting the maximum uses the SDK estimate for the final upload dimensions and
 frame rate. The default encoder preference is `.maintainFramerate`; `.auto` balances
 frame rate and resolution, while `.maintainQuality` prioritizes resolution.
 Invalid dimensions, frame rates, or bitrate bounds throw an `XmaxError`.
 
 Upload format, server generation size, and downlink return size are distinct.
+Uplink tiers use dimension scales of 1, 0.9, 0.75, 0.6, and 0.5. Dimensions stay
+aligned to four pixels and retain at least 200,000 pixels when the media baseline
+meets that minimum; downlink dimensions do not share this minimum.
 Network quality adaptation and frame interpolation may change the return size
 without changing your local preview layout.
 
@@ -91,7 +95,10 @@ stream when your application owns capture or preprocessing. Only one local input
 may be active at a time.
 
 The source owns capture, permissions, preview, conversion, and final resource
-release. The SDK binds a frame sink and manages RTC transport and generation.
+release. The SDK binds a frame sink and manages RTC transport and generation. External
+input dimensions are resolved within 200,000–2,100,000 pixels and aligned to four
+pixels; only camera inputs must match a model resolution bucket. Convert source
+frames to the dimensions requested by the sink.
 Provide `420v` NV12 or `32BGRA` pixel buffers matching `sink.videoFormat`, with
 strictly increasing monotonic microsecond timestamps, while
 `sink.isRequestingFrames` is true. This is a demand signal, not a frame-rate limiter.
@@ -133,7 +140,11 @@ file-video inputs are not exposed by this macOS version.
 
 ## Update generation conditions
 
-During generation, send a new context without recreating the stream:
+During generation, send a new context without recreating the stream. A newer call
+replaces an unfinished generation request and waits for its cleanup. The replaced
+call throws cancellation. An established connection is retained; an incomplete
+connection is released before retrying. Disconnecting or closing cancels pending
+requests without starting them afterward:
 
 ```swift
 try await realtime.startGeneration(

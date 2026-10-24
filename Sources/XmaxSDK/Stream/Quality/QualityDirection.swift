@@ -17,6 +17,7 @@ struct QualityDirection: Sendable {
     /// Media baseline
     let baseline: RealtimeVideoFormat
     let downlink: Bool
+    let minimumInputPixels: Int
 
     /// Current tier
     private(set) var level: Int
@@ -35,9 +36,11 @@ struct QualityDirection: Sendable {
     ///   - baseline: The original media format, unchanged by tier adjustments.
     ///   - level: The initial tier, clamped to `1...5`.
     ///   - downlink: Whether this is the downstream direction.
-    init(baseline: RealtimeVideoFormat, level: Int, downlink: Bool) {
+    ///   - minimumInputPixels: The model's minimum uplink area; ignored for downlink.
+    init(baseline: RealtimeVideoFormat, level: Int, downlink: Bool, minimumInputPixels: Int = 0) {
         self.baseline = baseline
         self.downlink = downlink
+        self.minimumInputPixels = minimumInputPixels
         self.level = min(5, max(1, level))
         while self.level > 1, !supports(self.level) { self.level -= 1 }
     }
@@ -50,7 +53,7 @@ struct QualityDirection: Sendable {
     /// - Parameter level: The target transport tier.
     /// - Returns: The format resolved from the current media baseline and direction.
     func format(at level: Int) -> RealtimeVideoFormat {
-        QualityVideoFormat.resolve(baseline, level: level, downlink: downlink)
+        QualityVideoFormat.resolve(baseline, level: level, downlink: downlink, minimumInputPixels: minimumInputPixels)
     }
 
     /// Clears consecutive good and poor network samples and the last sample time.

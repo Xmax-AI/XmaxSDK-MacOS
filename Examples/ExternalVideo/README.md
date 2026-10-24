@@ -76,7 +76,7 @@ let localStream = try await manager.createExternalVideoStream(
 )
 ```
 
-The source's declared format describes its original display size. The explicit format selects the desired input. If omitted, the SDK uses source dimensions and the model's default frame rate. The SDK validates model resolution buckets and supplies the final negotiated format through `sink.videoFormat`. Current models accept `1920×1024` or `1024×1920`.
+The source's declared format describes its original display size. The explicit format selects the desired input. If omitted, the SDK uses source dimensions and the model's default frame rate. The SDK resolves external dimensions within 200,000–2,100,000 pixels and aligns both dimensions to multiples of four, without requiring a camera resolution bucket. Read the final format from `sink.videoFormat` and convert supplied frames to that size. The generation canvas is selected separately; differing aspect ratios use contain padding.
 
 Binding enters `ready` without requiring a preview or input frame. Start capture callbacks before starting generation and continue supplying frames whenever requested:
 
