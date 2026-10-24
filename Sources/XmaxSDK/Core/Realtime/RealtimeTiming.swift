@@ -46,11 +46,34 @@ final class RealtimeTiming: @unchecked Sendable {
         }
     }
 
-    /// Begins startup timing and clears the previous stage timestamps.
-    func begin() {
+    /// Begins generation timing, optionally retaining startup timing for the existing camera.
+    func begin(preservingCameraPreparation: Bool = false) {
         lock.withLock {
-            state = State(startedAt: now())
+            state = State(
+                startedAt: now(),
+                cameraStartedAt: preservingCameraPreparation ? state.cameraStartedAt : nil,
+                cameraFinishedAt: preservingCameraPreparation ? state.cameraFinishedAt : nil
+            )
             isMeasuring = true
+            publishLocked()
+        }
+    }
+
+    /// Begins camera preparation, including any required engine initialization and permissions.
+    func beginCameraPreparation() {
+        lock.withLock {
+            if !isMeasuring { state = State() }
+            state.cameraStartedAt = now()
+            state.cameraFinishedAt = nil
+            publishLocked()
+        }
+    }
+
+    /// Records capture readiness without waiting for a preview view to render.
+    func finishCameraPreparation() {
+        lock.withLock {
+            guard state.cameraStartedAt != nil, state.cameraFinishedAt == nil else { return }
+            state.cameraFinishedAt = now()
             publishLocked()
         }
     }
@@ -181,6 +204,10 @@ extension RealtimeTiming {
         /// Startup origin
         var startedAt: UInt64?
 
+        /// Camera preparation, which can precede generation or overlap cloud connection.
+        var cameraStartedAt: UInt64?
+        var cameraFinishedAt: UInt64?
+
         /// Server session creation
         var sessionStartedAt: UInt64?
         var sessionFinishedAt: UInt64?
@@ -208,14 +235,16 @@ extension RealtimeTiming {
     /// Converts timestamps shared with iOS logs into a millisecond snapshot of completed stages.
     ///
     /// - Parameter state: The startup record; returns an empty snapshot before startup begins.
-    /// - Returns: The four stages and total startup duration, with incomplete stages set to `nil`.
+    /// - Returns: Camera startup, four generation stages, and total duration; incomplete stages are `nil`.
     static func snapshot(_ state: State) -> RealtimeLaunchTiming {
-        guard state.startedAt != nil else { return RealtimeLaunchTiming() }
         func milliseconds(_ start: UInt64?, _ end: UInt64?) -> Double? {
             guard let start, let end, end >= start else { return nil }
             return Double(end - start) / 1_000_000
         }
+        let cameraMs = milliseconds(state.cameraStartedAt, state.cameraFinishedAt)
+        guard state.startedAt != nil else { return RealtimeLaunchTiming(cameraMs: cameraMs) }
         return RealtimeLaunchTiming(
+            cameraMs: cameraMs,
             sessionMs: milliseconds(state.sessionStartedAt, state.sessionFinishedAt),
             rtcJoinMs: milliseconds(state.roomJoinStartedAt, state.roomJoinFinishedAt),
             publishMs: milliseconds(state.publicationStartedAt, state.publicationFinishedAt),
@@ -227,7 +256,7 @@ extension RealtimeTiming {
     /// Formats a successful generation startup timing summary.
     ///
     /// - Parameter state: The record containing startup and stage timestamps.
-    /// - Returns: The total and four stage durations, or an unavailable message if required timestamps are missing.
+    /// - Returns: The total and stage durations, or an unavailable message if required timestamps are missing.
     static func format(_ state: State) -> String {
         guard let startedAt = state.startedAt,
               state.firstFrameAt != nil,
@@ -287,14 +316,17 @@ private extension RealtimeTiming {
         }
     }
 
-    /// Formats session creation, RTC join, local publication, and first-frame durations in startup order.
+    /// Formats camera startup when present, followed by the four generation stages.
     ///
     /// - Parameters:
     ///   - state: The startup stage timestamps.
     ///   - failureAt: The startup failure time; used to calculate incomplete stage durations when non-`nil`.
-    /// - Returns: The four stage details for inclusion in the summary log.
+    /// - Returns: The stage details for inclusion in the summary log.
     static func stageDetails(_ state: State, failureAt: UInt64? = nil) -> [String] {
-        let stages: [(String, UInt64?, UInt64?)] = [
+        let camera: [(String, UInt64?, UInt64?)] = state.cameraStartedAt == nil ? [] : [
+            (XmaxLogger.localized("摄像头启动：", "Camera Startup: "), state.cameraStartedAt, state.cameraFinishedAt)
+        ]
+        let stages: [(String, UInt64?, UInt64?)] = camera + [
             (XmaxLogger.localized("创建会话：", "Session Creation: "),
              state.sessionStartedAt, state.sessionFinishedAt),
             (XmaxLogger.localized("RTC 进房：", "RTC Room Join: "),

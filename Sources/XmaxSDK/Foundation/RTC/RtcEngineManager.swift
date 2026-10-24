@@ -131,7 +131,7 @@ actor RtcEngineManager {
                 message: "RTC App ID cannot be empty"
             )
         }
-        guard let engine = makeEngine(normalizedAppID) else {
+        guard let engine = LocalMediaPreparationTiming.measure(.engineCreate, { makeEngine(normalizedAppID) }) else {
             throw XmaxError(
                 code: .rtcError,
                 message: "Failed to create RTC Engine"

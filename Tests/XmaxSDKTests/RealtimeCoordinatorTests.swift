@@ -14,6 +14,57 @@ import XCTest
 
 @MainActor
 final class RealtimeCoordinatorTests: XCTestCase {
+    func testCloseStopsCaptureBeforeAnOperationThatIgnoresCancellationReturns() async throws {
+        let gate = LifecycleFailureGate()
+        let stopped = expectation(description: "Capture stopped before operation returns")
+        let events = RealtimeCoordinatorEventRecorder()
+        let coordinator = RealtimeCoordinator(
+            errorHandler: RealtimeErrorHandler(),
+            cleanup: { _, _ in events.append("cleanup"); return .init() },
+            stopLocalCapture: { events.append("capture"); stopped.fulfill() }
+        )
+        let operation = Task {
+            try await coordinator.run(kind: .generation) { token in
+                await gate.wait()
+                try token.ensureCurrent()
+            }
+        }
+        await waitUntil { await gate.isWaiting }
+        let close = Task { await coordinator.terminate(.all) }
+        await fulfillment(of: [stopped], timeout: 2)
+        XCTAssertEqual(events.values, ["capture"])
+        await gate.release()
+        _ = try? await operation.value
+        await close.value
+        XCTAssertEqual(events.values, ["capture", "cleanup"])
+    }
+
+    func testCloseDuringBlockedDisconnectStopsCaptureAndCoalescesConcurrentCloses() async {
+        let gate = LifecycleFailureGate()
+        let stopped = expectation(description: "Capture stopped during remote cleanup")
+        let events = RealtimeCoordinatorEventRecorder()
+        let coordinator = RealtimeCoordinator(
+            errorHandler: RealtimeErrorHandler(),
+            cleanup: { scope, _ in
+                if scope == .connection { await gate.wait() }
+                return .init()
+            },
+            stopLocalCapture: { events.append("capture"); stopped.fulfill() }
+        )
+        let disconnect = Task { await coordinator.terminate(.connection) }
+        await waitUntil { await gate.isWaiting }
+        XCTAssertTrue(events.values.isEmpty, "Disconnect must retain local capture")
+        let close = Task { await coordinator.terminate(.all) }
+        let secondClose = Task { await coordinator.terminate(.all) }
+        await fulfillment(of: [stopped], timeout: 2)
+        XCTAssertEqual(events.values, ["capture"])
+        await gate.release()
+        await disconnect.value
+        await close.value
+        await secondClose.value
+        XCTAssertEqual(events.values, ["capture"])
+    }
+
     func testForegroundWaitsForAdaptiveCommitWithoutConflict() async throws {
         let gate = LifecycleFailureGate()
         let events = RealtimeCoordinatorEventRecorder()

@@ -15,7 +15,7 @@ import Foundation
 typealias RtcRemoteVideoFrameListener = @Sendable (RealtimeVideoFrame) -> Void
 
 /// Isolates third-party RTC capabilities from connection waits, timeouts, and lease management.
-protocol RtcPlatform: AnyObject, Sendable {
+protocol RtcPlatform: AnyObject, RtcCameraCapturing {
 
     /// Applies upstream video encoding configuration.
     ///

@@ -19,6 +19,7 @@ final class CameraCaptureManagingStub: CameraCaptureManaging, @unchecked Sendabl
     let devices: [CameraDevice]
     let startError: (any Error)?
     let switchError: (any Error)?
+    let startHandler: (@Sendable () async -> Void)?
 
     /// Call records
     private let lock = NSLock()
@@ -28,11 +29,13 @@ final class CameraCaptureManagingStub: CameraCaptureManaging, @unchecked Sendabl
     init(
         devices: [CameraDevice],
         startError: (any Error)? = nil,
-        switchError: (any Error)? = nil
+        switchError: (any Error)? = nil,
+        startHandler: (@Sendable () async -> Void)? = nil
     ) {
         self.devices = devices
         self.startError = startError
         self.switchError = switchError
+        self.startHandler = startHandler
     }
 
     var calls: [Call] { lock.withLock { recordedCalls } }
@@ -55,6 +58,7 @@ final class CameraCaptureManagingStub: CameraCaptureManaging, @unchecked Sendabl
             self.frameListener = frameListener
         }
         if let startError { throw startError }
+        await startHandler?()
     }
 
     func switchCamera(to deviceID: String) async throws {

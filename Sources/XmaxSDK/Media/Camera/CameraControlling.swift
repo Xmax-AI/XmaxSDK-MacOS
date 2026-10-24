@@ -30,7 +30,7 @@ protocol CameraControlling: Sendable {
     /// Whether the current camera stream is configured to use the microphone.
     var useMicrophone: Bool { get }
 
-    /// Sets a one-time readiness handler requiring both a valid captured frame and a bound preview.
+    /// Reports ready capture and a bound preview. Native capture uses engine state events, including for hidden views.
     ///
     /// - Parameter handler: The readiness callback; an empty value clears it.
     func setPreviewReadyHandler(_ handler: CameraPreviewReadyHandler?)

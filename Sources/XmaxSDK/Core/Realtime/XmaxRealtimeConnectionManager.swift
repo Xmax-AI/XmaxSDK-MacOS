@@ -132,6 +132,7 @@ actor XmaxRealtimeConnectionManager {
         videoFormat: RealtimeVideoFormat,
         targetSize: CGSize? = nil,
         includeLocalAudio: Bool,
+        beforePublication: @escaping @Sendable () async throws -> Void = {},
         isCurrent: @escaping RealtimeConnectionValidity,
         onHeartbeatFailure: @escaping RealtimeConnectionHeartbeatFailureHandler
     ) async throws -> RealtimeMediaStream {
@@ -156,6 +157,7 @@ actor XmaxRealtimeConnectionManager {
             try await streamController.connect(
                 connection: connection,
                 includeLocalAudio: includeLocalAudio,
+                beforePublication: beforePublication,
                 ensureActive: {
                     try Self.ensureCurrent(isCurrent)
                 }

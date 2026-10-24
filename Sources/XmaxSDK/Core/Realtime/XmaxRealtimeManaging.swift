@@ -40,7 +40,7 @@ public protocol XmaxRealtimeManaging: Sendable {
         _ listener: RealtimeStateListener?
     ) async
 
-    /// Sets the generation startup timing listener using the same four stages and total timing as iOS logs.
+    /// Sets the startup timing listener for camera startup, four generation stages, and total timing.
     ///
     /// - Parameter listener: The main-thread snapshot callback; `nil` clears the listener.
     func setLaunchTimingListener(_ listener: RealtimeLaunchTimingListener?) async
@@ -105,7 +105,7 @@ public protocol XmaxRealtimeManaging: Sendable {
 
     /// Creates a local camera stream and starts preview.
     ///
-    /// Bind the returned track to a preview view; media becomes `ready` after a valid frame arrives and the view is bound.
+    /// Bind the returned track to a preview view; media becomes `ready` after native capture starts and the view is bound.
     ///
     /// - Parameters:
     ///   - videoFormat: The camera capture video format.
@@ -117,6 +117,19 @@ public protocol XmaxRealtimeManaging: Sendable {
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
         useMicrophone: Bool
+    ) async throws -> RealtimeMediaStream
+
+    /// Acquires Agora, then prepares capture and the cloud connection concurrently before starting generation.
+    /// The local-stream callback runs on the main actor as soon as capture is usable; bind it to a preview if desired.
+    /// Preview attachment is not a prerequisite for joining or publishing. Failure or cancellation releases both branches.
+    /// Camera and RTC stage durations overlap and must not be summed to obtain total startup time.
+    func startCameraGeneration(
+        videoFormat: RealtimeVideoFormat,
+        deviceID: String?,
+        useMicrophone: Bool,
+        context: RealtimeContext,
+        faceRestoration: Bool,
+        localStreamListener: @escaping @MainActor @Sendable (RealtimeMediaStream) -> Void
     ) async throws -> RealtimeMediaStream
 
     /// Stops the local camera stream and updates media readiness.

@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import AppKit
 
 @testable import XmaxSDK
 
@@ -18,13 +19,25 @@ final class RtcPlatformStub: RtcPlatform, @unchecked Sendable {
 
     /// Room factory
     private let makeRoom: @Sendable (String) throws -> any RtcRoom
+    private let onPreviewAttach: @MainActor @Sendable (NSView) -> Void
 
-    init(makeRoom: @escaping @Sendable (String) throws -> any RtcRoom = { _ in RtcRoomStub() }) {
+    init(makeRoom: @escaping @Sendable (String) throws -> any RtcRoom = { _ in RtcRoomStub() },
+         onPreviewAttach: @escaping @MainActor @Sendable (NSView) -> Void = { _ in }) {
         self.makeRoom = makeRoom
+        self.onPreviewAttach = onPreviewAttach
     }
 
     func configureVideoEncoding(_ configuration: VideoEncodingConfiguration) throws {}
     func useExternalVideoSource() throws {}
+    func startCameraCapture(
+        configuration: RtcCameraConfiguration,
+        previewReadyListener: @escaping @Sendable () -> Void,
+        errorListener: @escaping XmaxErrorListener
+    ) throws {}
+    func switchCameraCapture(to deviceID: String) throws {}
+    func stopCameraCapture() throws {}
+    @MainActor func attachCameraPreview(to view: NSView, contentMode: VideoContentMode, mirrored: Bool) throws { onPreviewAttach(view) }
+    @MainActor func detachCameraPreview(from view: NSView) throws {}
     func startAudioCapture() throws {}
     func stopAudioCapture() throws {}
     func startExternalAudioSource() throws {}

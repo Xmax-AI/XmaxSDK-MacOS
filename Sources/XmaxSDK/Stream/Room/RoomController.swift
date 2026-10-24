@@ -85,13 +85,15 @@ actor RoomController: RoomControlling {
 
         do {
             timing.beginRoomJoin()
-            try await rtcManager.joinRoom(
-                configuration: RoomJoinConfiguration(
-                    roomID: connection.roomID,
-                    userID: connection.userID,
-                    token: connection.token
+            try await LocalMediaPreparationTiming.measureAsync(.rtcRoomJoin) {
+                try await rtcManager.joinRoom(
+                    configuration: RoomJoinConfiguration(
+                        roomID: connection.roomID,
+                        userID: connection.userID,
+                        token: connection.token
+                    )
                 )
-            )
+            }
             timing.finishRoomJoin()
             try ensureActive()
             guard case .joining(let currentID) = state,

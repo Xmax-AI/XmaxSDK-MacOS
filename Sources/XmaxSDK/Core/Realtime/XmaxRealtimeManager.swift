@@ -114,7 +114,8 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
                     connectionManager: connectionManager,
                     generationManager: generationManager
                 )
-            }
+            },
+            stopLocalCapture: { await mediaController.stopLocalCapture() }
         )
 
         self.streamController = streamController
@@ -178,7 +179,8 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
                     connectionManager: connectionManager,
                     generationManager: generationManager
                 )
-            }
+            },
+            stopLocalCapture: { await mediaController.stopLocalCapture() }
         )
         self.coordinator = coordinator
         errorHandler.setFailureHandler { [weak coordinator] error, target, isCurrent in
@@ -353,7 +355,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
 
     /// Creates a local camera stream and starts preview.
     ///
-    /// Bind the returned track to a preview view; media becomes `ready` after a valid frame arrives and the view is bound.
+    /// Bind the returned track to a preview view; media becomes `ready` after native capture starts and the view is bound.
     ///
     /// - Parameters:
     ///   - videoFormat: The camera capture video format.
@@ -366,14 +368,116 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         deviceID: String?,
         useMicrophone: Bool = false
     ) async throws -> RealtimeMediaStream {
-        try await createLocalMediaStream(source: .camera) { [self] token in
-            let stream = try await mediaController.createLocalCameraStream(
-                videoFormat: videoFormat,
-                deviceID: deviceID,
-                useMicrophone: useMicrophone
-            )
-            try token.ensureCurrent()
-            return stream
+        let trace = LocalMediaPreparationTiming.Trace()
+        return try await LocalMediaPreparationTiming.$current.withValue(trace) {
+            try await LocalMediaPreparationTiming.measureAsync(.total) {
+                try await createLocalMediaStream(source: .camera) { [self] token in
+                    timing.beginCameraPreparation()
+                    let stream = try await mediaController.createLocalCameraStream(
+                        videoFormat: videoFormat,
+                        deviceID: deviceID,
+                        useMicrophone: useMicrophone,
+                        retainRTCOnFailure: false
+                    )
+                    try token.ensureCurrent()
+                    timing.finishCameraPreparation()
+                    return stream
+                }
+            }
+        }
+    }
+
+    /// Runs camera preparation and cloud joining as children of one cancellable lifecycle operation.
+    func startCameraGeneration(
+        videoFormat: RealtimeVideoFormat,
+        deviceID: String?,
+        useMicrophone: Bool,
+        context: RealtimeContext,
+        faceRestoration: Bool,
+        localStreamListener: @escaping @MainActor @Sendable (RealtimeMediaStream) -> Void
+    ) async throws -> RealtimeMediaStream {
+        let trace = LocalMediaPreparationTiming.Trace()
+        return try await LocalMediaPreparationTiming.$current.withValue(trace) {
+            try await coordinator.run(kind: .generation) { [self] token in
+                try await ensureLocalMediaCanChange(message: "Camera startup requires an idle manager")
+                guard await mediaController.currentTrack == nil else {
+                    throw XmaxError(code: .invalidConfiguration, message: "Stop the current local stream before camera startup")
+                }
+                try videoFormat.validate()
+                try await generationManager.validateContext(context)
+                let size = try mediaService.resolveMediaSize(videoFormat.size, source: .camera)
+                let format = videoFormat.resized(width: Int(size.width), height: Int(size.height))
+                try format.validate()
+                try token.ensureCurrent()
+                token.setFailureScope(.all)
+                errorHandler.invalidatePendingFailures()
+                timing.begin()
+                timing.beginCameraPreparation()
+                do {
+                    try await coordinator.commit(RealtimeState(connectionState: .preparing), token: token)
+                    try await LocalMediaPreparationTiming.measureAsync(.engineAcquire) {
+                        try await mediaController.initializeRTC()
+                    }
+                    try token.ensureCurrent()
+                    let quality = streamController.prepareQuality(baseline: format, model: options.model.rawValue)
+                    let targetSize = try await reconcileFrameInterpolation(videoFormat: format)
+                    try streamController.setRemoteAudioVolume(0)
+                    try await coordinator.commit(RealtimeState(connectionState: .connecting), token: token)
+
+                    let gate = CameraStartupGate()
+                    enum Branch: Sendable { case camera, connection(RealtimeMediaStream) }
+                    let remote = try await withThrowingTaskGroup(of: Branch.self) { group in
+                        group.addTask { [self] in
+                            let local = try await LocalMediaPreparationTiming.measureAsync(.total) {
+                                try await mediaController.createLocalCameraStream(
+                                    videoFormat: format, deviceID: deviceID, useMicrophone: useMicrophone,
+                                    retainRTCOnFailure: true
+                                )
+                            }
+                            try Task.checkCancellation()
+                            try token.ensureCurrent()
+                            timing.finishCameraPreparation()
+                            await localStreamListener(local)
+                            try await mediaController.startMicrophoneCapture()
+                            try Task.checkCancellation()
+                            try token.ensureCurrent()
+                            await gate.ready()
+                            return .camera
+                        }
+                        group.addTask { [self] in
+                            let remote = try await connectionManager.connect(
+                                model: options.model, videoFormat: format, targetSize: targetSize,
+                                includeLocalAudio: useMicrophone,
+                                beforePublication: {
+                                    try await gate.wait()
+                                    try token.ensureCurrent()
+                                    try self.streamController.setVideoEncoderConfig(quality.uplink)
+                                },
+                                isCurrent: { token.isCurrent && !Task.isCancelled },
+                                onHeartbeatFailure: { [weak self] sessionID, error in
+                                    await self?.handleHeartbeatFailure(sessionID: sessionID, error: error)
+                                }
+                            )
+                            return .connection(remote)
+                        }
+                        defer { group.cancelAll() }
+                        var result: RealtimeMediaStream?
+                        for try await branch in group {
+                            if case .connection(let stream) = branch { result = stream }
+                        }
+                        guard let result else { throw CancellationError() }
+                        return result
+                    }
+                    try token.ensureCurrent()
+                    let sessionID = await connectionManager.currentSessionID
+                    try await coordinator.commit(RealtimeState(connectionState: .connected, sessionID: sessionID), token: token)
+                    try await performStartGeneration(context: context, faceRestoration: faceRestoration, token: token, failureScope: .all)
+                    return remote
+                } catch {
+                    timing.finishFailure(error)
+                    throw error
+                }
+            }
         }
     }
 
@@ -566,7 +670,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
             try token.ensureCurrent()
             let measuresStartup = current.connectionState == .connected
             if measuresStartup {
-                timing.begin()
+                timing.begin(preservingCameraPreparation: !(await mediaController.isExternalVideo))
             }
             do {
                 try await performStartGeneration(
@@ -608,7 +712,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
                 initialState.connectionState != .disconnecting &&
                 initialState.connectionState != .generating
             if measuresStartup {
-                timing.begin()
+                timing.begin(preservingCameraPreparation: !(await mediaController.isExternalVideo))
             }
             do {
                 guard await mediaController.owns(localStream) else {
@@ -664,7 +768,8 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     private func performStartGeneration(
         context: RealtimeContext?,
         faceRestoration: Bool,
-        token: RealtimeCoordinator.Token
+        token: RealtimeCoordinator.Token,
+        failureScope: RealtimeCoordinator.TerminationScope = .connection
     ) async throws {
         try token.ensureCurrent()
         let sessionID = await connectionManager.currentSessionID
@@ -702,7 +807,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
 
         try await generationManager.validateContext(context)
         try token.ensureCurrent()
-        token.setFailureScope(.connection)
+        token.setFailureScope(failureScope)
         do {
             let taskID = try await generationManager.start(
                 videoFormat: videoFormat,
@@ -951,7 +1056,7 @@ private extension XmaxRealtimeManager {
     /// - Parameters:
     ///   - source: The media source being created.
     ///   - prepare: The asynchronous stream creation operation receiving the current lifecycle token.
-    /// - Returns: The prepared local stream; camera readiness is updated by the first preview frame notification.
+    /// - Returns: The prepared local stream; camera readiness requires active capture and a bound preview.
     /// - Throws: An error if a local stream or realtime connection exists, or preparation fails or is cancelled.
     func createLocalMediaStream(
         source: RealtimeMediaSource,
@@ -976,16 +1081,22 @@ private extension XmaxRealtimeManager {
             try await coordinator.commit(RealtimeState(connectionState: .preparing), token: token)
             try token.ensureCurrent()
 
-            let stream = try await prepare(token)
+            let stream = try await LocalMediaPreparationTiming.measureAsync(.mediaPrepare) {
+                try await prepare(token)
+            }
             try token.ensureCurrent()
             token.setFailureScope(.all)
-            try await reconcileFrameInterpolation(for: stream)
+            _ = try await LocalMediaPreparationTiming.measureAsync(.interpolationConfiguration) {
+                try await reconcileFrameInterpolation(for: stream)
+            }
             try token.ensureCurrent()
             try streamController.setRemoteAudioVolume(0)
             if source == .camera {
-                await mediaController.setCameraPreviewReadyHandler { [coordinator] isCurrent in
-                    Task {
-                        await coordinator.localPreviewDidBecomeReady(isCurrent: isCurrent)
+                await LocalMediaPreparationTiming.measureAsync(.previewReadinessRegistration) {
+                    await mediaController.setCameraPreviewReadyHandler { [coordinator] isCurrent in
+                        Task {
+                            await coordinator.localPreviewDidBecomeReady(isCurrent: isCurrent)
+                        }
                     }
                 }
             } else {
@@ -1023,6 +1134,10 @@ private extension XmaxRealtimeManager {
         guard let videoFormat = stream.videoTrack?.videoFormat else {
             return nil
         }
+        return try await reconcileFrameInterpolation(videoFormat: videoFormat)
+    }
+
+    func reconcileFrameInterpolation(videoFormat: RealtimeVideoFormat) async throws -> CGSize? {
         let level = streamController.qualityConfiguration?.downlinkLevel ?? 2
         let fallbackFormat = try resolveTargetVideoFormat(baseline: videoFormat, level: level, interpolation: false)
         let interpolation = await renderController.isFrameInterpolationEnabled
@@ -1112,6 +1227,9 @@ private extension XmaxRealtimeManager {
         generationManager: XmaxRealtimeGenerationManager
     ) async -> RealtimeCoordinator.CleanupResult {
 
+        if scope == .all {
+            await mediaController.stopLocalCapture()
+        }
         do {
             try await mediaController.stopMicrophoneCapture()
         } catch {

@@ -26,6 +26,7 @@ final class RealtimeSessionServicingStub: RealtimeSessionServicing,
     private let session: RealtimeSession
     private let createError: (any Error)?
     private let closeError: (any Error)?
+    private let createHandler: (@Sendable () async throws -> Void)?
 
     /// Concurrent state
     private let lock = NSLock()
@@ -36,11 +37,13 @@ final class RealtimeSessionServicingStub: RealtimeSessionServicing,
     init(
         session: RealtimeSession,
         createError: (any Error)? = nil,
-        closeError: (any Error)? = nil
+        closeError: (any Error)? = nil,
+        createHandler: (@Sendable () async throws -> Void)? = nil
     ) {
         self.session = session
         self.createError = createError
         self.closeError = closeError
+        self.createHandler = createHandler
     }
 
     var calls: [RealtimeSessionServicingCall] {
@@ -48,13 +51,15 @@ final class RealtimeSessionServicingStub: RealtimeSessionServicing,
     }
 
     func createSession(model: RealtimeModel) async throws -> RealtimeSession {
-        try lock.withLock {
+        let result = try lock.withLock {
             storedCalls.append(.createSession(model))
             if let createError {
                 throw createError
             }
             return session
         }
+        try await createHandler?()
+        return result
     }
 
     func startHeartbeat(

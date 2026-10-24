@@ -45,6 +45,7 @@ public final class XmaxVideoView: NSView {
     public var isMirrored = false {
         didSet {
             applyPreviewMirroring()
+            nativePreviewUpdateHandler?()
             updateTrajectoryConfiguration()
         }
     }
@@ -65,6 +66,8 @@ public final class XmaxVideoView: NSView {
     /// Render state
     private weak var attachedTrack: RealtimeVideoTrack?
     var frameDisplayHandler: (() -> Void)?
+    var nativePreviewUpdateHandler: (() -> Void)?
+    private var nativeVideoPreview: NSView?
 
     /// Video preview
     private var decodedVideoLayer: AVSampleBufferDisplayLayer?
@@ -128,6 +131,7 @@ public final class XmaxVideoView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         decodedVideoLayer?.frame = bounds
+        nativeVideoPreview?.frame = bounds
         CATransaction.commit()
         trajectoryOverlay?.frame = bounds
     }
@@ -144,6 +148,25 @@ public final class XmaxVideoView: NSView {
 }
 
 extension XmaxVideoView {
+    /// Agora owns rendering inside this child view; SDK sample-buffer rendering is bypassed.
+    func prepareNativeVideoPreview() -> NSView {
+        if let nativeVideoPreview { return nativeVideoPreview }
+        clearDecodedVideoPreview()
+        let view = NSView(frame: bounds)
+        view.autoresizingMask = [.width, .height]
+        view.wantsLayer = true
+        view.layer?.masksToBounds = true
+        addSubview(view, positioned: .below, relativeTo: nil)
+        nativeVideoPreview = view
+        return view
+    }
+
+    func clearNativeVideoPreview() {
+        nativePreviewUpdateHandler = nil
+        nativeVideoPreview?.removeFromSuperview()
+        nativeVideoPreview = nil
+    }
+
     private func applyPreviewMirroring() {
         decodedVideoLayer?.setAffineTransform(
             CGAffineTransform(scaleX: isMirrored || sourceMirrored ? -1 : 1, y: 1)

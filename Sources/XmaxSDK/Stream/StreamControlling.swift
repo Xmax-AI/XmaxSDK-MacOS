@@ -105,6 +105,7 @@ protocol StreamControlling: Sendable {
     func connect(
         connection: RealtimeSessionConnection,
         includeLocalAudio: Bool,
+        beforePublication: @escaping @Sendable () async throws -> Void,
         ensureActive: @escaping @Sendable () throws -> Void
     ) async throws
 

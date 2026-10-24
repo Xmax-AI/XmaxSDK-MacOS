@@ -11,20 +11,33 @@
 
 @preconcurrency import AgoraRtcKit
 import Foundation
+import AppKit
 
 /// Adapts neutral engine operations to Agora calls.
 final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Sendable {
 
     /// Platform resources
     let engine: AgoraRtcEngineKit
-    var roomEngine: any AgoraRtcRoomEngine { engine }
-    /// Serializes engine operations. Agora callback threads must use their independent state lock.
+    let roomEngine: any AgoraRtcRoomEngine
+    private let cameraEngine: any AgoraRtcCameraEngine
+    /// Serializes room operations and shared configuration, separately from native camera calls.
     let lock = NSRecursiveLock()
+    private let cameraControlLock = NSRecursiveLock()
+    private let cameraStateLock = NSLock()
     private weak var room: AgoraRtcRoom?
 
     /// Video configuration
     private let videoFrameCache = RtcVideoFrameCache()
     private var videoConfiguration: VideoEncodingConfiguration?
+    private let videoObserver = RtcVideoFrameObserver()
+    private var videoObserverRegistered = false
+    private var cameraConfiguration: RtcCameraConfiguration?
+    private var storedUsesCameraTrack = false
+    var usesCameraTrack: Bool { cameraStateLock.withLock { storedUsesCameraTrack } }
+    private let cameraEvents: RtcCameraEventSink
+    @MainActor private weak var cameraPreviewView: NSView?
+    private var cameraPreviewStarted = false
+    private var cameraTimingTrace: LocalMediaPreparationTiming.Trace?
 
     /// Audio resources
     private(set) var audioTrackID: Int?
@@ -32,8 +45,12 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     /// Wraps an Agora engine with the SDK platform interface.
     ///
     /// - Parameter engine: The initialized Agora engine.
-    private init(engine: AgoraRtcEngineKit) {
+    init(engine: AgoraRtcEngineKit, cameraEvents: RtcCameraEventSink,
+         roomEngine: (any AgoraRtcRoomEngine)? = nil, cameraEngine: (any AgoraRtcCameraEngine)? = nil) {
         self.engine = engine
+        self.cameraEvents = cameraEvents
+        self.roomEngine = roomEngine ?? engine
+        self.cameraEngine = cameraEngine ?? engine
     }
 
     /// Creates an Agora engine with default camera and microphone capture disabled.
@@ -44,15 +61,18 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
         let configuration = AgoraRtcEngineConfig()
         configuration.appId = appID
         configuration.channelProfile = .liveBroadcasting
-        let engine = AgoraRtcEngineKit.sharedEngine(with: configuration, delegate: nil)
-        guard engine.enableVideo() == 0,
-            engine.enableLocalVideo(false) == 0,
-            engine.enableLocalAudio(false) == 0
+        let cameraEvents = RtcCameraEventSink()
+        let engine = LocalMediaPreparationTiming.measure(.sharedEngine) {
+            AgoraRtcEngineKit.sharedEngine(with: configuration, delegate: cameraEvents)
+        }
+        guard LocalMediaPreparationTiming.measure(.enableVideo, { engine.enableVideo() }) == 0,
+            LocalMediaPreparationTiming.measure(.disableLocalVideo, { engine.enableLocalVideo(false) }) == 0,
+            LocalMediaPreparationTiming.measure(.disableLocalAudio, { engine.enableLocalAudio(false) }) == 0
         else {
             AgoraRtcEngineKit.destroy()
             return nil
         }
-        return AgoraRtcPlatform(engine: engine)
+        return AgoraRtcPlatform(engine: engine, cameraEvents: cameraEvents)
     }
 
     /// Destroys the process-wide shared Agora engine.
@@ -75,11 +95,142 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     ///
     /// - Throws: An error if video source configuration fails.
     func useExternalVideoSource() throws {
-        try lock.withLock {
-            videoFrameCache.removeAll()
-            engine.setExternalVideoSource(true, useTexture: false, sourceType: .videoFrame)
-            try reapplyVideoConfiguration()
+        try cameraControlLock.withLock {
+            guard cameraConfiguration == nil else {
+                throw XmaxError(code: .invalidConfiguration, message: "Stop native camera capture before using external video")
+            }
+            try lock.withLock {
+                videoFrameCache.removeAll()
+                engine.setExternalVideoSource(true, useTexture: false, sourceType: .videoFrame)
+                try reapplyVideoConfiguration()
+                cameraStateLock.withLock { storedUsesCameraTrack = false }
+            }
         }
+    }
+
+    func startCameraCapture(
+        configuration: RtcCameraConfiguration,
+        previewReadyListener: @escaping @Sendable () -> Void,
+        errorListener: @escaping XmaxErrorListener
+    ) throws {
+        try cameraControlLock.withLock {
+            guard cameraConfiguration == nil, configuration.width > 0, configuration.height > 0,
+                  configuration.width.isMultiple(of: 2), configuration.height.isMultiple(of: 2),
+                  configuration.frameRate > 0, configuration.frameRate <= Int(Int32.max) else {
+                throw XmaxError(code: .invalidConfiguration, message: "Native camera capture configuration is invalid")
+            }
+            cameraStateLock.withLock { storedUsesCameraTrack = true }
+            cameraConfiguration = configuration
+            cameraTimingTrace = LocalMediaPreparationTiming.current
+            cameraEvents.beginSession(ready: previewReadyListener, failure: errorListener)
+            let config = AgoraCameraCapturerConfiguration()
+            config.deviceId = configuration.deviceID
+            config.dimensions = CGSize(width: configuration.width, height: configuration.height)
+            config.frameRate = Int32(configuration.frameRate)
+            config.followEncodeDimensionRatio = true
+            do {
+                try Self.checkResult(LocalMediaPreparationTiming.measure(.enableNativeCamera) {
+                    cameraEngine.enableLocalVideo(true)
+                }, operation: "enableLocalVideo")
+                try Self.checkResult(LocalMediaPreparationTiming.measure(.startNativeCamera) {
+                    cameraEngine.startCameraCapture(.camera, config: config)
+                }, operation: "startCameraCapture")
+                // Start native preview capture on the control queue. AppKit binds the visible canvas after capture is ready.
+                try Self.checkResult(LocalMediaPreparationTiming.measure(.startNativePreview) {
+                    cameraEngine.startPreview(.camera)
+                }, operation: "startPreview")
+                cameraPreviewStarted = true
+            } catch {
+                try? stopCameraCapture()
+                throw error
+            }
+        }
+    }
+
+    func switchCameraCapture(to deviceID: String) throws {
+        try cameraControlLock.withLock {
+            guard let configuration = cameraConfiguration else {
+                throw XmaxError(code: .mediaError, message: "Native camera capture is not running")
+            }
+            try Self.checkResult(cameraEngine.setDevice(.videoCapture, deviceId: deviceID), operation: "setVideoCaptureDevice")
+            cameraConfiguration = RtcCameraConfiguration(
+                deviceID: deviceID, width: configuration.width, height: configuration.height, frameRate: configuration.frameRate
+            )
+        }
+    }
+
+    func stopCameraCapture() throws {
+        try cameraControlLock.withLock {
+            guard cameraConfiguration != nil else { return }
+            // Disable callbacks before Agora shutdown, without retaining the room lock during SDK calls.
+            cameraEvents.endSession()
+            cameraConfiguration = nil
+            cameraPreviewStarted = false
+            cameraTimingTrace = nil
+            var failure: (any Error)?
+            for (result, operation) in [
+                (cameraEngine.stopPreview(.camera), "stopPreview"),
+                (cameraEngine.stopCameraCapture(.camera), "stopCameraCapture"),
+                (cameraEngine.enableLocalVideo(false), "enableLocalVideo")
+            ] {
+                do { try Self.checkResult(result, operation: operation) }
+                catch { if failure == nil { failure = error } }
+            }
+            if let failure { throw failure }
+        }
+    }
+
+    @MainActor
+    func attachCameraPreview(to view: NSView, contentMode: VideoContentMode, mirrored: Bool) throws {
+        try cameraControlLock.withLock {
+            guard cameraConfiguration != nil else {
+                throw XmaxError(code: .mediaError, message: "Native camera capture is not running")
+            }
+            let canvas = AgoraRtcVideoCanvas()
+            canvas.uid = 0
+            canvas.sourceType = .camera
+            canvas.view = view
+            canvas.renderMode = contentMode == .fit ? .fit : .hidden
+            canvas.mirrorMode = mirrored ? .enabled : .disabled
+            try Self.checkResult(LocalMediaPreparationTiming.$current.withValue(cameraTimingTrace) {
+                LocalMediaPreparationTiming.measure(.attachNativePreview) { cameraEngine.setupLocalVideo(canvas) }
+            }, operation: "setupLocalVideo")
+            cameraPreviewView = view
+            if !cameraPreviewStarted {
+                try Self.checkResult(LocalMediaPreparationTiming.$current.withValue(cameraTimingTrace) {
+                    LocalMediaPreparationTiming.measure(.startNativePreview) { cameraEngine.startPreview(.camera) }
+                }, operation: "startPreview")
+                cameraPreviewStarted = true
+            }
+        }
+    }
+
+    @MainActor
+    func detachCameraPreview(from view: NSView) throws {
+        try cameraControlLock.withLock {
+            guard cameraPreviewView === view else { return }
+            cameraPreviewView = nil
+            let canvas = AgoraRtcVideoCanvas()
+            canvas.uid = 0
+            canvas.sourceType = .camera
+            canvas.view = nil
+            try Self.checkResult(cameraEngine.setupLocalVideo(canvas), operation: "detachLocalVideo")
+        }
+    }
+
+    func setRemoteVideoSink(_ sink: RtcRemoteVideoSink?) -> Bool {
+        lock.withLock {
+            videoObserver.setRemote(sink)
+            return sink == nil || registerVideoObserver()
+        }
+    }
+
+    private func registerVideoObserver() -> Bool {
+        guard !videoObserverRegistered else { return true }
+        videoObserverRegistered = LocalMediaPreparationTiming.measure(.registerVideoObserver) {
+            roomEngine.setVideoFrameDelegate(videoObserver)
+        }
+        return videoObserverRegistered
     }
 
     /// Switches to microphone input and starts capture.

@@ -10,6 +10,94 @@ import XCTest
 
 @MainActor
 final class ExternalVideoIntegrationTests: XCTestCase {
+    func testCloseReleasesCaptureWhileRTCDisconnectIsBlocked() async throws {
+        let gate = CaptureShutdownGate()
+        let rtc = RtcManagingStub(leaveRoomHandler: { await gate.wait() })
+        let capture = CameraCaptureManagingStub(devices: [
+            CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
+        ])
+        let camera = CameraController(
+            rtcManager: rtc, permissionManager: PermissionManagingStub(),
+            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), captureManager: capture
+        )
+        let components = makeComponents(rtc: rtc, camera: camera)
+        let local = try await components.manager.createLocalCameraStream(
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), deviceID: nil, useMicrophone: true
+        )
+        _ = try await components.manager.connect(localStream: local)
+        let close = Task { await components.manager.close() }
+        try await waitUntil { await gate.isWaiting }
+        XCTAssertEqual(capture.calls, [.start("camera"), .stop])
+        XCTAssertNil(camera.currentTrack)
+        XCTAssertTrue(rtc.calls.contains(.stopAudioCapture))
+        XCTAssertFalse(rtc.calls.contains(.destroy))
+        await gate.release()
+        await close.value
+        XCTAssertEqual(rtc.calls.filter { $0 == .destroy }.count, 1)
+    }
+
+    func testCloseDuringCameraStartupStopsCaptureBeforeLateStartupReturns() async throws {
+        let gate = CaptureShutdownGate()
+        let rtc = RtcManagingStub()
+        let capture = CameraCaptureManagingStub(devices: [
+            CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
+        ], startHandler: { await gate.wait() })
+        let camera = CameraController(
+            rtcManager: rtc, permissionManager: PermissionManagingStub(),
+            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), captureManager: capture
+        )
+        let components = makeComponents(rtc: rtc, camera: camera)
+        let start = Task {
+            try await components.manager.createLocalCameraStream(
+                videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), deviceID: nil
+            )
+        }
+        try await waitUntil { await gate.isWaiting }
+        let close = Task { await components.manager.close() }
+        try await waitUntil { capture.calls.contains(.stop) }
+        XCTAssertNil(camera.currentTrack)
+        XCTAssertNil(capture.currentFrameListener)
+        await gate.release()
+        do {
+            _ = try await start.value
+            XCTFail("Late startup must not succeed after close")
+        } catch { XCTAssertEqual((error as? XmaxError)?.code, .cancelled) }
+        await close.value
+        XCTAssertNil(camera.currentTrack)
+        XCTAssertNil(capture.currentFrameListener)
+        let state = await components.manager.currentState
+        XCTAssertEqual(state.connectionState, .idle)
+    }
+
+    func testEarlyCaptureStopReleasesCameraWithoutDestroyingRTCAndFinalStopIsIdempotent() async throws {
+        let capture = CameraCaptureManagingStub(devices: [
+            CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
+        ])
+        let rtc = RtcManagingStub()
+        let camera = CameraController(
+            rtcManager: rtc, permissionManager: PermissionManagingStub(),
+            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), captureManager: capture
+        )
+        let media = MediaController(rtcManager: rtc, cameraController: camera)
+        _ = try await media.createLocalCameraStream(
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), deviceID: nil
+        )
+        await media.stopLocalCapture()
+        await media.stopLocalCapture()
+        XCTAssertEqual(capture.calls, [.start("camera"), .stop])
+        XCTAssertNil(camera.currentTrack)
+        XCTAssertFalse(rtc.calls.contains(.destroy), "RTC must survive until remote disconnect")
+        await media.stopLocalStream()
+        XCTAssertEqual(capture.calls, [.start("camera"), .stop])
+        XCTAssertEqual(rtc.calls.filter { $0 == .destroy }.count, 1)
+        _ = try await media.createLocalCameraStream(
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), deviceID: nil
+        )
+        await media.stopLocalCapture()
+        await media.stopLocalStream()
+        XCTAssertEqual(capture.calls, [.start("camera"), .stop, .start("camera"), .stop])
+    }
+
 
     func testExternalStopDoesNotAdvanceCameraPreviewReadiness() async throws {
         let rtc = RtcManagingStub()
@@ -151,9 +239,9 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         await components.manager.close()
     }
 
-    private func waitUntil(_ predicate: () -> Bool) async throws {
+    private func waitUntil(_ predicate: () async -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(2)
-        while !predicate() {
+        while !(await predicate()) {
             guard ContinuousClock.now < deadline else {
                 throw XmaxError(code: .timeout, message: "External input test condition timed out")
             }
@@ -204,4 +292,11 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         return (manager, media, rtc)
     }
+}
+
+private actor CaptureShutdownGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    var isWaiting: Bool { continuation != nil }
+    func wait() async { await withCheckedContinuation { continuation = $0 } }
+    func release() { continuation?.resume(); continuation = nil }
 }

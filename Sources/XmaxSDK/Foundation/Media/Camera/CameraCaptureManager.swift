@@ -33,11 +33,17 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
     /// Runtime state
     private var lastTimestampUs: Int64?
     private var hasReportedFrameError = false
+    private var firstFrameTiming: LocalMediaPreparationTiming.Span?
 
     /// Lists built-in, external, and system Continuity Camera devices.
     ///
     /// - Returns: Selectable devices and their default status.
     func listCameraDevices() -> [CameraDevice] {
+        Self.availableCameraDevices()
+    }
+
+    /// Device discovery can also be used by RTC capture without creating an AVCaptureSession.
+    static func availableCameraDevices() -> [CameraDevice] {
         let defaultID = AVCaptureDevice.default(for: .video)?.uniqueID
         return Self.captureDevices().map { device in
             CameraDevice(
@@ -114,63 +120,82 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
     ) async throws {
         try Task.checkCancellation()
 
+        // Dispatch queues do not inherit task-local values; retain this startup trace explicitly.
+        let timingTrace = LocalMediaPreparationTiming.current
+        let queueWait = timingTrace?.begin(.captureQueueWait)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             captureQueue.async { [self] in
-                do {
-                    guard self.videoFormat == nil else {
-                        throw Self.cameraError("Camera capture is already running")
-                    }
-                    guard frameRate > 0, frameRate <= Int(Int32.max),
-                          videoFormat.pixelFormat == .nv12,
-                          videoFormat.width.isMultiple(of: 2), videoFormat.height.isMultiple(of: 2) else {
-                        throw Self.cameraError("Camera capture format is invalid")
-                    }
-
-                    self.videoFormat = videoFormat
-                    self.frameRate = frameRate
-                    self.frameListener = frameListener
-                    self.errorListener = errorListener
-
-                    session.beginConfiguration()
-
+                queueWait?.finish()
+                LocalMediaPreparationTiming.$current.withValue(timingTrace) {
                     do {
-                        session.sessionPreset = .high
-                        try replaceInput(deviceID: deviceID)
-
-                        guard session.canAddOutput(output) else {
-                            throw Self.cameraError("Camera video output is unavailable")
+                        guard self.videoFormat == nil else {
+                            throw Self.cameraError("Camera capture is already running")
                         }
-                        session.addOutput(output)
-
-                        guard output.availableVideoPixelFormatTypes.contains(
-                            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-                        ) else {
-                            throw Self.cameraError("Camera does not support NV12 video output")
+                        guard frameRate > 0, frameRate <= Int(Int32.max),
+                              videoFormat.pixelFormat == .nv12,
+                              videoFormat.width.isMultiple(of: 2), videoFormat.height.isMultiple(of: 2) else {
+                            throw Self.cameraError("Camera capture format is invalid")
                         }
-                        output.videoSettings = [
-                            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-                        ]
-                        output.alwaysDiscardsLateVideoFrames = true
-                        output.setSampleBufferDelegate(self, queue: captureQueue)
-                        try configureConnection()
+
+                        self.videoFormat = videoFormat
+                        self.frameRate = frameRate
+                        self.frameListener = frameListener
+                        self.errorListener = errorListener
+
+                        LocalMediaPreparationTiming.measure(.captureBeginConfiguration) {
+                            session.beginConfiguration()
+                        }
+
+                        do {
+                            session.sessionPreset = .high
+                            try LocalMediaPreparationTiming.measure(.captureInputSetup) {
+                                try replaceInput(deviceID: deviceID)
+                            }
+
+                            try LocalMediaPreparationTiming.measure(.captureOutputSetup) {
+                                guard session.canAddOutput(output) else {
+                                    throw Self.cameraError("Camera video output is unavailable")
+                                }
+                                session.addOutput(output)
+
+                                guard output.availableVideoPixelFormatTypes.contains(
+                                    kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                                ) else {
+                                    throw Self.cameraError("Camera does not support NV12 video output")
+                                }
+                                output.videoSettings = [
+                                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                                ]
+                                output.alwaysDiscardsLateVideoFrames = true
+                                output.setSampleBufferDelegate(self, queue: captureQueue)
+                                try configureConnection()
+                            }
+                        } catch {
+                            LocalMediaPreparationTiming.measure(.captureCommitConfiguration) {
+                                session.commitConfiguration()
+                            }
+                            throw error
+                        }
+                        LocalMediaPreparationTiming.measure(.captureCommitConfiguration) {
+                            session.commitConfiguration()
+                        }
+
+                        observeSession()
+                        LocalMediaPreparationTiming.measure(.captureStartRunning) {
+                            session.startRunning()
+                        }
+                        guard session.isRunning else {
+                            throw Self.cameraError("Camera capture failed to start")
+                        }
+
+                        firstFrameTiming = timingTrace?.begin(.firstCapturedFrame)
+                        continuation.resume()
                     } catch {
-                        session.commitConfiguration()
-                        throw error
+                        stopCapture()
+                        continuation.resume(
+                            throwing: error as? XmaxError ?? Self.cameraError(error.localizedDescription)
+                        )
                     }
-                    session.commitConfiguration()
-
-                    observeSession()
-                    session.startRunning()
-                    guard session.isRunning else {
-                        throw Self.cameraError("Camera capture failed to start")
-                    }
-
-                    continuation.resume()
-                } catch {
-                    stopCapture()
-                    continuation.resume(
-                        throwing: error as? XmaxError ?? Self.cameraError(error.localizedDescription)
-                    )
                 }
             }
         }
@@ -288,7 +313,11 @@ extension CameraCaptureManager: AVCaptureVideoDataOutputSampleBufferDelegate {
                 timestampUs: timestampUs
             )
             try frameListener(frame)
+            firstFrameTiming?.finish()
+            firstFrameTiming = nil
         } catch {
+            firstFrameTiming?.finish(.failed)
+            firstFrameTiming = nil
             guard !hasReportedFrameError else {
                 return
             }
@@ -305,37 +334,42 @@ private extension CameraCaptureManager {
     /// - Parameter deviceID: The target camera device identifier.
     /// - Throws: An error on unavailable cameras, unsupported capture formats, or device configuration failure.
     func replaceInput(deviceID: String) throws {
-        guard let device = Self.captureDevices().first(where: { $0.uniqueID == deviceID }) else {
-            throw Self.cameraError("The requested camera is unavailable")
+        let device = try LocalMediaPreparationTiming.measure(.captureDeviceDiscovery) {
+            guard let device = Self.captureDevices().first(where: { $0.uniqueID == deviceID }) else {
+                throw Self.cameraError("The requested camera is unavailable")
+            }
+            return device
         }
 
         // Prefers 16:9 formats up to 1920×1080, falling back to 4:3 formats up to 1920×1440.
-        let selected = device.formats.compactMap { format -> (
-            format: AVCaptureDevice.Format, area: Int64, isWide: Bool, duration: CMTime
-        )? in
-            guard let duration = format.videoSupportedFrameRateRanges.lazy.compactMap({
-                Self.captureFrameDuration(frameRate: self.frameRate, minimum: $0.minFrameDuration, maximum: $0.maxFrameDuration)
-            }).first else {
-                return nil
-            }
+        let selected = LocalMediaPreparationTiming.measure(.captureFormatSelection) {
+            device.formats.compactMap { format -> (
+                format: AVCaptureDevice.Format, area: Int64, isWide: Bool, duration: CMTime
+            )? in
+                guard let duration = format.videoSupportedFrameRateRanges.lazy.compactMap({
+                    Self.captureFrameDuration(frameRate: self.frameRate, minimum: $0.minFrameDuration, maximum: $0.maxFrameDuration)
+                }).first else {
+                    return nil
+                }
 
-            let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-            let longSide = Int64(max(dimensions.width, dimensions.height))
-            let shortSide = Int64(min(dimensions.width, dimensions.height))
-            let isWide = longSide * 9 == shortSide * 16
-            guard longSide > 0, shortSide > 0,
-                  longSide <= 1920, shortSide <= 1440,
-                  isWide || longSide * 3 == shortSide * 4 else {
-                return nil
-            }
+                let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                let longSide = Int64(max(dimensions.width, dimensions.height))
+                let shortSide = Int64(min(dimensions.width, dimensions.height))
+                let isWide = longSide * 9 == shortSide * 16
+                guard longSide > 0, shortSide > 0,
+                      longSide <= 1920, shortSide <= 1440,
+                      isWide || longSide * 3 == shortSide * 4 else {
+                    return nil
+                }
 
-            return (format, longSide * shortSide, isWide, duration)
-        }.max { lhs, rhs in
-            if lhs.isWide != rhs.isWide {
-                return !lhs.isWide
-            }
+                return (format, longSide * shortSide, isWide, duration)
+            }.max { lhs, rhs in
+                if lhs.isWide != rhs.isWide {
+                    return !lhs.isWide
+                }
 
-            return lhs.area < rhs.area
+                return lhs.area < rhs.area
+            }
         }
 
         guard let selected else {
@@ -344,7 +378,9 @@ private extension CameraCaptureManager {
             )
         }
 
-        let newInput = try AVCaptureDeviceInput(device: device)
+        let newInput = try LocalMediaPreparationTiming.measure(.captureInputCreate) {
+            try AVCaptureDeviceInput(device: device)
+        }
         if let input {
             session.removeInput(input)
         }
@@ -356,21 +392,23 @@ private extension CameraCaptureManager {
         session.addInput(newInput)
         input = newInput
 
-        try device.lockForConfiguration()
-        defer {
-            device.unlockForConfiguration()
-        }
+        try LocalMediaPreparationTiming.measure(.captureDeviceConfiguration) {
+            try device.lockForConfiguration()
+            defer {
+                device.unlockForConfiguration()
+            }
 
-        device.activeFormat = selected.format
-        device.activeVideoMinFrameDuration = selected.duration
-        device.activeVideoMaxFrameDuration = selected.duration
+            device.activeFormat = selected.format
+            device.activeVideoMinFrameDuration = selected.duration
+            device.activeVideoMaxFrameDuration = selected.duration
 
-        if device.isFocusModeSupported(.continuousAutoFocus) {
-            device.focusMode = .continuousAutoFocus
-        }
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            }
 
-        if device.isExposureModeSupported(.continuousAutoExposure) {
-            device.exposureMode = .continuousAutoExposure
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            }
         }
     }
 
@@ -434,6 +472,8 @@ private extension CameraCaptureManager {
 
     /// Stops capture and removes inputs, outputs, observers, and frame callbacks.
     func stopCapture() {
+        firstFrameTiming?.finish(.cancelled)
+        firstFrameTiming = nil
         frameListener = nil
         errorListener = nil
         videoFormat = nil

@@ -112,6 +112,7 @@ actor RealtimeCoordinator {
     /// Business components
     private let errorHandler: RealtimeErrorHandler
     private let cleanup: CleanupHandler
+    private let stopLocalCapture: @Sendable () async -> Void
 
     /// State management
     private var state = RealtimeState(connectionState: .idle)
@@ -127,12 +128,15 @@ actor RealtimeCoordinator {
     /// - Parameters:
     ///   - errorHandler: The handler that logs errors and forwards runtime failures.
     ///   - cleanup: The callback that releases resources in the specified scope.
+    ///   - stopLocalCapture: Releases SDK-owned capture immediately on full termination, before waiting for operations.
     init(
         errorHandler: RealtimeErrorHandler,
-        cleanup: @escaping CleanupHandler
+        cleanup: @escaping CleanupHandler,
+        stopLocalCapture: @escaping @Sendable () async -> Void = {}
     ) {
         self.errorHandler = errorHandler
         self.cleanup = cleanup
+        self.stopLocalCapture = stopLocalCapture
     }
 
     /// The currently published realtime state.
@@ -463,6 +467,7 @@ private extension RealtimeCoordinator {
         /// Asynchronous completion
         var waitForOperations: [@Sendable () async -> Void] = []
         var task: Task<Void, Never>!
+        var captureStopTask: Task<Void, Never>?
 
         /// Creates a resource termination record.
         ///
@@ -599,6 +604,11 @@ private extension RealtimeCoordinator {
             pending.waitForOperations.append(origin.waitForCompletion)
         }
 
+        if pending.target == .all, pending.captureStopTask == nil {
+            // Start independently of blocked operations or an in-flight disconnect cleanup.
+            pending.captureStopTask = Task { [stopLocalCapture] in await stopLocalCapture() }
+        }
+
         await setState(
             RealtimeState(
                 connectionState: .disconnecting,
@@ -618,6 +628,7 @@ private extension RealtimeCoordinator {
         }
 
         while true {
+            await pending.captureStopTask?.value
             let waiters = pending.waitForOperations
             pending.waitForOperations.removeAll()
             for waiter in waiters {

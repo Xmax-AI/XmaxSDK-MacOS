@@ -10,10 +10,46 @@
 //
 
 import Foundation
+import AppKit
 import XCTest
 @testable import XmaxSDK
 
 final class RtcManagerTests: XCTestCase {
+    @MainActor
+    func testPreviewBindingDoesNotBlockMainThreadDuringJoinAndOnlyBindsLatestView() async throws {
+        let entered = expectation(description: "Join holds control lock")
+        let attached = expectation(description: "Latest preview eventually attached")
+        let gate = DispatchSemaphore(value: 0)
+        let room = RtcRoomStub(onJoin: {
+            entered.fulfill()
+            _ = gate.wait(timeout: .now() + 3)
+        })
+        let first = NSView(), latest = NSView()
+        let manager = RtcManager(engineManager: RtcEngineManager(
+            appID: "test", makeEngine: { _ in
+                RtcPlatformStub(makeRoom: { _ in room }, onPreviewAttach: { view in
+                    XCTAssertTrue(view === latest)
+                    attached.fulfill()
+                })
+            }, destroyEngine: {}
+        ))
+        try await manager.initialize()
+        let join = Task.detached {
+            try await manager.joinRoom(configuration: RoomJoinConfiguration(roomID: "room", userID: "user", token: "token"))
+        }
+        await fulfillment(of: [entered], timeout: 2)
+        let start = ContinuousClock.now
+        try manager.attachCameraPreview(to: first, contentMode: .fit, mirrored: false)
+        try manager.detachCameraPreview(from: first)
+        try manager.attachCameraPreview(to: latest, contentMode: .fit, mirrored: false)
+        XCTAssertLessThan(start.duration(to: .now), .milliseconds(250))
+        gate.signal()
+        room.emit(.joined)
+        try await join.value
+        await fulfillment(of: [attached], timeout: 2)
+        await manager.destroy()
+    }
+
     func testInitializeIsIdempotentAndDestroyReleasesEngine() async throws {
         let lifecycle = RtcManagerEngineLifecycleRecorder()
         let engineManager = RtcEngineManager(

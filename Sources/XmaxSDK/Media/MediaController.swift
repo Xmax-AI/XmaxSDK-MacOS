@@ -13,6 +13,9 @@ import Foundation
 
 /// Coordinates local media ownership and the RTC engine lifecycle.
 actor MediaController: MediaControlling {
+    /// An engine acquired before local-source creation belongs to the combined startup lifecycle.
+    private var hasPreparedRTC = false
+    private var captureStopOperation: LocalMediaStopOperation?
 
     /// Foundation components
     private let rtcManager: any RtcManaging
@@ -127,7 +130,7 @@ actor MediaController: MediaControlling {
 
     /// Sets a one-time internal readiness handler for the current camera stream.
     ///
-    /// - Parameter handler: Called after a valid frame arrives and preview is bound; an empty value clears it.
+    /// - Parameter handler: Called after capture is ready and preview is bound; an empty value clears it.
     func setCameraPreviewReadyHandler(_ handler: CameraPreviewReadyHandler?) {
         cameraController.setPreviewReadyHandler(handler)
     }
@@ -168,12 +171,18 @@ actor MediaController: MediaControlling {
     /// - Returns: The media stream containing the local camera video track.
     /// - Throws: An error on camera permission, RTC initialization, or capture startup failure;
     ///   also fails if a media source is already active.
+    func initializeRTC() async throws {
+        try await rtcManager.initialize()
+        hasPreparedRTC = true
+    }
+
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
-        useMicrophone: Bool = false
+        useMicrophone: Bool = false,
+        retainRTCOnFailure: Bool = false
     ) async throws -> RealtimeMediaStream {
-        try await createSource(kind: .camera) {
+        try await createSource(kind: .camera, releaseRTCOnFailure: !retainRTCOnFailure) {
             try await self.cameraController.createLocalCameraStream(
                 videoFormat: videoFormat,
                 deviceID: deviceID,
@@ -205,7 +214,8 @@ actor MediaController: MediaControlling {
     /// - Throws: An error on cancellation or RTC audio capture startup failure.
     func startMicrophoneCapture() throws {
         try Task.checkCancellation()
-        guard activeSource?.kind == .camera else { return }
+        guard let activeSource, activeSource.kind == .camera else { return }
+        guard captureStopOperation?.sourceID != activeSource.id else { throw CancellationError() }
         try cameraController.startMicrophoneCapture()
     }
 
@@ -215,6 +225,21 @@ actor MediaController: MediaControlling {
     func stopMicrophoneCapture() throws {
         guard activeSource?.kind == .camera else { return }
         try cameraController.stopMicrophoneCapture()
+    }
+
+    /// Stops camera capture immediately without waiting for creation or remote operations.
+    func stopLocalCapture() async {
+        guard let activeSource, activeSource.kind == .camera else { return }
+        if let captureStopOperation, captureStopOperation.sourceID == activeSource.id {
+            await captureStopOperation.task.value
+            return
+        }
+        mediaOperation?.task.cancel()
+        let task = Task { [cameraController] in
+            await cameraController.stopLocalCameraStream()
+        }
+        captureStopOperation = LocalMediaStopOperation(id: UUID(), sourceID: activeSource.id, task: task)
+        await task.value
     }
 
     /// Stops and releases the local camera stream, preview binding, and RTC resources;
@@ -227,6 +252,11 @@ actor MediaController: MediaControlling {
     /// does nothing without an active source.
     func stopLocalStream() async {
         guard let activeSource else {
+            // Parallel startup may have acquired an engine before a source was installed.
+            if hasPreparedRTC {
+                await rtcManager.destroy()
+                hasPreparedRTC = false
+            }
             return
         }
         await stopSource(ifKindIs: activeSource.kind)
@@ -316,6 +346,7 @@ private extension MediaController {
     /// - Throws: An error on an existing source, engine initialization or media creation failure, or cancellation.
     func createSource(
         kind: LocalMediaKind,
+        releaseRTCOnFailure: Bool = true,
         operation body: @escaping @Sendable () async throws ->
             RealtimeMediaStream
     ) async throws -> RealtimeMediaStream {
@@ -328,9 +359,15 @@ private extension MediaController {
         }
 
         let sourceID = UUID()
+        captureStopOperation = nil
         activeSource = ActiveLocalMediaSource(id: sourceID, kind: kind)
+        let needsRTCInitialization = !hasPreparedRTC
         let operation = makeMediaOperation(sourceID: sourceID) {
-            try await self.rtcManager.initialize()
+            if needsRTCInitialization {
+                try await LocalMediaPreparationTiming.measureAsync(.engineAcquire) {
+                    try await self.rtcManager.initialize()
+                }
+            }
             try Task.checkCancellation()
             return try await body()
         }
@@ -347,9 +384,10 @@ private extension MediaController {
             return stream
         } catch {
             clearMediaOperation(id: operation.id)
-            if activeSource?.id == sourceID,
+            if releaseRTCOnFailure, activeSource?.id == sourceID,
                stopOperation?.sourceID != sourceID {
                 await rtcManager.destroy()
+                hasPreparedRTC = false
                 activeSource = nil
             }
             throw XmaxError.from(error)
@@ -415,6 +453,7 @@ private extension MediaController {
         if let activeSource, activeSource.id == sourceID {
             await stopSource(kind: activeSource.kind)
             await rtcManager.destroy()
+            hasPreparedRTC = false
             self.activeSource = nil
         }
         if stopOperation?.id == operationID {
@@ -428,7 +467,7 @@ private extension MediaController {
     func stopSource(kind: LocalMediaKind) async {
         switch kind {
         case .camera:
-            await cameraController.stopLocalCameraStream()
+            await stopLocalCapture()
         case .external:
             await externalController?.stop()
         }
@@ -470,7 +509,8 @@ private extension MediaController {
     /// - Throws: Cancellation if the source is invalid or stopping.
     func ensureCreationActive(sourceID: UUID) throws {
         guard activeSource?.id == sourceID,
-              stopOperation?.sourceID != sourceID else {
+              stopOperation?.sourceID != sourceID,
+              captureStopOperation?.sourceID != sourceID else {
             throw XmaxError(
                 code: .cancelled,
                 message: "Local media stream creation was cancelled"
@@ -482,7 +522,9 @@ private extension MediaController {
     ///
     /// - Throws: An error if a media operation remains unfinished.
     func ensureNoOperationInProgress() throws {
-        guard mediaOperation == nil, stopOperation == nil else {
+        let captureIsStopping = activeSource.map { captureStopOperation?.sourceID == $0.id } ?? false
+        guard mediaOperation == nil, stopOperation == nil,
+              !captureIsStopping else {
             throw XmaxError(
                 code: .invalidConfiguration,
                 message: "Another local media operation is already in progress"

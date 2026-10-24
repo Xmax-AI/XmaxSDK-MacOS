@@ -12,7 +12,7 @@
 import Foundation
 
 /// Defines RTC engine, room, media transport, and remote frame output capabilities.
-protocol RtcManaging: Sendable {
+protocol RtcManaging: RtcCameraCapturing {
 
     /// Acquires an exclusive RTC engine lease and completes initialization.
     ///

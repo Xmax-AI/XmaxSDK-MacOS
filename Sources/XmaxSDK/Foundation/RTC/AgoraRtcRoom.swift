@@ -91,7 +91,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
                 callback?(frame)
             }
             videoSink = sink
-            guard platform.roomEngine.setVideoFrameDelegate(sink) else {
+            guard platform.setRemoteVideoSink(sink) else {
                 throw XmaxError(
                     code: .rtcError, message: "Failed to register RTC video frame observer")
             }
@@ -106,14 +106,14 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
             options.autoSubscribeAudio = false
             options.autoSubscribeVideo = false
             try AgoraRtcPlatform.checkResult(
-                platform.roomEngine.joinChannelEx(
+                LocalMediaPreparationTiming.measure(.agoraJoinCall) { platform.roomEngine.joinChannelEx(
                     byToken: configuration.token,
                     channelId: roomID,
                     userAccount: configuration.userID,
                     delegate: bridge,
                     mediaOptions: options,
                     joinSuccess: nil
-                ),
+                ) },
                 operation: "joinChannelEx"
             )
         }
@@ -133,7 +133,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
             publications.removeAll()
 
             if let account {
-                _ = platform.roomEngine.setVideoFrameDelegate(nil)
+                _ = platform.setRemoteVideoSink(nil)
                 _ = platform.roomEngine.leaveChannelEx(
                     roomID, userAccount: account, leaveChannelBlock: nil)
             }
@@ -144,14 +144,14 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
 
     /// Updates local video publication state.
     ///
-    /// - Parameter publish: Whether to publish the external video track.
+    /// - Parameter publish: Whether to publish the active camera or custom video track.
     /// - Throws: An error if publication configuration fails.
     func publishLocalVideo(_ publish: Bool) throws {
         try platform.lock.withLock {
             try requireJoined()
             let options = AgoraRtcChannelMediaOptions()
-            options.publishCameraTrack = false
-            options.publishCustomVideoTrack = publish
+            options.publishCameraTrack = publish && platform.usesCameraTrack
+            options.publishCustomVideoTrack = publish && !platform.usesCameraTrack
             options.customVideoTrackId = 0
             try update(options, operation: "publishLocalVideo")
             if publish { try platform.reapplyVideoConfiguration() }

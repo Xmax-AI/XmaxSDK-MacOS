@@ -6,7 +6,14 @@ protocol AgoraRtcRoomPlatform: AnyObject, Sendable {
     var roomEngine: any AgoraRtcRoomEngine { get }
     var lock: NSRecursiveLock { get }
     var audioTrackID: Int? { get }
+    var usesCameraTrack: Bool { get }
+    func setRemoteVideoSink(_ sink: RtcRemoteVideoSink?) -> Bool
     func reapplyVideoConfiguration() throws
+}
+
+extension AgoraRtcRoomPlatform {
+    var usesCameraTrack: Bool { false }
+    func setRemoteVideoSink(_ sink: RtcRemoteVideoSink?) -> Bool { roomEngine.setVideoFrameDelegate(sink) }
 }
 
 /// Allows the real room lifecycle to be exercised without starting a vendor engine.

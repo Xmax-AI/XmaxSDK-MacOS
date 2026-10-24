@@ -604,13 +604,16 @@ extension RealtimeSessionController {
     var localStatisticsPanels: [RealtimeStatisticsGroup] {
         [
             .init(id: "Launch timing", rows: [
-                .init(id: "Create session", value: milliseconds(launchTiming.sessionMs)),
-                .init(id: "RTC join", value: milliseconds(launchTiming.rtcJoinMs)),
-                .init(id: "Publish local stream", value: milliseconds(launchTiming.publishMs)),
-                .init(id: "First frame", value: milliseconds(launchTiming.firstFrameMs),
+                .init(id: "Session creation", value: milliseconds(launchTiming.sessionMs),
+                      help: "Time spent creating the server-side generation session"),
+                .init(id: "RTC connection", value: milliseconds(launchTiming.rtcJoinMs),
+                      help: "From joining the RTC channel until the connection succeeds"),
+                .init(id: "Stream publication", value: milliseconds(launchTiming.publishMs),
+                      help: "Time spent publishing the local media stream to the RTC channel"),
+                .init(id: "First frame latency", value: milliseconds(launchTiming.firstFrameMs),
                       help: "From generation signal submission to the first display-ready result frame"),
                 .init(id: "Total startup", value: milliseconds(launchTiming.totalMs),
-                      help: "From generation startup to completion; excludes camera preparation and additional render waiting", total: true)
+                      help: "From SDK startup to the first display-ready result. Includes camera preparation in combined startup; overlapping stages are measured directly, not added together.", total: true)
             ]),
             .init(id: "Uplink video statistics", rows: [
                 .init(id: "Uplink resolution", value: resolution(uplinkStatistics?.width, uplinkStatistics?.height)),

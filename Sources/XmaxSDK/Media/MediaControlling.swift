@@ -14,6 +14,9 @@ import Foundation
 /// Defines unified media capabilities exposed to Core.
 protocol MediaControlling: Actor, InteractionControlling {
 
+    /// Acquires the shared RTC engine before camera and connection work are forked.
+    func initializeRTC() async throws
+
     /// Lists available camera devices without starting capture.
     ///
     /// - Returns: Devices with their identifiers, names, and default status.
@@ -36,7 +39,7 @@ protocol MediaControlling: Actor, InteractionControlling {
 
     /// Sets a one-time internal readiness handler for the current camera stream.
     ///
-    /// - Parameter handler: Called after a valid frame arrives and preview is bound; an empty value clears it.
+    /// - Parameter handler: Called after capture is ready and preview is bound; an empty value clears it.
     func setCameraPreviewReadyHandler(_ handler: CameraPreviewReadyHandler?)
 
     /// Creates and retains a local camera stream, starting capture and local preview.
@@ -51,7 +54,8 @@ protocol MediaControlling: Actor, InteractionControlling {
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
-        useMicrophone: Bool
+        useMicrophone: Bool,
+        retainRTCOnFailure: Bool
     ) async throws -> RealtimeMediaStream
 
     /// Binds caller-owned video input without acquiring camera permissions or capture resources.
@@ -72,6 +76,10 @@ protocol MediaControlling: Actor, InteractionControlling {
     ///
     /// - Throws: An error if stopping RTC audio capture fails.
     func stopMicrophoneCapture() throws
+
+    /// Cancels pending camera creation and releases SDK-owned capture before remote cleanup.
+    /// RTC resources remain alive until the connection has been disconnected.
+    func stopLocalCapture() async
 
     /// Stops and releases the local camera stream, preview binding, and RTC resources;
     /// does nothing if the current source is not a camera.

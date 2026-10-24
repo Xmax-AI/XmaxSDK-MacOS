@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import AppKit
 
 /// Manages RTC leases, connection waits, cancellation, and event validity.
 final class RtcManager: RtcManaging, @unchecked Sendable {
@@ -24,6 +25,8 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// Concurrency control
     private let stateLock = NSLock()
     private let operationLock = NSRecursiveLock()
+    /// Camera calls can block inside Agora; serialize them independently of room operations.
+    private let cameraOperationLock = NSRecursiveLock()
 
     /// RTC resources
     private var engineLease: RtcEngineLease?
@@ -36,6 +39,11 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
 
     /// Runtime state
     private var initialization: Initialization?
+
+    /// Camera and room calls can block independently; preview commands must not wait on AppKit's thread.
+    @MainActor private var previewCommandID = UUID()
+    @MainActor private var previewCommand: Task<Void, Never>?
+    @MainActor private weak var requestedPreviewView: NSView?
 
     /// Creates an RTC manager with a room join timeout.
     ///
@@ -108,12 +116,14 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// Destroys the RTC engine and releases resources.
     func destroy() async {
         await leaveRoom()
-        let resources = operationLock.withLock {
-            stateLock.withLock { () -> (RtcEngineLease?, Initialization?) in
-                let resources = (engineLease, initialization)
-                engineLease = nil
-                initialization = nil
-                return resources
+        let resources = cameraOperationLock.withLock {
+            operationLock.withLock {
+                stateLock.withLock { () -> (RtcEngineLease?, Initialization?) in
+                    let resources = (engineLease, initialization)
+                    engineLease = nil
+                    initialization = nil
+                    return resources
+                }
             }
         }
 
@@ -141,6 +151,71 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// - Throws: An error if video source configuration fails.
     func useExternalVideoSource() throws {
         try withEngine { try $0.useExternalVideoSource() }
+    }
+
+    func startCameraCapture(
+        configuration: RtcCameraConfiguration,
+        previewReadyListener: @escaping @Sendable () -> Void,
+        errorListener: @escaping XmaxErrorListener
+    ) throws {
+        try withCameraEngine {
+            try $0.startCameraCapture(configuration: configuration, previewReadyListener: previewReadyListener, errorListener: errorListener)
+        }
+    }
+
+    func switchCameraCapture(to deviceID: String) throws {
+        try withCameraEngine { try $0.switchCameraCapture(to: deviceID) }
+    }
+
+    func stopCameraCapture() throws {
+        try cameraOperationLock.withLock {
+            let engine = stateLock.withLock { engineLease?.engine }
+            try engine?.stopCameraCapture()
+        }
+    }
+
+    @MainActor
+    func attachCameraPreview(to view: NSView, contentMode: VideoContentMode, mirrored: Bool) throws {
+        requestedPreviewView = view
+        try submitPreviewCommand { try $0.attachCameraPreview(to: view, contentMode: contentMode, mirrored: mirrored) }
+    }
+
+    @MainActor
+    func detachCameraPreview(from view: NSView) throws {
+        guard requestedPreviewView === view else { return }
+        requestedPreviewView = nil
+        try submitPreviewCommand { try $0.detachCameraPreview(from: view) }
+    }
+
+    @MainActor
+    private func submitPreviewCommand(_ operation: @escaping @MainActor @Sendable (any RtcPlatform) throws -> Void) throws {
+        previewCommand?.cancel()
+        let id = UUID()
+        previewCommandID = id
+        if try tryPreviewCommand(operation) { return }
+        previewCommand = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(16)) }
+                catch { return }
+                guard let self, previewCommandID == id else { return }
+                do {
+                    if try tryPreviewCommand(operation) { return }
+                } catch {
+                    XmaxVideoView.logRenderingFailure(title: "Failed to bind native camera preview", error: error)
+                    return
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func tryPreviewCommand(_ operation: @MainActor (any RtcPlatform) throws -> Void) throws -> Bool {
+        guard cameraOperationLock.try() else { return false }
+        defer { cameraOperationLock.unlock() }
+        guard operationLock.try() else { return false }
+        defer { operationLock.unlock() }
+        if let platform = stateLock.withLock({ engineLease?.engine }) { try operation(platform) }
+        return true
     }
 
     /// Switches to microphone input and starts capture.
@@ -503,7 +578,9 @@ private extension RtcManager {
                         id: id, error: XmaxError(code: .timeout, message: "RTC join room timed out")
                     )
                 }
-                try room.join(configuration: configuration)
+                try LocalMediaPreparationTiming.measure(.rtcJoinCall) {
+                    try room.join(configuration: configuration)
+                }
             } catch {
                 if stateLock.withLock({ pendingJoin?.context.id == id }) {
                     failPendingJoin(id: id, error: XmaxError.from(error))
@@ -673,6 +750,15 @@ private extension RtcManager {
     /// - Throws: An error if the engine is unavailable or the operation fails.
     func withEngine<T>(_ operation: (any RtcPlatform) throws -> T) throws -> T {
         try operationLock.withLock { try operation(requireEngine()) }
+    }
+
+    /// Keeps the lease alive for camera work without holding the room control lock.
+    /// Destruction waits for the camera lock before releasing the engine lease.
+    func withCameraEngine<T>(_ operation: (any RtcPlatform) throws -> T) throws -> T {
+        try cameraOperationLock.withLock {
+            let engine = try requireEngine()
+            return try operation(engine)
+        }
     }
 
     /// Executes synchronously if an engine exists.

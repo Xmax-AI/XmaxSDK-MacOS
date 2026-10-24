@@ -119,9 +119,28 @@ final class AgoraRtcRoomConcurrencyTests: XCTestCase, @unchecked Sendable {
         await fulfillment(of: [unexpected], timeout: 0.1)
     }
 
-    private func joinedRoom() async throws -> (AgoraRtcRoom, CallbackWaitingAgoraEngine) {
+    func testNativeCameraPublishesCameraTrackWithoutCustomVideo() async throws {
+        let (room, engine) = try await joinedRoom(usesCameraTrack: true)
+        defer { room.destroy() }
+        try room.publishLocalVideo(true)
+        XCTAssertEqual(engine.lastVideoPublication?.camera, true)
+        XCTAssertEqual(engine.lastVideoPublication?.custom, false)
+        try room.publishLocalVideo(false)
+        XCTAssertEqual(engine.lastVideoPublication?.camera, false)
+        XCTAssertEqual(engine.lastVideoPublication?.custom, false)
+    }
+
+    func testExternalSourceStillPublishesCustomVideoWithoutCameraTrack() async throws {
+        let (room, engine) = try await joinedRoom()
+        defer { room.destroy() }
+        try room.publishLocalVideo(true)
+        XCTAssertEqual(engine.lastVideoPublication?.camera, false)
+        XCTAssertEqual(engine.lastVideoPublication?.custom, true)
+    }
+
+    private func joinedRoom(usesCameraTrack: Bool = false) async throws -> (AgoraRtcRoom, CallbackWaitingAgoraEngine) {
         let engine = CallbackWaitingAgoraEngine()
-        let platform = CallbackWaitingRoomPlatform(engine: engine)
+        let platform = CallbackWaitingRoomPlatform(engine: engine, usesCameraTrack: usesCameraTrack)
         let room = AgoraRtcRoom(platform: platform, roomID: "room")
         let joined = expectation(description: "Room joined")
         room.setEventListener { if case .joined = $0 { joined.fulfill() } }
@@ -150,6 +169,7 @@ private final class CallbackWaitingAgoraEngine: AgoraRtcRoomEngine, @unchecked S
     var onUnregister: (() -> Void)?
     var callbackReturned: Bool?
     var leaveCount = 0
+    var lastVideoPublication: (camera: Bool, custom: Bool)?
 
     func waitForCallback(_ callback: @escaping @Sendable () -> Void) {
         let returned = DispatchSemaphore(value: 0)
@@ -186,6 +206,7 @@ private final class CallbackWaitingAgoraEngine: AgoraRtcRoomEngine, @unchecked S
     }
 
     func updateChannelEx(with options: AgoraRtcChannelMediaOptions, connection: AgoraRtcConnection) -> Int32 {
+        lastVideoPublication = (options.publishCameraTrack, options.publishCustomVideoTrack)
         onUpdate?()
         return 0
     }
@@ -202,7 +223,11 @@ private final class CallbackWaitingRoomPlatform: AgoraRtcRoomPlatform, @unchecke
     let roomEngine: any AgoraRtcRoomEngine
     let lock = NSRecursiveLock()
     let audioTrackID: Int? = nil
-    init(engine: any AgoraRtcRoomEngine) { roomEngine = engine }
+    let usesCameraTrack: Bool
+    init(engine: any AgoraRtcRoomEngine, usesCameraTrack: Bool = false) {
+        roomEngine = engine
+        self.usesCameraTrack = usesCameraTrack
+    }
     func reapplyVideoConfiguration() throws {}
 }
 

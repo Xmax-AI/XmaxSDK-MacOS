@@ -350,8 +350,9 @@ Handle errors thrown by async calls with `do/catch`. Failures that end the realt
 workflow are also available through `state.reason` after cleanup completes.
 
 For camera input, bind the returned video track to a preview view. The SDK enters
-`ready` after it has received a valid frame and the preview view is bound; observe
-this through `setStateListener`.
+`ready` after native camera capture has started and the preview view is bound;
+observe this through `setStateListener`. Agora renders the local preview directly,
+without routing local pixels through the raw video frame observer.
 
 <br>
 

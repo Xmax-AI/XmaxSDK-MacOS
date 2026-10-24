@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import AppKit
 import CoreMedia
 import CoreVideo
 @testable import XmaxSDK
@@ -21,6 +22,11 @@ enum RtcManagingCall: Equatable {
     case startAudioCapture
     case stopAudioCapture
     case useExternalVideoSource
+    case startCameraCapture(RtcCameraConfiguration)
+    case switchCameraCapture(String)
+    case stopCameraCapture
+    case attachCameraPreview(VideoContentMode, mirrored: Bool)
+    case detachCameraPreview
     case startExternalAudioSource
     case stopExternalAudioSource
     case pushExternalVideoFrame
@@ -65,10 +71,14 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     private let leaveRoomHandler: LeaveRoomHandler?
     private let setRemoteVideoFrameListenerError: (any Error)?
     var flushHandler: (@Sendable () async throws -> Void)?
+    var audioControlHandler: (@Sendable () -> Void)?
+    var reportsCameraReadyOnStart = true
+    var cameraStartHandler: (@Sendable () -> Void)?
 
     /// Concurrent state
     private let lock = NSLock()
     private var storedCalls: [RtcManagingCall] = []
+    private var cameraPreviewReadyListener: (@Sendable () -> Void)?
     private weak var storedEventListener: (any RtcEventListener)?
     private weak var storedQualityListener: (any RtcQualityListener)?
     private var storedRemoteVideoFrameStream: RemoteStream?
@@ -163,12 +173,51 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
         }
     }
 
+    func startCameraCapture(
+        configuration: RtcCameraConfiguration,
+        previewReadyListener: @escaping @Sendable () -> Void,
+        errorListener: @escaping XmaxErrorListener
+    ) throws {
+        lock.withLock {
+            storedCalls.append(.startCameraCapture(configuration))
+            cameraPreviewReadyListener = previewReadyListener
+        }
+        cameraStartHandler?()
+        if reportsCameraReadyOnStart { previewReadyListener() }
+    }
+
+    func switchCameraCapture(to deviceID: String) throws {
+        lock.withLock { storedCalls.append(.switchCameraCapture(deviceID)) }
+    }
+
+    func stopCameraCapture() throws {
+        lock.withLock {
+            storedCalls.append(.stopCameraCapture)
+            cameraPreviewReadyListener = nil
+        }
+    }
+
+    var currentCameraPreviewReadyListener: (@Sendable () -> Void)? { lock.withLock { cameraPreviewReadyListener } }
+    func emitCameraPreviewReady() { lock.withLock { cameraPreviewReadyListener }?() }
+
+    @MainActor
+    func attachCameraPreview(to view: NSView, contentMode: VideoContentMode, mirrored: Bool) throws {
+        lock.withLock { storedCalls.append(.attachCameraPreview(contentMode, mirrored: mirrored)) }
+    }
+
+    @MainActor
+    func detachCameraPreview(from view: NSView) throws {
+        lock.withLock { storedCalls.append(.detachCameraPreview) }
+    }
+
     func startAudioCapture() throws {
         try record(.startAudioCapture, error: startAudioCaptureError)
+        audioControlHandler?()
     }
 
     func stopAudioCapture() throws {
         try record(.stopAudioCapture, error: stopAudioCaptureError)
+        audioControlHandler?()
     }
 
     func startExternalAudioSource() throws {

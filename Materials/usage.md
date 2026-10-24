@@ -34,7 +34,8 @@ let localStream = try await realtime.createLocalCameraStream(
 A nil identifier selects the system default camera. An unavailable explicit
 identifier returns an error rather than silently selecting a different device.
 Bind the returned track to a preview view in a window. Camera input enters `ready`
-when the preview is bound and a valid frame has arrived.
+when native camera capture has started and the preview is bound. Agora renders
+the local preview directly; hidden preview views do not delay capture readiness.
 
 Microphone input is disabled by default. Enabling it requests permission when the
 camera stream is created; audio capture begins on connection and stops on
@@ -220,10 +221,15 @@ await realtime.setRemoteVideoFrameListener(nil)
 ## Startup timing
 
 `setLaunchTimingListener` reports optional millisecond values in
-`RealtimeLaunchTiming`: `sessionMs`, `rtcJoinMs`, `publishMs`, `firstFrameMs`, and
-`totalMs`. Unfinished stages are nil. The four stages align with iOS performance
-logs. Total time includes orchestration between stages, excludes camera preparation
-and extra render waits, and need not equal the sum of the stages.
+`RealtimeLaunchTiming`: `cameraMs`, `sessionMs`, `rtcJoinMs`, `publishMs`,
+`firstFrameMs`, and `totalMs`. `cameraMs` measures camera preparation through capture
+readiness, including permissions and RTC initialization when needed, excluding
+preview binding and display. It remains available when generation starts with an
+already prepared camera and is nil for external input. Unfinished stages are nil.
+The four generation stages align with iOS performance
+logs. Total time includes orchestration between stages and camera preparation when
+using combined camera startup, excludes extra render waits, and need not equal the
+sum of the stages because camera preparation and cloud connection can overlap.
 
 ## Frame interpolation
 
