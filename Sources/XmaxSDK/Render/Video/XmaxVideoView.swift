@@ -302,7 +302,7 @@ extension XmaxVideoView {
         updateTrajectoryConfiguration()
     }
 
-    /// Converts local NV12 frames to samples and submits them for immediate preview.
+    /// Converts local NV12 or BGRA frames to samples and submits them for immediate preview.
     ///
     /// - Parameters:
     ///   - frame: The local video frame to display.
@@ -518,7 +518,7 @@ extension XmaxVideoView {
 
     /// Reuses a matching buffer pool to create a preview buffer.
     ///
-    /// - Parameter frame: The local NV12 frame to copy.
+    /// - Parameter frame: The local NV12 or BGRA frame to copy.
     ///
     /// - Returns: The pixel buffer filled with current frame data.
     ///
@@ -526,11 +526,17 @@ extension XmaxVideoView {
     func makeLocalPreviewPixelBuffer(
         _ frame: VideoFrame
     ) throws -> CVPixelBuffer {
+        let pixelFormat: OSType
+        switch frame.format.pixelFormat {
+        case .nv12: pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        case .bgra: pixelFormat = kCVPixelFormatType_32BGRA
+        default: throw Self.invalidImageFrameError
+        }
         if localPreviewFormat != frame.format || localPreviewPixelBufferPool == nil {
             let attributes: [String: Any] = [
                 kCVPixelBufferWidthKey as String: frame.format.width,
                 kCVPixelBufferHeightKey as String: frame.format.height,
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                kCVPixelBufferPixelFormatTypeKey as String: pixelFormat,
                 kCVPixelBufferIOSurfacePropertiesKey as String: [:] as CFDictionary
             ]
             var pool: CVPixelBufferPool?
@@ -551,6 +557,12 @@ extension XmaxVideoView {
             localPreviewFormatDescription = nil
         }
 
+        if frame.format.pixelFormat == .bgra {
+            return try Self.makeBGRAPixelBuffer(
+                frame,
+                pool: localPreviewPixelBufferPool
+            )
+        }
         return try Self.makeNV12PixelBuffer(
             frame,
             pool: localPreviewPixelBufferPool
@@ -588,6 +600,75 @@ extension XmaxVideoView {
         }
         localPreviewFormatDescription = description
         return description
+    }
+
+    /// Copies BGRA pixels into a displayable buffer.
+    ///
+    /// - Parameters:
+    ///   - frame: The single-plane BGRA frame.
+    ///   - pool: A matching buffer pool, or `nil` for standalone allocation.
+    ///
+    /// - Returns: An IOSurface buffer owning the frame's pixels.
+    ///
+    /// - Throws: An error if frame layout is invalid or allocation or copying fails.
+    static func makeBGRAPixelBuffer(
+        _ frame: VideoFrame,
+        pool: CVPixelBufferPool? = nil
+    ) throws -> CVPixelBuffer {
+        let width = frame.format.width
+        let height = frame.format.height
+        let (rowBytes, overflow) = width.multipliedReportingOverflow(by: 4)
+        guard frame.format.pixelFormat == .bgra, width > 0, height > 0,
+            !overflow, frame.planes.count == 1
+        else {
+            throw invalidImageFrameError
+        }
+
+        var buffer: CVPixelBuffer?
+        let status: CVReturn
+        if let pool {
+            status = CVPixelBufferPoolCreatePixelBuffer(
+                nil,
+                pool,
+                &buffer
+            )
+        } else {
+            status = CVPixelBufferCreate(
+                nil,
+                width,
+                height,
+                kCVPixelFormatType_32BGRA,
+                [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary,
+                &buffer
+            )
+        }
+
+        guard status == kCVReturnSuccess, let buffer,
+            CVPixelBufferGetWidth(buffer) == width,
+            CVPixelBufferGetHeight(buffer) == height,
+            CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA,
+            CVPixelBufferLockBaseAddress(
+                buffer,
+                []
+            ) == kCVReturnSuccess
+        else {
+            throw invalidImageFrameError
+        }
+        defer {
+            CVPixelBufferUnlockBaseAddress(
+                buffer,
+                []
+            )
+        }
+
+        try copyPlane(
+            frame.planes[0],
+            rowByteCount: rowBytes,
+            rowCount: height,
+            destination: CVPixelBufferGetBaseAddress(buffer),
+            destinationStride: CVPixelBufferGetBytesPerRow(buffer)
+        )
+        return buffer
     }
 
     /// Validates and copies an NV12 frame into an IOSurface pixel buffer.

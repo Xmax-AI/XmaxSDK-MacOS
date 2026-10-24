@@ -131,7 +131,6 @@ actor XmaxRealtimeConnectionManager {
     ///   - videoFormat: The generation video format used to initialize remote tracks.
     ///   - targetSize: The return video dimensions; `nil` uses generation dimensions.
     ///   - includeLocalAudio: Whether to publish local audio.
-    ///   - beforePublication: Waits for local capture readiness before configuring and publishing media.
     ///   - isCurrent: The callback checking connection operation validity.
     ///   - onHeartbeatFailure: The callback receiving heartbeat errors for the current session.
     ///
@@ -144,7 +143,6 @@ actor XmaxRealtimeConnectionManager {
         videoFormat: RealtimeVideoFormat,
         targetSize: CGSize? = nil,
         includeLocalAudio: Bool,
-        beforePublication: @escaping @Sendable () async throws -> Void = {},
         isCurrent: @escaping RealtimeConnectionValidity,
         onHeartbeatFailure: @escaping RealtimeConnectionHeartbeatFailureHandler
     ) async throws -> RealtimeMediaStream {
@@ -169,7 +167,6 @@ actor XmaxRealtimeConnectionManager {
             try await streamController.connect(
                 connection: connection,
                 includeLocalAudio: includeLocalAudio,
-                beforePublication: beforePublication,
                 ensureActive: {
                     try Self.ensureCurrent(isCurrent)
                 }
@@ -245,8 +242,6 @@ extension XmaxRealtimeConnectionManager {
     /// - Parameters:
     ///   - baseline: The negotiated local video format.
     ///   - options: The configuration containing the model's input limits.
-    ///   - configureEncoder: Whether to configure RTC encoding immediately. Camera startup defers this until capture
-    ///     is ready for publication.
     ///   - ensureCurrent: The callback checking operation validity.
     ///
     /// - Returns: The initial quality configuration and resolved return dimensions.
@@ -255,15 +250,15 @@ extension XmaxRealtimeConnectionManager {
     func prepareQuality(
         baseline: RealtimeVideoFormat,
         options: RealtimeConfiguration,
-        configureEncoder: Bool = true,
         ensureCurrent: @Sendable () throws -> Void
     ) async throws -> (configuration: QualityConfiguration, targetSize: CGSize?) {
         try ensureCurrent()
         let quality = streamController.prepareQuality(
             baseline: baseline,
-            model: options.model.rawValue
+            model: options.model.rawValue,
+            isAdaptiveQualityEnabled: options.isAdaptiveQualityEnabled
         )
-        if configureEncoder { try streamController.setVideoEncoderConfig(quality.uplink) }
+        try streamController.setVideoEncoderConfig(quality.uplink)
         let targetSize = try await reconcileFrameInterpolation(for: baseline)
         try ensureCurrent()
         return (quality, targetSize)

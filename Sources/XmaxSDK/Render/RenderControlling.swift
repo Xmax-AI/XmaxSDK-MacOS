@@ -89,4 +89,14 @@ protocol RenderControlling: AnyObject, Sendable {
     func resetRemoteTrack(
         _ track: RealtimeVideoTrack?
     ) async throws
+    /// Sets unified PCM and processed video output on a bounded serial background queue.
+    ///
+    /// - Parameter listener: The media callback; nil removes it and queued packets.
+    ///
+    /// - Throws: An error if native remote audio observation cannot be configured.
+    @MainActor
+    func setRemoteMediaFrameListener(
+        _ listener: RealtimeMediaFrameListener?
+    ) throws
+
 }

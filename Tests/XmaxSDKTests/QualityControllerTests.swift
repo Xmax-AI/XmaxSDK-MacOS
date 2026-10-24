@@ -194,4 +194,57 @@ final class QualityControllerTests: XCTestCase {
         XCTAssertEqual(networkCallbackCount, 0)
         XCTAssertEqual(performanceCallbackCount, 0)
     }
+    func testDisabledAdaptationStartsAtL1AndManualChangesDoNotOverwriteHistory() throws {
+        let name = "xmax-quality-test-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let history = QualityHistory(model: "model-a", defaults: defaults)
+        history.write(level: 4, downlink: false)
+        history.write(level: 3, downlink: true)
+        let controller = QualityController(rtcManager: RtcManagingStub(), historyDefaults: defaults)
+
+        let initial = controller.prepareQuality(
+            baseline: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30),
+            model: "model-a",
+            isAdaptiveQualityEnabled: false
+        )
+        XCTAssertEqual(initial.uplinkLevel, 1)
+        XCTAssertEqual(initial.downlinkLevel, 1)
+        XCTAssertEqual(initial.uplink.width, 1920)
+
+        controller.completeQuality(downlink: false, level: 2, success: true)
+        controller.completeQuality(downlink: true, level: 5, success: true)
+        XCTAssertEqual(controller.qualityConfiguration?.uplinkLevel, 2)
+        XCTAssertEqual(controller.qualityConfiguration?.downlinkLevel, 5)
+        XCTAssertEqual(history.read(downlink: false), 4)
+        XCTAssertEqual(history.read(downlink: true), 3)
+
+        controller.resetQuality()
+        let reconnected = controller.prepareQuality(
+            baseline: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30),
+            model: "model-a",
+            isAdaptiveQualityEnabled: false
+        )
+        XCTAssertEqual(reconnected.uplinkLevel, 1)
+        XCTAssertEqual(reconnected.downlinkLevel, 1)
+    }
+
+    func testEnabledAdaptationUsesAndUpdatesHistory() throws {
+        let name = "xmax-quality-test-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let history = QualityHistory(model: "model-a", defaults: defaults)
+        history.write(level: 4, downlink: false)
+        let controller = QualityController(rtcManager: RtcManagingStub(), historyDefaults: defaults)
+
+        let initial = controller.prepareQuality(
+            baseline: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30),
+            model: "model-a",
+            isAdaptiveQualityEnabled: true
+        )
+        XCTAssertEqual(initial.uplinkLevel, 4)
+        XCTAssertEqual(initial.downlinkLevel, 2)
+        controller.completeQuality(downlink: true, level: 3, success: true)
+        XCTAssertEqual(history.read(downlink: true), 3)
+    }
 }

@@ -190,13 +190,9 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 message: "Stop the current local camera stream before creating another one"
             )
         }
-        let resolvedFormat = try LocalMediaPreparationTiming.measure(.resolveFormat) {
-            try resolveVideoFormat(videoFormat)
-        }
-        try await LocalMediaPreparationTiming.measureAsync(.cameraPermission) {
-            try await permissionManager.ensureCameraPermission()
-        }
-        let device = try LocalMediaPreparationTiming.measure(.resolveDevice) { try resolveDevice(deviceID) }
+        let resolvedFormat = try resolveVideoFormat(videoFormat)
+        try await permissionManager.ensureCameraPermission()
+        let device = try resolveDevice(deviceID)
         let track = RealtimeVideoTrack(
             id: Self.localVideoTrackID,
             videoFormat: resolvedFormat,
@@ -205,22 +201,16 @@ final class CameraController: CameraControlling, @unchecked Sendable {
         )
         do {
             if useMicrophone {
-                try await LocalMediaPreparationTiming.measureAsync(.microphonePermission) {
-                    try await permissionManager.ensureMicrophonePermission()
-                }
+                try await permissionManager.ensureMicrophonePermission()
             }
             try Task.checkCancellation()
             if !captureManager.suppliesRTCVideo {
-                try LocalMediaPreparationTiming.measure(.externalVideoSource) {
-                    try rtcManager.useExternalVideoSource()
-                }
+                try rtcManager.useExternalVideoSource()
             }
-            let preview = await LocalMediaPreparationTiming.measureAsync(.createPreview) {
-                await makePreview(
-                    for: track,
-                    position: device.position
-                )
-            }
+            let preview = await makePreview(
+                for: track,
+                position: device.position
+            )
             stateLock.withLock {
                 activeTrack = track
                 self.preview = preview
@@ -237,28 +227,26 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 }
                 if current { notifyPreviewReady(for: track) }
             }
-            try await LocalMediaPreparationTiming.measureAsync(.captureStart) {
-                try await captureManager.start(
-                    videoFormat: VideoFormat(
-                        width: resolvedFormat.width,
-                        height: resolvedFormat.height,
-                        pixelFormat: .nv12
-                    ),
-                    frameRate: resolvedFormat.fps,
-                    deviceID: device.id,
-                    frameListener: { [weak self] frame in
-                        try self?.handleFrame(
-                            frame,
-                            track: track,
-                            preview: preview
-                        )
-                    },
-                    errorListener: { [weak self] error in
-                        guard let self, currentTrack === track else { return }
-                        errorListener(error)
-                    }
-                )
-            }
+            try await captureManager.start(
+                videoFormat: VideoFormat(
+                    width: resolvedFormat.width,
+                    height: resolvedFormat.height,
+                    pixelFormat: .nv12
+                ),
+                frameRate: resolvedFormat.fps,
+                deviceID: device.id,
+                frameListener: { [weak self] frame in
+                    try self?.handleFrame(
+                        frame,
+                        track: track,
+                        preview: preview
+                    )
+                },
+                errorListener: { [weak self] error in
+                    guard let self, currentTrack === track else { return }
+                    errorListener(error)
+                }
+            )
             try Task.checkCancellation()
             return RealtimeMediaStream(
                 id: StreamID.local.rawValue,

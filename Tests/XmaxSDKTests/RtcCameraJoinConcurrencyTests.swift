@@ -166,6 +166,15 @@ private final class BlockingCameraAgoraEngine: AgoraRtcCameraEngine, AgoraRtcRoo
         if local?.view != nil { onPreview() }
         return 0
     }
+    var audioDelegate: (any AgoraAudioFrameDelegate)?
+    func setAudioFrameDelegate(_ delegate: (any AgoraAudioFrameDelegate)?) -> Bool {
+        audioDelegate = delegate
+        return true
+    }
+    func setPlaybackAudioFrameBeforeMixingParametersWithSampleRate(
+        _ sampleRate: Int, channel: Int, samplesPerCall: Int
+    ) -> Int32 { 0 }
+
     func setVideoFrameDelegate(_ delegate: (any AgoraVideoFrameDelegate)?) -> Bool { true }
     func joinChannelEx(
         byToken token: String?, channelId: String, userAccount: String,

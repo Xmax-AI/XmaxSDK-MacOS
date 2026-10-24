@@ -13,9 +13,6 @@ import Foundation
 /// Coordinates local media ownership and the RTC engine lifecycle.
 actor MediaController: MediaControlling {
 
-    /// An engine acquired before local-source creation belongs to the combined startup lifecycle.
-    private var hasPreparedRTC = false
-
     /// The shared task stopping local capture before full resource teardown.
     private var captureStopOperation: LocalMediaStopOperation?
 
@@ -46,7 +43,7 @@ actor MediaController: MediaControlling {
     ///   - rtcManager: The RTC engine and media adapter.
     ///   - mediaService: The media service providing model dimension rules.
     ///   - videoFrameListener: The callback receiving local video frames.
-    ///   - requestingFrames: Whether generation currently requires external input frames.
+    ///   - audioFrameListener: Receives converted external audio without local playback.
     ///   - errorListener: The callback receiving media runtime errors.
     ///   - interactionListener: The callback receiving video pixel interaction coordinates.
     @MainActor
@@ -54,7 +51,7 @@ actor MediaController: MediaControlling {
         rtcManager: any RtcManaging,
         mediaService: any MediaServicing = MediaService(),
         videoFrameListener: @escaping MediaVideoFrameListener,
-        requestingFrames: @escaping @Sendable () -> Bool,
+        audioFrameListener: @escaping MediaAudioFrameListener = { _ in },
         errorListener: @escaping XmaxErrorListener,
         interactionListener: @escaping InteractionListener
     ) {
@@ -68,8 +65,8 @@ actor MediaController: MediaControlling {
         externalController = ExternalVideoController(
             rtcManager: rtcManager,
             mediaService: mediaService,
-            requestingFrames: requestingFrames,
             videoFrameListener: videoFrameListener,
+            audioFrameListener: audioFrameListener,
             errorListener: errorListener
         )
         interactionController = InteractionController(
@@ -128,6 +125,8 @@ actor MediaController: MediaControlling {
         switch activeSource?.kind {
         case .camera:
             return cameraController.useMicrophone
+        case .external:
+            return externalController?.hasAudio ?? false
         default:
             return false
         }
@@ -173,32 +172,13 @@ actor MediaController: MediaControlling {
 
     /// Creates and retains a local camera stream, starting capture and local preview.
     ///
-    /// - Parameters:
-    ///   - videoFormat: The target camera capture video format.
-    ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
-    ///   - useMicrophone: Whether to use the microphone; permission is checked at creation and capture starts on
-    ///     connection.
-    ///
-    /// - Returns: The media stream containing the local camera video track.
-    ///
-    /// - Throws: An error on camera permission, RTC initialization, or capture startup failure;
-    ///   also fails if a media source is already active.
-    func initializeRTC() async throws {
-        try await rtcManager.initialize()
-        hasPreparedRTC = true
-    }
-
-    /// Creates a local camera stream, optionally retaining RTC resources when startup fails.
+    /// - Throws: An error if a source is already active or camera preparation fails.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
-        useMicrophone: Bool = false,
-        retainRTCOnFailure: Bool = false
+        useMicrophone: Bool = false
     ) async throws -> RealtimeMediaStream {
-        try await createSource(
-            kind: .camera,
-            releaseRTCOnFailure: !retainRTCOnFailure
-        ) {
+        try await createSource(kind: .camera) {
             try await self.cameraController.createLocalCameraStream(
                 videoFormat: videoFormat,
                 deviceID: deviceID,
@@ -277,14 +257,7 @@ actor MediaController: MediaControlling {
     /// Stops and releases the local media stream, preview binding, and RTC engine;
     /// does nothing without an active source.
     func stopLocalStream() async {
-        guard let activeSource else {
-            // Parallel startup may have acquired an engine before a source was installed.
-            if hasPreparedRTC {
-                await rtcManager.destroy()
-                hasPreparedRTC = false
-            }
-            return
-        }
+        guard let activeSource else { return }
         await stopSource(ifKindIs: activeSource.kind)
     }
 
@@ -390,7 +363,6 @@ private extension MediaController {
     /// - Throws: An error on an existing source, engine initialization or media creation failure, or cancellation.
     func createSource(
         kind: LocalMediaKind,
-        releaseRTCOnFailure: Bool = true,
         operation body:
             @escaping @Sendable () async throws ->
             RealtimeMediaStream
@@ -408,13 +380,8 @@ private extension MediaController {
             id: sourceID,
             kind: kind
         )
-        let needsRTCInitialization = !hasPreparedRTC
         let operation = makeMediaOperation(sourceID: sourceID) {
-            if needsRTCInitialization {
-                try await LocalMediaPreparationTiming.measureAsync(.engineAcquire) {
-                    try await self.rtcManager.initialize()
-                }
-            }
+            try await self.rtcManager.initialize()
             try Task.checkCancellation()
             return try await body()
         }
@@ -431,11 +398,10 @@ private extension MediaController {
             return stream
         } catch {
             clearMediaOperation(id: operation.id)
-            if releaseRTCOnFailure, activeSource?.id == sourceID,
+            if activeSource?.id == sourceID,
                 stopOperation?.sourceID != sourceID
             {
                 await rtcManager.destroy()
-                hasPreparedRTC = false
                 activeSource = nil
             }
             throw XmaxError.from(error)
@@ -502,7 +468,6 @@ private extension MediaController {
         if let activeSource, activeSource.id == sourceID {
             await stopSource(kind: activeSource.kind)
             await rtcManager.destroy()
-            hasPreparedRTC = false
             self.activeSource = nil
         }
         if stopOperation?.id == operationID {

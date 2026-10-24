@@ -21,11 +21,13 @@ protocol QualityControlling: Sendable {
     /// - Parameters:
     ///   - baseline: The original local media output format, unchanged by tier adjustments.
     ///   - model: The model identifier isolating tier history.
+    ///   - isAdaptiveQualityEnabled: Whether to restore and save automatic quality history; false starts at L1.
     ///
     /// - Returns: The initial upstream and downstream configuration for this connection.
     func prepareQuality(
         baseline: RealtimeVideoFormat,
-        model: String
+        model: String,
+        isAdaptiveQualityEnabled: Bool
     ) -> QualityConfiguration
 
     /// Sets the internal adaptive sample listener without replacing the caller's network listener.

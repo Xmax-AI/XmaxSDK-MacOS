@@ -98,7 +98,6 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertEqual(capture.calls, [.start("camera"), .stop, .start("camera"), .stop])
     }
 
-
     func testExternalStopDoesNotAdvanceCameraPreviewReadiness() async throws {
         let rtc = RtcManagingStub()
         let camera = CameraController(
@@ -126,7 +125,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let local = try await manager.createExternalVideoStream(source: source)
         let ready = await manager.currentState
         XCTAssertEqual(ready.connectionState, .ready)
-        XCTAssertFalse(source.sink?.isRequestingFrames ?? true)
+        XCTAssertTrue(source.sink?.isRequestingFrames ?? false)
         let ownsLocal = await components.media.owns(local)
         XCTAssertTrue(ownsLocal)
         do {
@@ -156,7 +155,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
                 context: RealtimeContext(prompt: "test"), faceRestoration: false
             )
         }
-        try await waitUntil { sink.isRequestingFrames }
+        try await waitUntil { !roomMessages(components.rtc, event: "start").isEmpty }
         sink.pushVideo(try ExternalVideoControllerTests.makeBuffer(), timestampUs: 1)
         XCTAssertTrue(components.rtc.calls.contains(.pushExternalVideoFrame))
         components.rtc.emitRemoteVideoAvailable(stream: RemoteStream(roomID: "room", userID: "bot"))
@@ -181,7 +180,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertEqual(source.stops, 0)
 
         await manager.disconnect()
-        XCTAssertFalse(sink.isRequestingFrames)
+        XCTAssertTrue(sink.isRequestingFrames)
         XCTAssertNotNil(source.sink)
         XCTAssertEqual(source.stops, 0)
         XCTAssertFalse(components.rtc.calls.contains(.destroy))
@@ -294,6 +293,72 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         catch { XCTAssertEqual((error as? XmaxError)?.code, .cancelled) }
     }
 
+    func testManualQualityControlRetainsBaselineAndDisabledAdaptationStartsAtL1() async throws {
+        let baseline = RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
+        let components = makeComponents(
+            mediaService: MediaServicingStub(resolvedSize: baseline.size),
+            options: RealtimeConfiguration(model: .x2_1_1_preview_cn, isAdaptiveQualityEnabled: false)
+        )
+        let manager: any XmaxRealtimeManaging = components.manager
+        let before = await manager.uplinkQualityLevel
+        XCTAssertNil(before)
+        do {
+            try await manager.setUplinkQualityLevel(.l3)
+            XCTFail("Manual quality requires an active generation")
+        } catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
+        let source = RealtimeExternalVideoSourceStub(videoFormat: baseline)
+        let local = try await manager.createExternalVideoStream(source: source)
+        let generation = Task {
+            try await manager.startGeneration(localStream: local, context: RealtimeContext(prompt: "quality"))
+        }
+        try await waitUntil { !roomMessages(components.rtc, event: "start").isEmpty }
+        components.rtc.emitRemoteVideoAvailable(stream: RemoteStream(roomID: "room", userID: "bot"))
+        try await waitUntil {
+            components.rtc.calls.contains { if case .setRemoteVideoFrameListener(_, enabled: true) = $0 { true } else { false } }
+        }
+        try components.rtc.emitRemoteVideoFrame(width: 4, height: 4)
+        _ = try await generation.value
+        let initialUp = await manager.uplinkQualityLevel
+        let initialDown = await manager.downlinkQualityLevel
+        XCTAssertEqual(initialUp, .l1)
+        XCTAssertEqual(initialDown, .l1)
+        try await manager.setUplinkQualityLevel(.l3)
+        try await manager.setDownlinkQualityLevel(.l5)
+        let appliedUp = await manager.uplinkQualityLevel
+        let appliedDown = await manager.downlinkQualityLevel
+        XCTAssertEqual(appliedUp, .l3)
+        XCTAssertEqual(appliedDown, .l5)
+        XCTAssertEqual(local.videoTrack?.videoFormat, baseline)
+        XCTAssertEqual(components.rtc.encodingConfigurations.last?.width, 1440)
+        XCTAssertEqual(components.rtc.encodingConfigurations.last?.height, 768)
+        XCTAssertFalse(roomMessages(components.rtc, event: "change_target_size").isEmpty)
+        await manager.disconnect()
+        let disconnected = await manager.uplinkQualityLevel
+        XCTAssertNil(disconnected)
+        XCTAssertTrue(source.sink?.isRequestingFrames ?? false)
+        await manager.close()
+    }
+
+    func testExternalPCMIsPublishedWithoutMicrophoneAndUnbindingStopsItsTrack() async throws {
+        let components = makeComponents()
+        let source = RealtimeExternalVideoSourceStub(
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), hasAudio: true
+        )
+        let local = try await components.manager.createExternalVideoStream(source: source)
+        let sink = try XCTUnwrap(source.sink)
+        sink.pushAudio(try AudioSampleBufferFactory.make())
+        XCTAssertFalse(components.rtc.calls.contains { if case .pushExternalAudioFrame = $0 { true } else { false } })
+        _ = try await components.manager.connect(localStream: local)
+        XCTAssertTrue(components.rtc.calls.contains(.publishLocalAudio))
+        XCTAssertFalse(components.rtc.calls.contains(.startAudioCapture))
+        sink.pushAudio(try AudioSampleBufferFactory.make(timestamp: CMTime(value: 10, timescale: 1000)))
+        XCTAssertTrue(components.rtc.calls.contains { if case .pushExternalAudioFrame = $0 { true } else { false } })
+        await components.manager.disconnect()
+        try await components.manager.stopExternalVideoStream()
+        XCTAssertEqual(components.rtc.calls.filter { $0 == .stopExternalAudioSource }.count, 1)
+        XCTAssertEqual(source.stopCount, 1)
+    }
+
     private func roomMessages(_ rtc: RtcManagingStub, event: String) -> [[String: Any]] {
         rtc.calls.compactMap { call in
             guard case .sendRoomMessage(let text) = call,
@@ -317,7 +382,8 @@ final class ExternalVideoIntegrationTests: XCTestCase {
     private func makeComponents(
         rtc: RtcManagingStub = RtcManagingStub(),
         camera: (any CameraControlling)? = nil,
-        mediaService: (any MediaServicing)? = nil
+        mediaService: (any MediaServicing)? = nil,
+        options: RealtimeConfiguration = RealtimeConfiguration(model: .x2_1_1_preview_cn)
     ) -> (manager: XmaxRealtimeManager, media: MediaController, rtc: RtcManagingStub) {
         let errors = XmaxRealtimeErrorManager()
         let timing = RealtimeTiming()
@@ -335,7 +401,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             media = MediaController(
                 rtcManager: rtc, mediaService: service,
                 videoFrameListener: { try stream.pushLocalVideoFrame($0) },
-                requestingFrames: { stream.hasGenerationTask },
+                audioFrameListener: { try stream.pushLocalAudioFrame($0) },
                 errorListener: { errors.forward($0, target: .all) },
                 interactionListener: { try await stream.sendTracks(taskID: $0, points: $1) }
             )
@@ -351,7 +417,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         let generation = XmaxRealtimeGenerationManager(interactionController: media, streamController: stream, renderController: render, timing: timing)
         let manager = XmaxRealtimeManager(
-            options: RealtimeConfiguration(model: .x2_1_1_preview_cn),
+            options: options,
             streamController: stream, mediaController: media, renderController: render,
             mediaService: service, connectionManager: connection, errorManager: errors,
             generationManager: generation, timing: timing

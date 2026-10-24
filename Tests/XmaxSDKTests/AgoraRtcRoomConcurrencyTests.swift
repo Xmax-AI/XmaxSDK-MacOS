@@ -151,6 +151,50 @@ final class AgoraRtcRoomConcurrencyTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(engine.lastVideoPublication?.custom, true)
     }
 
+    func testUnpublishLetsInFlightAudioCallbackReturn() async throws {
+        let (room, engine) = try await joinedRoom()
+        defer { room.destroy() }
+        let delivered = expectation(description: "Owned PCM delivered")
+        try room.setRemoteAudioFrameListener({ frame in
+            XCTAssertEqual(frame.data.count, 960)
+            delivered.fulfill()
+        }, for: "bot")
+        let sink = try XCTUnwrap(engine.audioDelegate as? RtcRemoteAudioSink)
+        engine.onUpdate = {
+            engine.waitForCallback {
+                Data(repeating: 0x35, count: 960).withUnsafeBytes { bytes in
+                    sink.capturePCM(bytes.baseAddress, channelID: "room", uid: 42,
+                                    samplesPerChannel: 480, sampleRate: 48000, channels: 1,
+                                    bytesPerSample: 2, renderTimeMs: 1000)
+                }
+            }
+        }
+        try room.publishLocalVideo(false)
+        XCTAssertEqual(engine.callbackReturned, true)
+        await fulfillment(of: [delivered], timeout: 2)
+    }
+
+    func testDestroyRejectsLateAudioBeforeUnregisteringItsObserver() async throws {
+        let (room, engine) = try await joinedRoom()
+        let unexpected = expectation(description: "Closed room must reject native PCM")
+        unexpected.isInverted = true
+        try room.setRemoteAudioFrameListener({ _ in unexpected.fulfill() }, for: "bot")
+        let sink = try XCTUnwrap(engine.audioDelegate as? RtcRemoteAudioSink)
+        engine.onAudioUnregister = {
+            engine.waitForCallback {
+                Data(repeating: 0x35, count: 960).withUnsafeBytes { bytes in
+                    sink.capturePCM(bytes.baseAddress, channelID: "room", uid: 42,
+                                    samplesPerChannel: 480, sampleRate: 48000, channels: 1,
+                                    bytesPerSample: 2, renderTimeMs: 1000)
+                }
+            }
+        }
+        room.destroy()
+        XCTAssertEqual(engine.callbackReturned, true)
+        XCTAssertNil(engine.audioDelegate)
+        await fulfillment(of: [unexpected], timeout: 0.1)
+    }
+
     private func joinedRoom(usesCameraTrack: Bool = false) async throws -> (AgoraRtcRoom, CallbackWaitingAgoraEngine) {
         let engine = CallbackWaitingAgoraEngine()
         let platform = CallbackWaitingRoomPlatform(engine: engine, usesCameraTrack: usesCameraTrack)
@@ -180,6 +224,7 @@ private final class CallbackWaitingAgoraEngine: AgoraRtcRoomEngine, @unchecked S
     var roomDelegate: (any AgoraRtcEngineDelegate)?
     var onUpdate: (() -> Void)?
     var onUnregister: (() -> Void)?
+    var onAudioUnregister: (() -> Void)?
     var callbackReturned: Bool?
     var leaveCount = 0
     var registrationCount = 0
@@ -191,6 +236,16 @@ private final class CallbackWaitingAgoraEngine: AgoraRtcRoomEngine, @unchecked S
         // Bound the simulated SDK wait so a regression fails without hanging the test process.
         callbackReturned = returned.wait(timeout: .now() + .seconds(1)) == .success
     }
+
+    var audioDelegate: (any AgoraAudioFrameDelegate)?
+    func setAudioFrameDelegate(_ delegate: (any AgoraAudioFrameDelegate)?) -> Bool {
+        if delegate == nil { onAudioUnregister?() }
+        audioDelegate = delegate
+        return true
+    }
+    func setPlaybackAudioFrameBeforeMixingParametersWithSampleRate(
+        _ sampleRate: Int, channel: Int, samplesPerCall: Int
+    ) -> Int32 { 0 }
 
     func setVideoFrameDelegate(_ delegate: (any AgoraVideoFrameDelegate)?) -> Bool {
         if delegate != nil { registrationCount += 1 }

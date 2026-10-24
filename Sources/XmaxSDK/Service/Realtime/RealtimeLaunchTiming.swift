@@ -11,9 +11,8 @@
 /// Realtime startup timing in milliseconds: camera startup and the four generation stages.
 ///
 /// Stages that have not completed are `nil`. Total timing begins when generation enters the business flow
-/// and ends after the first frame is ready and generation state is committed. The combined camera API includes camera
-/// preparation.
-/// Camera startup may overlap cloud connection. Total timing is measured directly, not by adding stage durations.
+/// and ends after the first frame is ready and generation state is committed. Camera preparation is measured
+/// separately and is excluded from the generation total. Total timing is measured directly, not by adding stage durations.
 public struct RealtimeLaunchTiming: Equatable, Sendable {
 
     /// Time from camera preparation to capture readiness, including permissions and RTC initialization when needed.

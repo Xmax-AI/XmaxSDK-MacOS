@@ -17,12 +17,19 @@ public struct RealtimeConfiguration: Equatable, Sendable {
     /// Whether interpolation of generated remote video is enabled by default.
     public let isFrameInterpolationEnabled: Bool
 
+    /// Whether uplink and downlink quality levels adapt automatically.
+    ///
+    /// When disabled, each connection starts at L1. Manual changes remain available.
+    public let isAdaptiveQualityEnabled: Bool
+
     /// Creates realtime business configuration.
     public init(
         model: RealtimeModel,
-        isFrameInterpolationEnabled: Bool = false
+        isFrameInterpolationEnabled: Bool = false,
+        isAdaptiveQualityEnabled: Bool = true
     ) {
         self.model = model
         self.isFrameInterpolationEnabled = isFrameInterpolationEnabled
+        self.isAdaptiveQualityEnabled = isAdaptiveQualityEnabled
     }
 }

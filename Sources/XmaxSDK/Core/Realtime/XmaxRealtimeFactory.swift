@@ -95,7 +95,7 @@ enum XmaxRealtimeFactory {
             videoFrameListener: { frame in
                 try streamController.pushLocalVideoFrame(frame)
             },
-            requestingFrames: { streamController.hasGenerationTask },
+            audioFrameListener: { try streamController.pushLocalAudioFrame($0) },
             errorListener: {
                 errorManager.forward(
                     $0,

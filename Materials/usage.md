@@ -13,7 +13,9 @@ resources for the screen's lifetime, and run UI operations on the main actor.
 - [AppKit and SwiftUI](#appkit-and-swiftui)
 - [Remote audio volume](#remote-audio-volume)
 - [Lifecycle and errors](#lifecycle-and-errors)
-- [Generated video frames](#generated-video-frames)
+- [Remote audio and video output](#remote-audio-and-video-output)
+- [Manual and automatic quality](#manual-and-automatic-quality)
+- [File download progress](#file-download-progress)
 - [Startup timing](#startup-timing)
 - [Frame interpolation](#frame-interpolation)
 - [Logging](#logging)
@@ -90,26 +92,35 @@ without changing your local preview layout.
 
 ## External video input
 
-Use `createExternalVideoStream(source:videoFormat:)` instead of creating a camera
-stream when your application owns capture or preprocessing. Only one local input
-may be active at a time.
+Use `createExternalVideoStream(source:)` instead of creating a camera stream when
+your app owns capture, decoding, or processing. Only one local source may be active.
 
-The source owns capture, permissions, preview, conversion, and final resource
-release. The SDK binds a frame sink and manages RTC transport and generation. External
-input dimensions are resolved within 200,000–2,100,000 pixels and aligned to four
-pixels; only camera inputs must match a model resolution bucket. Convert source
-frames to the dimensions requested by the sink.
-Provide `420v` NV12 or `32BGRA` pixel buffers matching `sink.videoFormat`, with
-strictly increasing monotonic microsecond timestamps, while
-`sink.isRequestingFrames` is true. This is a demand signal, not a frame-rate limiter.
+The source owns permissions, device switching, playback, and final resource release.
+Submit upright `420v` NV12 or `32BGRA` buffers at `source.videoFormat` dimensions.
+XmaxSDK copies and resizes them to the format reported by `sink.videoFormat`, within
+200,000–2,100,000 pixels and four-pixel alignment. Camera resolution buckets do not
+apply. The source frame rate and encoding settings are preserved. The overload with
+`videoFormat` can request a different processing format.
 
-Binding completion enters `ready` without waiting for preview or the first input
-frame. Start supplying frames as soon as the sink requests them, including while
-generation startup is pending. The SDK synchronously copies pixels; you may reuse
-the buffer after submission returns. External audio is not supported.
+Use `pushVideo(_:timestamp:)` with a nonnegative, strictly increasing monotonic
+`CMTime`. The microsecond `timestampUs` convenience remains available. Keep audio
+and video on the same timeline across playback loops and seeks. Apply orientation
+and mirroring before submission; buffers can be reused after the call returns.
+
+Binding enters `ready` without waiting for a frame or preview. Frames remain accepted
+while disconnected, driving the SDK preview through `XmaxVideoView`. Pace frames at
+the declared source frame rate; `isRequestingFrames` becomes false after failure or
+unbinding. SDK preview does not transfer ownership of capture resources.
+
+For audio, declare `hasAudio = true` before binding and submit ready linear PCM
+`CMSampleBuffer` values through `sink.pushAudio(_:)`. XmaxSDK copies and converts
+samples to 48 kHz mono PCM16 in 10 ms packets. Keep the PCM format fixed for the
+binding. Audio is uploaded only while published, without local playback, microphone
+permission requests, or a queue for reconnection. Invalid timestamps and overlapping
+buffers are ignored; gaps begin a new segment without inserted silence.
 
 See the [complete external source adapter](../Examples/ExternalVideo/README.md)
-for lifecycle, threading, preview hosting, and buffer ownership details.
+for lifecycle, threading, preview, and buffer ownership details.
 
 ## Reference images
 
@@ -215,19 +226,72 @@ Handle throwing async operations with `do/catch`. Workflow-ending failures appea
 in `state.reason` after cleanup completes. For camera input, preview binding is
 part of readiness; do not wait for `ready` before mounting the local preview.
 
-## Generated video frames
+## Remote audio and video output
 
-Register `setRemoteVideoFrameListener` before generation to receive final video
-frames after optional interpolation. The callback runs on an internal serial
-background queue. Move expensive processing to your own thread-safe pipeline and
-return promptly. Each frame provides `pixelBuffer`, `presentationTimeStamp`, and
-`duration`. This API exposes video only, not generated audio.
-
-Clear the listener when no longer needed:
+Register `setRemoteMediaFrameListener` before generation to receive owned remote-user
+PCM and final video after optional interpolation:
 
 ```swift
-await realtime.setRemoteVideoFrameListener(nil)
+try await realtime.setRemoteMediaFrameListener { event in
+    switch event.content {
+    case .audio(let audio):
+        // Forward audio.data and audio.presentationTimeStamp to your recording pipeline.
+        break
+    case .video(let video):
+        // Forward video.pixelBuffer and video.presentationTimeStamp to the same pipeline.
+        break
+    }
+}
 ```
+
+Both tracks share `streamID` and the receiver rendering timeline. Events arrive in
+delivery order, rather than cross-track PTS order. Schedule or record by PTS using
+one origin. `isDiscontinuous` marks the first event, clock or format changes, and
+queue loss. Treat video pixel buffers as read-only. PCM belongs to the result user
+before remote-user mixing; registering output does not change playback volume or
+subscriptions.
+
+Callbacks run on a dedicated serial background queue. Forward packets promptly:
+pending output is limited to 256 packets and 32 MiB. Removal or replacement discards
+queued output; a callback already executing may finish. Clear the listener with
+`try await realtime.setRemoteMediaFrameListener(nil)`.
+
+The video-only `setRemoteVideoFrameListener` remains available and can be used
+independently of unified media output.
+
+## Manual and automatic quality
+
+`RealtimeQualityLevel` exposes L1 through L5. Query `uplinkQualityLevel` and
+`downlinkQualityLevel` after connection; both are nil before connection or during
+disconnection. Change either direction while generating:
+
+```swift
+try await realtime.setUplinkQualityLevel(.l3)
+try await realtime.setDownlinkQualityLevel(.l2)
+```
+
+Uplink changes encoding dimensions without changing the capture baseline or
+generation canvas. Downlink changes signal new return dimensions while retaining
+interpolation limits. The reported level changes only after successful configuration;
+the server may deliver the new dimensions later. Manual choices do not lock a level
+against subsequent automatic adaptation.
+
+Automatic adaptation is enabled by default. Set `isAdaptiveQualityEnabled: false`
+when creating `RealtimeConfiguration` to start every connection at L1 and disable
+automatic changes. Manual controls remain available and do not overwrite adaptive
+history in that mode.
+
+## File download progress
+
+`downloadImage` and `downloadVideo` use a file-backed download task and report byte
+progress during transfer. An unknown content length has total byte count zero until
+completion. The final callback supplies the actual completed and total byte counts,
+including for an empty file. Avoid dividing by zero when displaying progress.
+
+Downloads are staged on disk. The destination is replaced only after a successful
+HTTP response and completed transfer. Cancellation and failed transfers preserve an
+existing destination and remove temporary files; the whole file is not loaded into
+memory. Concurrent downloads keep their progress callbacks separate.
 
 ## Startup timing
 
@@ -237,10 +301,11 @@ await realtime.setRemoteVideoFrameListener(nil)
 readiness, including permissions and RTC initialization when needed, excluding
 preview binding and display. It remains available when generation starts with an
 already prepared camera and is nil for external input. Unfinished stages are nil.
-The four generation stages align with iOS performance
-logs. Total time includes orchestration between stages and camera preparation when
-using combined camera startup, excludes extra render waits, and need not equal the
-sum of the stages because camera preparation and cloud connection can overlap.
+The four generation stages align with iOS performance logs. Total time measures
+generation startup through the first displayable result frame and generation state
+commitment, including orchestration between stages. Camera preparation is measured
+separately and is excluded from the generation total. The total is measured directly
+and need not equal the sum of the stages.
 
 ## Frame interpolation
 

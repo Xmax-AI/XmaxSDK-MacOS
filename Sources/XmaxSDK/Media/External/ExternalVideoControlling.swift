@@ -14,6 +14,9 @@ protocol ExternalVideoControlling: Sendable {
     /// The active external video track, or nil when unbound.
     var currentTrack: RealtimeVideoTrack? { get }
 
+    /// Whether the current binding supplies external audio.
+    var hasAudio: Bool { get }
+
     /// Creates an external stream using model-validated input dimensions.
     @MainActor
     func create(

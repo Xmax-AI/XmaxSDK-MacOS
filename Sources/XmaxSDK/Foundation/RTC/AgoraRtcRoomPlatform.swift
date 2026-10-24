@@ -54,6 +54,18 @@ protocol AgoraRtcRoomEngine: AnyObject {
         _ delegate: (any AgoraVideoFrameDelegate)?
     ) -> Bool
 
+    /// Installs or removes the native per-user audio observer.
+    func setAudioFrameDelegate(
+        _ delegate: (any AgoraAudioFrameDelegate)?
+    ) -> Bool
+
+    /// Configures the before-mixing PCM observation format.
+    func setPlaybackAudioFrameBeforeMixingParametersWithSampleRate(
+        _ sampleRate: Int,
+        channel: Int,
+        samplesPerCall: Int
+    ) -> Int32
+
     /// Joins a channel using a user account and the supplied event and media configuration.
     func joinChannelEx(
         byToken token: String?,

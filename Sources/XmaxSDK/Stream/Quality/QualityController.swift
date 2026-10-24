@@ -80,28 +80,33 @@ final class QualityController: QualityControlling, RtcQualityListener,
     /// - Parameters:
     ///   - baseline: The original local media output format, unchanged by tier adjustments.
     ///   - model: The model identifier isolating tier history.
+    ///   - isAdaptiveQualityEnabled: Whether to restore and save automatic quality history; false starts at L1.
     ///
     /// - Returns: The initial upstream and downstream configuration for this connection.
     func prepareQuality(
         baseline: RealtimeVideoFormat,
-        model: String
+        model: String,
+        isAdaptiveQualityEnabled: Bool = true
     ) -> QualityConfiguration {
         listenerLock.withLock {
-            let history = QualityHistory(
-                model: model,
-                defaults: historyDefaults
-            )
+            let history =
+                isAdaptiveQualityEnabled
+                ? QualityHistory(
+                    model: model,
+                    defaults: historyDefaults
+                )
+                : nil
             self.history = history
             let minimumInputPixels = RealtimeModel(rawValue: model)?.minimumInputPixels ?? 0
             uplinkQuality = QualityDirection(
                 baseline: baseline,
-                level: history.read(downlink: false),
+                level: history?.read(downlink: false) ?? 1,
                 downlink: false,
                 minimumInputPixels: minimumInputPixels
             )
             downlinkQuality = QualityDirection(
                 baseline: baseline,
-                level: history.read(downlink: true),
+                level: history?.read(downlink: true) ?? 1,
                 downlink: true
             )
             return configuration()!

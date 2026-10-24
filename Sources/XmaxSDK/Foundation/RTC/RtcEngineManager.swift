@@ -136,10 +136,7 @@ actor RtcEngineManager {
             )
         }
         guard
-            let engine = LocalMediaPreparationTiming.measure(
-                .engineCreate,
-                { makeEngine(normalizedAppID) }
-            )
+            let engine = makeEngine(normalizedAppID)
         else {
             throw XmaxError(
                 code: .rtcError,

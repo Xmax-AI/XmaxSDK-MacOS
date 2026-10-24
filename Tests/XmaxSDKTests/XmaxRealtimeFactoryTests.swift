@@ -41,7 +41,7 @@ final class XmaxRealtimeFactoryTests: XCTestCase {
         await manager.close()
     }
 
-    func testConnectionQualityRetainsModelRulesAndDefersNativeEncodingUntilPublication() async throws {
+    func testConnectionQualityRetainsModelRulesAndConfiguresEncoding() async throws {
         let rtc = RtcManagingStub()
         let render = RenderController(rtcManager: rtc)
         let stream = StreamController(rtcManager: rtc)
@@ -59,17 +59,10 @@ final class XmaxRealtimeFactoryTests: XCTestCase {
         let prepared = try await connection.prepareQuality(
             baseline: baseline,
             options: RealtimeConfiguration(model: .x2_1_1_preview_cn),
-            configureEncoder: false,
             ensureCurrent: {}
         )
         XCTAssertEqual(prepared.configuration.minimumInputPixels, 200000)
         XCTAssertNotNil(prepared.targetSize)
-        XCTAssertFalse(rtc.calls.contains { if case .configureVideoEncoding = $0 { true } else { false } })
-        _ = try await connection.prepareQuality(
-            baseline: baseline,
-            options: RealtimeConfiguration(model: .x2_1_1_preview_cn),
-            ensureCurrent: {}
-        )
         XCTAssertTrue(rtc.calls.contains { if case .configureVideoEncoding = $0 { true } else { false } })
     }
 }

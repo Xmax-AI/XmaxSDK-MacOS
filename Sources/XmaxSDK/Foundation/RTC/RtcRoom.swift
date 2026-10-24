@@ -33,6 +33,7 @@ enum RtcRoomEvent: Sendable {
 
     /// Local encoding performance or format changed.
     case performance(limited: Bool, width: Int, height: Int, frameRate: Int)
+
 }
 
 /// Isolates third-party RTC room capabilities; each instance serves one connection.
@@ -144,6 +145,18 @@ protocol RtcRoom: AnyObject, Sendable {
     ///
     /// - Throws: An error on send failure, room departure, or cancellation.
     func awaitPendingMessages() async throws
+    /// Sets an owned PCM callback for the current remote user without changing playback.
+    ///
+    /// - Parameters:
+    ///   - listener: The PCM callback; nil removes it.
+    ///   - userID: The remote user account.
+    ///
+    /// - Throws: An error if the room or remote user is unavailable.
+    func setRemoteAudioFrameListener(
+        _ listener: RtcRemoteAudioFrameListener?,
+        for userID: String
+    ) throws
+
 }
 
 extension RtcRoom {

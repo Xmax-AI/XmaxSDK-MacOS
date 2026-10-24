@@ -13,7 +13,7 @@ import Foundation
 /// Provides common defaults for local stream creation and generation calls.
 public extension XmaxRealtimeManaging {
 
-    /// Binds external video using source dimensions and the model's default frame rate.
+    /// Binds external video retaining the source's frame rate and encoding settings.
     ///
     /// - Parameter source: The caller-owned video source.
     ///

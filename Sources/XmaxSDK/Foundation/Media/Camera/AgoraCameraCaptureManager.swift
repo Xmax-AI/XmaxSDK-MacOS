@@ -69,33 +69,28 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
         errorListener: @escaping XmaxErrorListener
     ) async throws {
         try Task.checkCancellation()
-        let trace = LocalMediaPreparationTiming.current
         let readyListener = stateLock.withLock { previewReadyListener }
-        let wait = trace?.begin(.captureQueueWait)
         let (events, continuation) = AsyncThrowingStream<Void, any Error>.makeStream()
         queue.async { [rtcManager] in
-            wait?.finish()
-            LocalMediaPreparationTiming.$current.withValue(trace) {
-                do {
-                    try rtcManager.startCameraCapture(
-                        configuration: RtcCameraConfiguration(
-                            deviceID: deviceID,
-                            width: videoFormat.width,
-                            height: videoFormat.height,
-                            frameRate: frameRate
-                        ),
-                        previewReadyListener: {
-                            readyListener?()
-                            continuation.yield(())
-                            continuation.finish()
-                        },
-                        errorListener: { error in
-                            continuation.finish(throwing: error)
-                            errorListener(error)
-                        }
-                    )
-                } catch { continuation.finish(throwing: error) }
-            }
+            do {
+                try rtcManager.startCameraCapture(
+                    configuration: RtcCameraConfiguration(
+                        deviceID: deviceID,
+                        width: videoFormat.width,
+                        height: videoFormat.height,
+                        frameRate: frameRate
+                    ),
+                    previewReadyListener: {
+                        readyListener?()
+                        continuation.yield(())
+                        continuation.finish()
+                    },
+                    errorListener: { error in
+                        continuation.finish(throwing: error)
+                        errorListener(error)
+                    }
+                )
+            } catch { continuation.finish(throwing: error) }
         }
         // Wait asynchronously for native capture to start, before an AppKit view calls setupLocalVideo.
         try await withThrowingTaskGroup(of: Void.self) { group in

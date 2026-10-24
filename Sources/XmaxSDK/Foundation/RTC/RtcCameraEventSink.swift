@@ -15,7 +15,7 @@ import Foundation
 /// Vendor callbacks return immediately; application callbacks use a separate serial queue.
 final class RtcCameraEventSink: NSObject, AgoraRtcEngineDelegate, @unchecked Sendable {
 
-    /// Readiness, failure, and first-frame timing state for one native camera startup.
+    /// Readiness, failure, and first-frame delivery state for one native camera startup.
     private struct Session {
 
         /// The identity used to reject callbacks from earlier camera startups.
@@ -26,9 +26,6 @@ final class RtcCameraEventSink: NSObject, AgoraRtcEngineDelegate, @unchecked Sen
 
         /// The callback receiving the first native capture failure.
         let failure: XmaxErrorListener
-
-        /// The diagnostic span awaiting the first native preview frame.
-        let firstFrameTiming: LocalMediaPreparationTiming.Span?
 
         /// Whether the first native preview frame has been observed.
         var didDisplay = false
@@ -49,32 +46,24 @@ final class RtcCameraEventSink: NSObject, AgoraRtcEngineDelegate, @unchecked Sen
     /// The current camera startup callbacks and delivery flags.
     private var session: Session?
 
-    /// Installs a new callback session and cancels any preceding first-frame timing span.
+    /// Installs a new callback session, invalidating callbacks from earlier startups.
     func beginSession(
         ready: @escaping @Sendable () -> Void,
         failure: @escaping XmaxErrorListener
     ) {
-        let next = Session(
-            ready: ready,
-            failure: failure,
-            firstFrameTiming: LocalMediaPreparationTiming.current?.begin(.firstNativePreviewFrame)
-        )
-        let previous = lock.withLock {
-            let previous = session
-            session = next
-            return previous
+        lock.withLock {
+            session = Session(
+                ready: ready,
+                failure: failure
+            )
         }
-        previous?.firstFrameTiming?.finish(.cancelled)
     }
 
-    /// Invalidates camera callbacks and closes unfinished first-frame timing.
+    /// Invalidates camera callbacks from the current startup.
     func endSession() {
-        let previous = lock.withLock {
-            let previous = session
+        lock.withLock {
             session = nil
-            return previous
         }
-        previous?.firstFrameTiming?.finish(.cancelled)
     }
 
     /// Handles native camera progress or failure without waiting for engine operation locks.
@@ -94,7 +83,6 @@ final class RtcCameraEventSink: NSObject, AgoraRtcEngineDelegate, @unchecked Sen
             return (current, reportReady)
         }
         guard let delivery else { return }
-        delivery.session.firstFrameTiming?.finish()
         if delivery.reportReady { deliverReady(delivery.session) }
     }
 
@@ -124,7 +112,6 @@ final class RtcCameraEventSink: NSObject, AgoraRtcEngineDelegate, @unchecked Sen
             return current
         }
         guard let delivery else { return }
-        delivery.firstFrameTiming?.finish(.failed)
         let failure = XmaxError(
             code: .mediaError,
             message: "Agora camera capture failed (reason: \(reason.rawValue))"

@@ -148,15 +148,18 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// - Parameters:
     ///   - baseline: The original local media output format, unchanged by tier adjustments.
     ///   - model: The model identifier isolating tier history.
+    ///   - isAdaptiveQualityEnabled: Whether to restore and save automatic quality history; false starts at L1.
     ///
     /// - Returns: The initial upstream and downstream configuration for this connection.
     func prepareQuality(
         baseline: RealtimeVideoFormat,
-        model: String
+        model: String,
+        isAdaptiveQualityEnabled: Bool = true
     ) -> QualityConfiguration {
         qualityController.prepareQuality(
             baseline: baseline,
-            model: model
+            model: model,
+            isAdaptiveQualityEnabled: isAdaptiveQualityEnabled
         )
     }
 
@@ -282,7 +285,6 @@ final class StreamController: StreamControlling, RtcEventListener,
     func connect(
         connection: RealtimeSessionConnection,
         includeLocalAudio: Bool,
-        beforePublication: @escaping @Sendable () async throws -> Void = {},
         ensureActive: @escaping @Sendable () throws -> Void
     ) async throws {
         try ensureActive()
@@ -294,7 +296,6 @@ final class StreamController: StreamControlling, RtcEventListener,
             connection: connection,
             ensureActive: ensureActive
         )
-        try await beforePublication()
         try ensureActive()
         timing.beginLocalPublication()
         try publishLocalStream(includeAudio: includeLocalAudio)

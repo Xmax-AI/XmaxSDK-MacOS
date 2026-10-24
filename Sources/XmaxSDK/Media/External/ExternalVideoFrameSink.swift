@@ -8,20 +8,24 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
+import CoreMedia
 import CoreVideo
 import Foundation
 
-/// Serializes external frame submission and invalidates a binding before source cleanup.
+/// A serialized external frame sink that waits for in-flight submission on invalidation.
 final class ExternalVideoFrameSink: RealtimeExternalFrameSink, @unchecked Sendable {
 
     /// The resolved media format used for preview and quality baselines.
     let videoFormat: RealtimeVideoFormat
 
-    /// The demand check for the current generation task.
-    private let requestingFrames: @Sendable () -> Bool
+    /// The source's declared input format.
+    private let sourceVideoFormat: RealtimeVideoFormat
 
-    /// The synchronous receiver of copied external video frames.
-    private let videoFrameListener: MediaVideoFrameListener
+    /// The handler delivering frames to preview and RTC.
+    private let frameListener: MediaVideoFrameListener
+
+    /// The receiver for converted RTC audio packets, without local playback.
+    private let audioFrameListener: MediaAudioFrameListener
 
     /// The unrecoverable failure handler for this binding.
     private let errorListener: XmaxErrorListener
@@ -35,70 +39,151 @@ final class ExternalVideoFrameSink: RealtimeExternalFrameSink, @unchecked Sendab
     /// The last accepted timestamp, in microseconds.
     private var lastTimestampUs: Int64 = -1
 
-    /// Creates the sink for one binding with immutable negotiated input configuration.
+    /// The optional audio converter, serialized with frame submission and invalidation.
+    private var audioConverter: ExternalAudioFrameConverter?
+
+    /// Creates a frame sink for a source binding.
     init(
+        sourceVideoFormat: RealtimeVideoFormat,
         videoFormat: RealtimeVideoFormat,
-        requestingFrames: @escaping @Sendable () -> Bool,
-        videoFrameListener: @escaping MediaVideoFrameListener,
+        frameListener: @escaping MediaVideoFrameListener,
+        hasAudio: Bool = false,
+        audioFrameListener: @escaping MediaAudioFrameListener = { _ in
+        },
         errorListener: @escaping XmaxErrorListener
     ) {
+        self.sourceVideoFormat = sourceVideoFormat
         self.videoFormat = videoFormat
-        self.requestingFrames = requestingFrames
-        self.videoFrameListener = videoFrameListener
+        self.frameListener = frameListener
+        self.audioFrameListener = audioFrameListener
+        audioConverter = hasAudio ? ExternalAudioFrameConverter() : nil
         self.errorListener = errorListener
     }
 
-    /// Whether this binding is active and generation currently requests input.
+    /// Whether preview and generation frames are accepted.
     var isRequestingFrames: Bool {
-        lock.withLock { active && requestingFrames() }
+        lock.withLock {
+            active
+        }
     }
 
-    /// Copies and submits a valid requested frame synchronously under the binding lock.
+    /// Copies and delivers a valid frame, ignoring invalid or nonincreasing timestamps.
+    ///
+    /// - Parameters:
+    ///   - pixelBuffer: An upright buffer matching the declared source dimensions.
+    ///   - timestamp: A strictly increasing monotonic timestamp.
     func pushVideo(
         _ pixelBuffer: CVPixelBuffer,
-        timestampUs: Int64
+        timestamp: CMTime
     ) {
+        guard timestamp.isNumeric, timestamp.epoch == 0, timestamp >= .zero else {
+            return
+        }
+        let converted = CMTimeConvertScale(
+            timestamp,
+            timescale: 1000000,
+            method: .roundTowardZero
+        )
+        guard converted.isNumeric, converted.value >= 0 else {
+            return
+        }
+
         lock.withLock {
-            guard active, requestingFrames(), timestampUs >= 0, timestampUs > lastTimestampUs else { return }
+            guard active, converted.value > lastTimestampUs else {
+                return
+            }
+
             do {
-                let frame = try ExternalVideoFrameConverter.convert(
-                    pixelBuffer,
-                    videoFormat: videoFormat,
-                    timestampUs: timestampUs
+                guard CVPixelBufferGetWidth(pixelBuffer) == sourceVideoFormat.width,
+                    CVPixelBufferGetHeight(pixelBuffer) == sourceVideoFormat.height
+                else {
+                    throw XmaxError(
+                        code: .mediaError,
+                        message: "External frame dimensions must match source.videoFormat"
+                    )
+                }
+
+                let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
+                guard
+                    pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                        || pixelFormat == kCVPixelFormatType_32BGRA
+                else {
+                    throw XmaxError(
+                        code: .mediaError,
+                        message: "External video requires NV12 video-range (420v) or BGRA pixels"
+                    )
+                }
+
+                let frame = try VideoFrameConverter.convert(
+                    pixelBuffer: pixelBuffer,
+                    outputWidth: videoFormat.width,
+                    outputHeight: videoFormat.height,
+                    rotation: .rotation0,
+                    timestampUs: converted.value
                 )
-                lastTimestampUs = timestampUs
-                try videoFrameListener(frame)
+                lastTimestampUs = converted.value
+                try frameListener(frame)
             } catch {
-                reportFailure(error)
+                active = false
+                errorListener(
+                    XmaxError(
+                        code: .mediaError,
+                        message: "External video frame failed: \(error.localizedDescription)"
+                    )
+                )
             }
         }
     }
 
-    /// Reports errors only while this binding remains active.
+    /// Converts and submits PCM audio while the source binding accepts frames.
+    ///
+    /// - Parameter sampleBuffer: PCM samples timestamped on the source's video timeline.
+    func pushAudio(
+        _ sampleBuffer: CMSampleBuffer
+    ) {
+        lock.withLock {
+            guard active, let audioConverter else {
+                return
+            }
+
+            do {
+                try audioConverter.append(
+                    sampleBuffer,
+                    handler: audioFrameListener
+                )
+            } catch {
+                active = false
+                self.audioConverter = nil
+                errorListener(XmaxError.from(error))
+            }
+        }
+    }
+
+    /// Reports the binding's first unrecoverable failure.
+    ///
+    /// - Parameter error: The external capture or processing error.
     func reportError(
         _ error: any Error
     ) {
         lock.withLock {
-            guard active else { return }
-            reportFailure(error)
+            guard active else {
+                return
+            }
+            active = false
+            errorListener(
+                XmaxError(
+                    code: .mediaError,
+                    message: "External video source failed: \(error.localizedDescription)"
+                )
+            )
         }
     }
 
-    /// Waits for in-flight submission and permanently rejects subsequent input.
+    /// Waits for in-flight submission and rejects subsequent frames and failures.
     func invalidate() {
-        lock.withLock { active = false }
-    }
-
-    /// Forwards the first binding failure; the SDK lifecycle handler performs cleanup.
-    private func reportFailure(
-        _ error: any Error
-    ) {
-        active = false
-        errorListener(
-            XmaxError(
-                code: .mediaError,
-                message: "External video source failed: \(error.localizedDescription)"
-            )
-        )
+        lock.withLock {
+            active = false
+            audioConverter = nil
+        }
     }
 }

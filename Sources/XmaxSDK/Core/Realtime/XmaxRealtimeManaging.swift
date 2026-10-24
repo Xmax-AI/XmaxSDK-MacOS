@@ -24,6 +24,45 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// The current realtime connection and generation state.
     var currentState: RealtimeState { get async }
 
+    /// The applied uplink level, or `nil` before connection completes or after disconnection
+    /// begins.
+    var uplinkQualityLevel: RealtimeQualityLevel? {
+        get async
+    }
+
+    /// The submitted downlink level, or `nil` before connection completes or after disconnection
+    /// begins.
+    ///
+    /// The server may begin returning the new dimensions after this value changes.
+    var downlinkQualityLevel: RealtimeQualityLevel? {
+        get async
+    }
+
+    /// Changes the uplink encoding level during generation without changing capture or generation
+    /// dimensions.
+    ///
+    /// Automatic adaptation may subsequently change the level; a manual selection does not lock it.
+    ///
+    /// - Parameter level: The requested uplink quality level.
+    ///
+    /// - Throws: An error if generation is inactive, an operation conflicts or is cancelled, or
+    ///   encoder configuration fails.
+    func setUplinkQualityLevel(
+        _ level: RealtimeQualityLevel
+    ) async throws
+
+    /// Changes the downlink level during generation while retaining frame interpolation limits.
+    ///
+    /// Automatic adaptation may subsequently change the level; a manual selection does not lock it.
+    ///
+    /// - Parameter level: The requested downlink quality level.
+    ///
+    /// - Throws: An error if generation is inactive, an operation conflicts or is cancelled, or
+    ///   signaling or rendering configuration fails.
+    func setDownlinkQualityLevel(
+        _ level: RealtimeQualityLevel
+    ) async throws
+
     /// The effective remote video interpolation state.
     var isFrameInterpolationEnabled: Bool { get async }
 
@@ -44,6 +83,24 @@ public protocol XmaxRealtimeManaging: Sendable {
     func setLaunchTimingListener(
         _ listener: RealtimeLaunchTimingListener?
     ) async
+
+    /// Sets one listener for the result user's PCM and processed remote video.
+    ///
+    /// Audio is copied before remote-user mixing; video includes optional interpolation. Both use
+    /// the receiver rendering timeline. Audio time advances by sample count between explicit
+    /// discontinuities. Registration does not change playback volume or audio subscriptions.
+    ///
+    /// Call before generation or replace the listener while connected. Callbacks run on a dedicated
+    /// serial background queue, in delivery order rather than cross-track PTS order. Forward packets
+    /// promptly: pending output is bounded to 256 packets and 32 MiB, and discarded packets mark the
+    /// next event of that track as discontinuous. A callback already running may finish after removal.
+    ///
+    /// - Parameter listener: The remote output handler, or `nil` to remove it and queued output.
+    ///
+    /// - Throws: An error if observation of an already-bound remote user cannot be configured.
+    func setRemoteMediaFrameListener(
+        _ listener: RealtimeMediaFrameListener?
+    ) async throws
 
     /// Sets the final remote video frame listener.
     ///
@@ -132,60 +189,44 @@ public protocol XmaxRealtimeManaging: Sendable {
         useMicrophone: Bool
     ) async throws -> RealtimeMediaStream
 
-    /// Starts camera capture and generation with concurrent capture and session preparation.
-    ///
-    /// Acquires the RTC engine before preparing capture and joining concurrently. The local-stream callback runs
-    /// on the main actor as soon as capture is usable; preview attachment is not required for joining or publication.
-    /// Camera and RTC timings overlap, so their sum does not represent total startup duration.
-    ///
-    /// - Parameters:
-    ///   - videoFormat: A supported camera capture format.
-    ///   - deviceID: The camera identifier; `nil` or an empty value selects the system default.
-    ///   - useMicrophone: Whether to request microphone access and publish captured audio.
-    ///   - context: The initial generation conditions.
-    ///   - faceRestoration: Whether to restore the original face in generated output.
-    ///   - localStreamListener: The main-actor callback receiving the usable local stream for optional preview binding.
-    ///
-    /// - Returns: The remote stream after generation and its first displayable result are ready.
-    ///
-    /// - Throws: An error on invalid state or configuration, permission denial, startup failure, or cancellation.
-    func startCameraGeneration(
-        videoFormat: RealtimeVideoFormat,
-        deviceID: String?,
-        useMicrophone: Bool,
-        context: RealtimeContext,
-        faceRestoration: Bool,
-        localStreamListener: @escaping @MainActor @Sendable (RealtimeMediaStream) -> Void
-    ) async throws -> RealtimeMediaStream
-
     /// Stops the local camera stream and updates media readiness.
     ///
     /// - Throws: An error if realtime is still connected, a conflicting operation exists, or this operation is
     ///   cancelled.
     func stopLocalCameraStream() async throws
 
-    /// Binds a caller-owned video source and returns its local stream.
+    /// Binds an external video source with optional audio for realtime generation.
     ///
-    /// The source owns capture, permissions, conversion, and optional preview. The SDK
-    /// validates the final format and passes it to `source.start(sink:)`. Binding completion
-    /// enters `ready` without waiting for preview or a frame. Supply frames as soon as the
-    /// sink requests them, including while generation is starting.
+    /// The source frame rate and encoding settings are retained. Media dimensions are limited by
+    /// the model's maximum area and aligned to multiples of 4. Camera resolution buckets do not
+    /// apply. Submit frames at `source.videoFormat` dimensions; XmaxSDK resizes them automatically
+    /// and exposes the resolved format through `sink.videoFormat`.
+    ///
+    /// Sources declaring `hasAudio` can submit PCM for RTC upload. XmaxSDK doesn't request
+    /// microphone permission or play submitted audio locally.
+    ///
+    /// The state becomes `ready` when binding completes, without waiting for a frame. Disconnection
+    /// preserves frame delivery and preview. `stopExternalVideoStream()` and `close()` unbind the
+    /// source without taking ownership of its capture resources.
     ///
     /// - Parameters:
-    ///   - source: The caller-owned video source.
-    ///   - videoFormat: The desired input format; nil uses source dimensions and the model frame rate.
+    ///   - source: The video source implemented and owned by your app.
+    ///   - videoFormat: Optional processing format; nil retains the source frame rate and encoding settings.
     ///
-    /// - Returns: The local stream used for connection, generation, and optional SDK-hosted preview.
+    /// - Returns: A local stream for an `XmaxVideoView` or realtime generation.
     ///
-    /// - Throws: An error on conflicting media, invalid format, failed binding, or cancellation.
+    /// - Throws: An error if the format is invalid, a stream already exists, an operation
+    ///   conflicts, or source binding fails.
     func createExternalVideoStream(
         source: any RealtimeExternalVideoSource,
         videoFormat: RealtimeVideoFormat?
     ) async throws -> RealtimeMediaStream
 
-    /// Unbinds external input after disconnection; caller-owned capture resources remain caller-managed.
+    /// Stops external frame delivery and clears the SDK preview without taking ownership of capture
+    /// resources.
     ///
-    /// - Throws: An error if still connected, another operation conflicts, or the operation is cancelled.
+    /// - Throws: An error if realtime is still connected, another operation conflicts, or the
+    ///   operation is cancelled.
     func stopExternalVideoStream() async throws
 
     /// Switches the active camera device.

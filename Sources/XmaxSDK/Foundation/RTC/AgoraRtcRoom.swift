@@ -29,6 +29,9 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
     /// The decoded frame receiver.
     private var videoSink: RtcRemoteVideoSink?
 
+    /// The per-user PCM receiver retained until room destruction.
+    private var audioSink: RtcRemoteAudioSink?
+
     /// Control state is serialized by platform.lock; Agora callbacks must never wait for it.
     private var accounts: [UInt: String] = [:]
 
@@ -49,6 +52,9 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
 
         /// The remote frame receivers indexed by native user identifier.
         var frameListeners: [UInt: RtcRemoteVideoFrameListener] = [:]
+
+        /// The PCM receivers indexed by native user identifier.
+        var audioListeners: [UInt: RtcRemoteAudioFrameListener] = [:]
     }
 
     /// Only short state access is allowed under this lock, never engine calls or listener invocation.
@@ -132,6 +138,29 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
             }
             videoSink = sink
 
+            let audioSink = RtcRemoteAudioSink { [weak self] uid, channelID in
+                guard let self else { return nil }
+                return callbackLock.withLock {
+                    !callbackState.isClosed && callbackState.isJoined && channelID == roomID
+                        ? callbackState.audioListeners[uid] : nil
+                }
+            }
+            self.audioSink = audioSink
+            try AgoraRtcPlatform.checkResult(
+                platform.roomEngine.setPlaybackAudioFrameBeforeMixingParametersWithSampleRate(
+                    48_000,
+                    channel: 1,
+                    samplesPerCall: 480
+                ),
+                operation: "configureRemoteAudioFrames"
+            )
+            guard platform.roomEngine.setAudioFrameDelegate(audioSink) else {
+                throw XmaxError(
+                    code: .rtcError,
+                    message: "Failed to register RTC audio frame observer"
+                )
+            }
+
             let options = AgoraRtcChannelMediaOptions()
             options.channelProfile = .liveBroadcasting
             options.clientRoleType = .broadcaster
@@ -142,16 +171,14 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
             options.autoSubscribeAudio = false
             options.autoSubscribeVideo = false
             try AgoraRtcPlatform.checkResult(
-                LocalMediaPreparationTiming.measure(.agoraJoinCall) {
-                    platform.roomEngine.joinChannelEx(
-                        byToken: configuration.token,
-                        channelId: roomID,
-                        userAccount: configuration.userID,
-                        delegate: bridge,
-                        mediaOptions: options,
-                        joinSuccess: nil
-                    )
-                },
+                platform.roomEngine.joinChannelEx(
+                    byToken: configuration.token,
+                    channelId: roomID,
+                    userAccount: configuration.userID,
+                    delegate: bridge,
+                    mediaOptions: options,
+                    joinSuccess: nil
+                ),
                 operation: "joinChannelEx"
             )
         }
@@ -172,6 +199,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
 
             if let account {
                 _ = platform.setRemoteVideoSink(nil)
+                _ = platform.roomEngine.setAudioFrameDelegate(nil)
                 _ = platform.roomEngine.leaveChannelEx(
                     roomID,
                     userAccount: account,
@@ -180,6 +208,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
             }
             bridge = nil
             videoSink = nil
+            audioSink = nil
         }
     }
 
@@ -327,6 +356,26 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
             }
             callbackLock.withLock {
                 if !callbackState.isClosed { callbackState.frameListeners[uid] = listener }
+            }
+        }
+    }
+
+    /// Sets a PCM listener for the resolved remote user without changing playback volume.
+    ///
+    /// - Parameters:
+    ///   - listener: The owned audio handler, or `nil` to remove it.
+    ///   - userID: The remote RTC user account.
+    ///
+    /// - Throws: An error if the room or remote account is unavailable.
+    func setRemoteAudioFrameListener(
+        _ listener: RtcRemoteAudioFrameListener?,
+        for userID: String
+    ) throws {
+        try platform.lock.withLock {
+            try requireJoined()
+            let uid = try resolveUID(userID)
+            callbackLock.withLock {
+                callbackState.audioListeners[uid] = callbackState.isClosed ? nil : listener
             }
         }
     }

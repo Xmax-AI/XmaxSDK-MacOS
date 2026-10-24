@@ -61,6 +61,7 @@ final class RtcRoomStub: RtcRoom, @unchecked Sendable {
     private var listener: (@Sendable (RtcRoomEvent) -> Void)?
     private var lastListener: (@Sendable (RtcRoomEvent) -> Void)?
     private var frameListener: RtcRemoteVideoFrameListener?
+    private var audioFrameListener: RtcRemoteAudioFrameListener?
     private var destructions = 0
     private var sentMessages: [String] = []
     private var videoPublications: [Bool] = []
@@ -116,6 +117,15 @@ final class RtcRoomStub: RtcRoom, @unchecked Sendable {
         throws
     {
         lock.withLock { frameListener = listener }
+    }
+
+    func setRemoteAudioFrameListener(_ listener: RtcRemoteAudioFrameListener?, for userID: String) throws {
+        lock.withLock { audioFrameListener = listener }
+    }
+
+    func emitAudioFrame(_ frame: RtcRemoteAudioFrame) {
+        let callback = lock.withLock { audioFrameListener }
+        callback?(frame)
     }
 
     func emitFrame(_ frame: RealtimeVideoFrame) {

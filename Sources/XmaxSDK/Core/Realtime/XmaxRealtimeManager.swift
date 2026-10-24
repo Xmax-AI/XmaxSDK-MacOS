@@ -121,6 +121,30 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         }
     }
 
+    /// The uplink level successfully applied to the current connection.
+    var uplinkQualityLevel: RealtimeQualityLevel? {
+        get async {
+            let state = await lifecycleManager.currentState.connectionState
+            guard state == .connected || state == .generating else {
+                return nil
+            }
+
+            return streamController.qualityConfiguration.flatMap { RealtimeQualityLevel(rawValue: $0.uplinkLevel) }
+        }
+    }
+
+    /// The downlink level successfully submitted for the current connection.
+    var downlinkQualityLevel: RealtimeQualityLevel? {
+        get async {
+            let state = await lifecycleManager.currentState.connectionState
+            guard state == .connected || state == .generating else {
+                return nil
+            }
+
+            return streamController.qualityConfiguration.flatMap { RealtimeQualityLevel(rawValue: $0.downlinkLevel) }
+        }
+    }
+
     /// The effective remote frame interpolation state.
     var isFrameInterpolationEnabled: Bool {
         get async {
@@ -131,6 +155,73 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     /// The remote generated audio playback volume in `0...1`.
     var remoteAudioVolume: Float {
         streamController.remoteAudioVolume
+    }
+
+    /// Changes the uplink encoding level while allowing subsequent automatic adaptation.
+    ///
+    /// - Parameter level: The requested uplink quality level.
+    ///
+    /// - Throws: An error if generation is inactive, an operation conflicts or is cancelled, or
+    ///   encoder configuration fails.
+    func setUplinkQualityLevel(
+        _ level: RealtimeQualityLevel
+    ) async throws {
+        try await setQualityLevel(
+            level,
+            downlink: false
+        )
+    }
+
+    /// Changes the downlink output level while allowing subsequent automatic adaptation.
+    ///
+    /// - Parameter level: The requested downlink quality level.
+    ///
+    /// - Throws: An error if generation is inactive, an operation conflicts or is cancelled, or
+    ///   signaling or rendering configuration fails.
+    func setDownlinkQualityLevel(
+        _ level: RealtimeQualityLevel
+    ) async throws {
+        try await setQualityLevel(
+            level,
+            downlink: true
+        )
+    }
+
+    /// Changes the requested uplink or downlink quality level.
+    ///
+    /// - Parameters:
+    ///   - level: The requested transport quality level.
+    ///   - downlink: Whether to change downlink output rather than uplink encoding.
+    ///
+    /// - Throws: An error if the state is invalid, an operation conflicts or is cancelled, or the
+    ///   level cannot be applied.
+    private func setQualityLevel(
+        _ level: RealtimeQualityLevel,
+        downlink: Bool
+    ) async throws {
+        try await lifecycleManager.run(kind: .configuration) { [self] token in
+            let state = await lifecycleManager.currentState
+            try token.ensureCurrent()
+
+            guard state.connectionState == .generating,
+                let taskID = state.taskID,
+                streamController.qualityConfiguration != nil
+            else {
+                throw XmaxError(
+                    code: .invalidConfiguration,
+                    message: "Quality levels can only be changed while generating"
+                )
+            }
+
+            try await connectionManager.applyQualityLevel(
+                level.rawValue,
+                downlink: downlink,
+                taskID: taskID,
+                ensureCurrent: {
+                    try token.ensureCurrent()
+                }
+            )
+        }
     }
 
     /// Sets the realtime state listener.
@@ -149,6 +240,17 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         _ listener: RealtimeLaunchTimingListener?
     ) {
         timing.setListener(listener)
+    }
+
+    /// Sets serialized remote PCM and processed video output without changing playback.
+    ///
+    /// - Parameter listener: The output handler, or `nil` to stop output.
+    ///
+    /// - Throws: An error if the current remote audio listener cannot be configured.
+    func setRemoteMediaFrameListener(
+        _ listener: RealtimeMediaFrameListener?
+    ) async throws {
+        try await renderController.setRemoteMediaFrameListener(listener)
     }
 
     /// Sets the final remote video frame listener.
@@ -267,161 +369,16 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         deviceID: String?,
         useMicrophone: Bool = false
     ) async throws -> RealtimeMediaStream {
-        let trace = LocalMediaPreparationTiming.Trace()
-        return try await LocalMediaPreparationTiming.$current.withValue(trace) {
-            try await LocalMediaPreparationTiming.measureAsync(.total) {
-                try await createLocalMediaStream(source: .camera) { [self] token in
-                    timing.beginCameraPreparation()
-                    let stream = try await mediaController.createLocalCameraStream(
-                        videoFormat: videoFormat,
-                        deviceID: deviceID,
-                        useMicrophone: useMicrophone,
-                        retainRTCOnFailure: false
-                    )
-                    try token.ensureCurrent()
-                    timing.finishCameraPreparation()
-                    return stream
-                }
-            }
-        }
-    }
-
-    /// Runs camera preparation and cloud joining as children of one cancellable lifecycle operation.
-    func startCameraGeneration(
-        videoFormat: RealtimeVideoFormat,
-        deviceID: String?,
-        useMicrophone: Bool,
-        context: RealtimeContext,
-        faceRestoration: Bool,
-        localStreamListener: @escaping @MainActor @Sendable (RealtimeMediaStream) -> Void
-    ) async throws -> RealtimeMediaStream {
-        let trace = LocalMediaPreparationTiming.Trace()
-        return try await LocalMediaPreparationTiming.$current.withValue(trace) {
-            try await lifecycleManager.run(kind: .generation) { [self] token in
-                try await ensureLocalMediaCanChange(message: "Camera startup requires an idle manager")
-                guard await mediaController.currentTrack == nil else {
-                    throw XmaxError(
-                        code: .invalidConfiguration,
-                        message: "Stop the current local stream before camera startup"
-                    )
-                }
-                try videoFormat.validate()
-                try await generationManager.validateContext(context)
-                let size = try mediaService.resolveMediaSize(
-                    videoFormat.size,
-                    source: .camera
-                )
-                let format = videoFormat.resized(
-                    width: Int(size.width),
-                    height: Int(size.height)
-                )
-                try format.validate()
-                try token.ensureCurrent()
-                token.setFailureScope(.all)
-                errorManager.invalidatePendingFailures()
-                timing.begin()
-                timing.beginCameraPreparation()
-                do {
-                    try await lifecycleManager.commit(
-                        RealtimeState(connectionState: .preparing),
-                        token: token
-                    )
-                    try await LocalMediaPreparationTiming.measureAsync(.engineAcquire) {
-                        try await mediaController.initializeRTC()
-                    }
-                    try token.ensureCurrent()
-                    let preparedQuality = try await connectionManager.prepareQuality(
-                        baseline: format,
-                        options: options,
-                        configureEncoder: false,
-                        ensureCurrent: { try token.ensureCurrent() }
-                    )
-                    let quality = preparedQuality.configuration
-                    let targetSize = preparedQuality.targetSize
-                    try streamController.setRemoteAudioVolume(0)
-                    try await lifecycleManager.commit(
-                        RealtimeState(connectionState: .connecting),
-                        token: token
-                    )
-
-                    let gate = CameraStartupGate()
-
-                    /// A completed branch of concurrent camera preparation and RTC connection.
-                    enum Branch: Sendable {
-
-                        /// Completion of local camera preparation or a connected remote stream, respectively.
-                        case camera, connection(RealtimeMediaStream)
-                    }
-                    let remote = try await withThrowingTaskGroup(of: Branch.self) { group in
-                        group.addTask { [self] in
-                            let local = try await LocalMediaPreparationTiming.measureAsync(.total) {
-                                try await mediaController.createLocalCameraStream(
-                                    videoFormat: format,
-                                    deviceID: deviceID,
-                                    useMicrophone: useMicrophone,
-                                    retainRTCOnFailure: true
-                                )
-                            }
-                            try Task.checkCancellation()
-                            try token.ensureCurrent()
-                            timing.finishCameraPreparation()
-                            await localStreamListener(local)
-                            try await mediaController.startMicrophoneCapture()
-                            try Task.checkCancellation()
-                            try token.ensureCurrent()
-                            await gate.ready()
-                            return .camera
-                        }
-                        group.addTask { [self] in
-                            let remote = try await connectionManager.connect(
-                                model: options.model,
-                                videoFormat: format,
-                                targetSize: targetSize,
-                                includeLocalAudio: useMicrophone,
-                                beforePublication: {
-                                    try await gate.wait()
-                                    try token.ensureCurrent()
-                                    try self.streamController.setVideoEncoderConfig(quality.uplink)
-                                },
-                                isCurrent: { token.isCurrent && !Task.isCancelled },
-                                onHeartbeatFailure: { [weak self] sessionID, error in
-                                    await self?.handleHeartbeatFailure(
-                                        sessionID: sessionID,
-                                        error: error
-                                    )
-                                }
-                            )
-                            return .connection(remote)
-                        }
-                        defer { group.cancelAll() }
-                        var result: RealtimeMediaStream?
-                        for try await branch in group {
-                            if case .connection(let stream) = branch { result = stream }
-                        }
-                        guard let result else { throw CancellationError() }
-                        return result
-                    }
-                    try token.ensureCurrent()
-                    let sessionID = await connectionManager.currentSessionID
-                    try await lifecycleManager.commit(
-                        RealtimeState(
-                            connectionState: .connected,
-                            sessionID: sessionID
-                        ),
-                        token: token
-                    )
-                    try await performStartGeneration(
-                        context: context,
-                        faceRestoration: faceRestoration,
-                        token: token,
-                        failureScope: .all
-                    )
-                    return remote
-                } catch {
-                    timing.finishFailure(error)
-                    throw error
-                }
-            }
+        return try await createLocalMediaStream(source: .camera) { [self] token in
+            timing.beginCameraPreparation()
+            let stream = try await mediaController.createLocalCameraStream(
+                videoFormat: videoFormat,
+                deviceID: deviceID,
+                useMicrophone: useMicrophone
+            )
+            try token.ensureCurrent()
+            timing.finishCameraPreparation()
+            return stream
         }
     }
 
@@ -804,14 +761,18 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
             )
             try token.ensureCurrent()
             await connectionManager.completeInitialQuality()
-            streamController.setAdaptiveQualityListener { [weak self] quality, time in
-                Task {
-                    await self?.adaptQuality(
-                        quality,
-                        sampledAt: time,
-                        taskID: taskID
-                    )
+            if options.isAdaptiveQualityEnabled {
+                streamController.setAdaptiveQualityListener { [weak self] quality, time in
+                    Task {
+                        await self?.adaptQuality(
+                            quality,
+                            sampledAt: time,
+                            taskID: taskID
+                        )
+                    }
                 }
+            } else {
+                streamController.setAdaptiveQualityListener(nil)
             }
             timing.finish(taskID: taskID)
         } catch {
@@ -994,22 +955,16 @@ private extension XmaxRealtimeManager {
             )
             try token.ensureCurrent()
 
-            let stream = try await LocalMediaPreparationTiming.measureAsync(.mediaPrepare) {
-                try await prepare(token)
-            }
+            let stream = try await prepare(token)
             try token.ensureCurrent()
             token.setFailureScope(.all)
-            _ = try await LocalMediaPreparationTiming.measureAsync(.interpolationConfiguration) {
-                try await connectionManager.reconcileFrameInterpolation(for: stream.videoTrack?.videoFormat)
-            }
+            _ = try await connectionManager.reconcileFrameInterpolation(for: stream.videoTrack?.videoFormat)
             try token.ensureCurrent()
             try streamController.setRemoteAudioVolume(0)
             if source == .camera {
-                await LocalMediaPreparationTiming.measureAsync(.previewReadinessRegistration) {
-                    await mediaController.setCameraPreviewReadyHandler { [lifecycleManager] isCurrent in
-                        Task {
-                            await lifecycleManager.localPreviewDidBecomeReady(isCurrent: isCurrent)
-                        }
+                await mediaController.setCameraPreviewReadyHandler { [lifecycleManager] isCurrent in
+                    Task {
+                        await lifecycleManager.localPreviewDidBecomeReady(isCurrent: isCurrent)
                     }
                 }
             } else {

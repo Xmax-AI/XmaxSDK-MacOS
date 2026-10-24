@@ -186,6 +186,19 @@ protocol RtcManaging: RtcCameraCapturing {
     func setQualityListener(
         _ listener: (any RtcQualityListener)?
     )
+
+    /// Sets an owned PCM callback for the current remote user without changing playback.
+    ///
+    /// - Parameters:
+    ///   - listener: The PCM callback; nil removes it.
+    ///   - stream: The current room and result user.
+    ///
+    /// - Throws: An error if the room or remote user is unavailable.
+    func setRemoteAudioFrameListener(
+        _ listener: RtcRemoteAudioFrameListener?,
+        for stream: RemoteStream
+    ) throws
+
 }
 
 extension RtcManaging {

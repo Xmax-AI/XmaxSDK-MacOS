@@ -8,102 +8,152 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-import AppKit
+import CoreMedia
 import CoreVideo
 
-/// A caller-owned video source for camera, decoder, or processed video input.
+/// A video source that supplies frames captured, decoded, or processed by your app.
 ///
-/// The caller owns permissions, capture, device switching, and final resource release.
-/// The SDK only binds and unbinds frame delivery. Lifecycle and preview methods run
-/// on the main actor; frames may be submitted synchronously from a capture queue.
+/// XmaxSDK uses the frames for local preview and realtime generation. Your app manages permissions,
+/// capture devices, playback, and resource cleanup. A source can also supply PCM audio. XmaxSDK
+/// doesn't capture microphone audio or play submitted audio locally.
+///
+/// Lifecycle methods run on the main actor. You can submit frames from a capture or processing
+/// queue.
 @MainActor
 public protocol RealtimeExternalVideoSource: AnyObject, Sendable {
 
-    /// The source display format before conversion to the sink's requested format.
-    var videoFormat: RealtimeVideoFormat { get }
+    /// The source frame dimensions, frame rate, and encoding options.
+    ///
+    /// Keep this value unchanged until frame delivery stops.
+    var videoFormat: RealtimeVideoFormat {
+        get
+    }
 
-    /// Binds frame delivery and returns once the sink is stored and usable.
+    /// Whether this source supplies audio for RTC upload. The default is `false`.
     ///
-    /// Produce upright, correctly mirrored frames matching `sink.videoFormat`.
-    /// Do not await generation completion here or wait for `startGeneration` to return
-    /// before supplying frames. A failed or cancelled start is followed by `stop()`.
+    /// Keep this value unchanged until frame delivery stops. Audio and video timestamps must
+    /// use the same monotonic timeline.
+    var hasAudio: Bool {
+        get
+    }
+
+    /// Starts delivering video frames to the specified sink.
     ///
-    /// - Parameter sink: The SDK frame receiver for this binding.
+    /// Install your frame callback and return when the source is ready to deliver frames. You don't
+    /// need to submit the first frame before returning or wait for generation to begin. Continue
+    /// delivering frames while disconnected to keep the local preview running.
     ///
-    /// - Throws: An error if the source cannot bind frame delivery.
+    /// Pace frames according to the source's `videoFormat`, with orientation and mirroring applied
+    /// to the pixels. If startup fails or is cancelled, XmaxSDK calls `stop()` to end frame
+    /// delivery.
+    ///
+    /// - Parameter sink: The receiver for frames from this source.
+    ///
+    /// - Throws: An error if the source can't start delivering frames.
     func start(
         sink: any RealtimeExternalFrameSink
     ) async throws
 
-    /// Unbinds frame delivery and clears the stored sink; repeated calls must be safe.
-    /// This does not transfer ownership of the caller's camera or decoder to the SDK.
+    /// Stops delivering frames and releases the source's reference to the sink.
+    ///
+    /// This method must be safe to call more than once. Your app retains ownership of its capture
+    /// devices and players and decides when to release them.
     func stop() async
-
-    /// Optionally mounts a caller-owned preview in the SDK container.
-    ///
-    /// - Parameters:
-    ///   - container: The AppKit container hosting the preview.
-    ///   - contentMode: The requested proportional fitting or cropping mode.
-    func attachPreview(
-        to container: NSView,
-        contentMode: VideoContentMode
-    )
-
-    /// Removes a preview from its container without stopping capture.
-    ///
-    /// - Parameter container: The container previously hosting the preview.
-    func detachPreview(
-        from container: NSView
-    )
 }
 
+/// Default audio behavior for external video sources.
 public extension RealtimeExternalVideoSource {
 
-    /// Leaves preview presentation to the caller by default.
-    func attachPreview(
-        to container: NSView,
-        contentMode: VideoContentMode
-    ) {}
-
-    /// Performs no preview cleanup when no SDK preview was mounted.
-    func detachPreview(
-        from container: NSView
-    ) {}
+    /// Supplies video without audio unless the source opts in.
+    var hasAudio: Bool {
+        false
+    }
 }
 
-/// A synchronous video input bound to one external source lifecycle.
+/// A receiver for video and optional audio from a single source attachment.
 ///
-/// This input accepts video only. The SDK copies pixels during `pushVideo`;
-/// the caller may reuse the input buffer after the method returns, but must not
-/// modify it concurrently with submission. Stale bindings silently discard input.
+/// The sink processes frames synchronously and discards further input after delivery stops or the
+/// source fails. You can submit frames from any queue.
 public protocol RealtimeExternalFrameSink: AnyObject, Sendable {
 
-    /// The final input dimensions, frame rate, and encoding options required by the SDK.
-    var videoFormat: RealtimeVideoFormat { get }
-
-    /// Whether generation currently requests frames from this binding.
-    /// When false, skip conversion and submission while keeping caller-owned preview running.
-    /// This is a demand signal, not a frame-rate limiter.
-    var isRequestingFrames: Bool { get }
-
-    /// Submits one upright NV12 video-range or BGRA pixel buffer of the exact requested size.
+    /// The processed media format used for local preview and adaptive quality.
     ///
-    /// Frames must be paced by the caller and submitted in timestamp order. Duplicate,
-    /// decreasing, or negative timestamps are ignored. No rotation, mirroring, cropping,
-    /// or scaling is performed. Invalid pixels are reported as media failures.
+    /// XmaxSDK scales the pixel area into the model's supported range and aligns each dimension to
+    /// a multiple of four. The source frame rate and encoding options are preserved. Submit frames
+    /// at the source's dimensions; XmaxSDK resizes them to this format.
+    var videoFormat: RealtimeVideoFormat {
+        get
+    }
+
+    /// A Boolean value that indicates whether the sink accepts source frames.
+    ///
+    /// This value remains `true` while disconnected so frames can drive the local preview. It
+    /// becomes `false` when the source is detached or fails.
+    var isRequestingFrames: Bool {
+        get
+    }
+
+    /// Submits a video frame for local preview and realtime generation.
+    ///
+    /// XmaxSDK copies or resizes the pixels before this method returns. You can reuse the buffer
+    /// afterward, but must not modify it during submission. Invalid, duplicate, or decreasing
+    /// timestamps are ignored.
     ///
     /// - Parameters:
-    ///   - pixelBuffer: A `420v` NV12 or `32BGRA` pixel buffer.
-    ///   - timestampUs: A nonnegative, strictly increasing monotonic timestamp in microseconds.
+    ///   - pixelBuffer: An upright NV12 video-range (`420v`) or BGRA buffer whose dimensions match
+    ///     the source's `videoFormat`, with any required mirroring already applied.
+    ///   - timestamp: A nonnegative, strictly increasing timestamp from a monotonic clock. Keep
+    ///     timestamps increasing across seeks and playback loops.
     func pushVideo(
         _ pixelBuffer: CVPixelBuffer,
-        timestampUs: Int64
+        timestamp: CMTime
     )
 
-    /// Reports an unrecoverable capture or conversion failure for the current binding.
+    /// Submits PCM audio for RTC upload without local playback.
     ///
-    /// - Parameter error: The failure ending external media input.
+    /// Set the source's `hasAudio` to `true` before binding. XmaxSDK copies the samples before
+    /// returning and converts them to 48 kHz mono PCM16 in 10 ms packets. The PCM format must
+    /// remain unchanged during the binding. Audio submitted without opting in is ignored.
+    /// Audio is uploaded only while published and isn't queued for reconnection.
+    ///
+    /// Buffers must contain contiguous PCM samples and a nonnegative presentation timestamp on
+    /// the same monotonic timeline as video. Invalid timestamps and overlapping buffers are
+    /// ignored. A gap starts a new audio segment without filling the gap with silence.
+    ///
+    /// - Parameter sampleBuffer: A ready linear PCM buffer. Its presentation timestamp identifies
+    ///   the first sample. Compressed audio must be decoded before submission.
+    func pushAudio(
+        _ sampleBuffer: CMSampleBuffer
+    )
+
+    /// Reports a source failure that prevents further frame delivery.
+    ///
+    /// XmaxSDK ends the realtime connection and releases the local stream.
+    ///
+    /// - Parameter error: The unrecoverable capture, decoding, or processing error.
     func reportError(
         _ error: any Error
     )
+}
+
+/// Compatibility conveniences for callers using microsecond timestamps.
+public extension RealtimeExternalFrameSink {
+
+    /// Submits an external video frame using a monotonic timestamp in microseconds.
+    ///
+    /// - Parameters:
+    ///   - pixelBuffer: Pixels matching the external source's declared format.
+    ///   - timestampUs: The nonnegative, increasing timestamp shared with audio.
+    func pushVideo(
+        _ pixelBuffer: CVPixelBuffer,
+        timestampUs: Int64
+    ) {
+        pushVideo(
+            pixelBuffer,
+            timestamp: CMTime(
+                value: timestampUs,
+                timescale: 1_000_000
+            )
+        )
+    }
 }

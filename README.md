@@ -331,7 +331,8 @@ input stream or starting generation.
 | Listener | Purpose |
 | --- | --- |
 | `setStateListener` | Observe pipeline states and termination reasons during real-time generation. |
-| `setRemoteVideoFrameListener` | Receive generated frames for recording or custom processing. |
+| `setRemoteMediaFrameListener` | Receive remote PCM and processed video with shared stream identity and timestamps. |
+| `setRemoteVideoFrameListener` | Receive generated video frames for recording or custom processing. |
 | `setNetworkQualityListener` | Monitor uplink and downlink network quality. |
 | `setPerformanceAlarmListener` | Detect device performance limitations or recovery, with a suggested video format when available. |
 

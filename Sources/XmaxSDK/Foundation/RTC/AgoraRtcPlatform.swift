@@ -66,9 +66,6 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     /// Whether native preview capture has started.
     private var cameraPreviewStarted = false
 
-    /// The diagnostic trace retained for deferred preview attachment.
-    private var cameraTimingTrace: LocalMediaPreparationTiming.Trace?
-
     /// The external audio track identifier.
     private(set) var audioTrackID: Int?
 
@@ -99,25 +96,14 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
         configuration.appId = appID
         configuration.channelProfile = .liveBroadcasting
         let cameraEvents = RtcCameraEventSink()
-        let engine = LocalMediaPreparationTiming.measure(.sharedEngine) {
-            AgoraRtcEngineKit.sharedEngine(
-                with: configuration,
-                delegate: cameraEvents
-            )
-        }
+        let engine = AgoraRtcEngineKit.sharedEngine(
+            with: configuration,
+            delegate: cameraEvents
+        )
         guard
-            LocalMediaPreparationTiming.measure(
-                .enableVideo,
-                { engine.enableVideo() }
-            ) == 0,
-            LocalMediaPreparationTiming.measure(
-                .disableLocalVideo,
-                { engine.enableLocalVideo(false) }
-            ) == 0,
-            LocalMediaPreparationTiming.measure(
-                .disableLocalAudio,
-                { engine.enableLocalAudio(false) }
-            ) == 0
+            engine.enableVideo() == 0,
+            engine.enableLocalVideo(false) == 0,
+            engine.enableLocalAudio(false) == 0
         else {
             AgoraRtcEngineKit.destroy()
             return nil
@@ -191,7 +177,6 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
             }
             cameraStateLock.withLock { storedUsesCameraTrack = true }
             cameraConfiguration = configuration
-            cameraTimingTrace = LocalMediaPreparationTiming.current
             cameraEvents.beginSession(
                 ready: previewReadyListener,
                 failure: errorListener
@@ -206,25 +191,19 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
             config.followEncodeDimensionRatio = true
             do {
                 try Self.checkResult(
-                    LocalMediaPreparationTiming.measure(.enableNativeCamera) {
-                        cameraEngine.enableLocalVideo(true)
-                    },
+                    cameraEngine.enableLocalVideo(true),
                     operation: "enableLocalVideo"
                 )
                 try Self.checkResult(
-                    LocalMediaPreparationTiming.measure(.startNativeCamera) {
-                        cameraEngine.startCameraCapture(
-                            .camera,
-                            config: config
-                        )
-                    },
+                    cameraEngine.startCameraCapture(
+                        .camera,
+                        config: config
+                    ),
                     operation: "startCameraCapture"
                 )
                 // Start native preview capture on the control queue. AppKit binds the visible canvas after capture is ready.
                 try Self.checkResult(
-                    LocalMediaPreparationTiming.measure(.startNativePreview) {
-                        cameraEngine.startPreview(.camera)
-                    },
+                    cameraEngine.startPreview(.camera),
                     operation: "startPreview"
                 )
                 cameraPreviewStarted = true
@@ -270,7 +249,6 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
             cameraEvents.endSession()
             cameraConfiguration = nil
             cameraPreviewStarted = false
-            cameraTimingTrace = nil
             var failure: (any Error)?
             for (result, operation) in [
                 (cameraEngine.stopPreview(.camera), "stopPreview"),
@@ -311,17 +289,13 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
             canvas.renderMode = contentMode == .fit ? .fit : .hidden
             canvas.mirrorMode = mirrored ? .enabled : .disabled
             try Self.checkResult(
-                LocalMediaPreparationTiming.$current.withValue(cameraTimingTrace) {
-                    LocalMediaPreparationTiming.measure(.attachNativePreview) { cameraEngine.setupLocalVideo(canvas) }
-                },
+                cameraEngine.setupLocalVideo(canvas),
                 operation: "setupLocalVideo"
             )
             cameraPreviewView = view
             if !cameraPreviewStarted {
                 try Self.checkResult(
-                    LocalMediaPreparationTiming.$current.withValue(cameraTimingTrace) {
-                        LocalMediaPreparationTiming.measure(.startNativePreview) { cameraEngine.startPreview(.camera) }
-                    },
+                    cameraEngine.startPreview(.camera),
                     operation: "startPreview"
                 )
                 cameraPreviewStarted = true
@@ -361,9 +335,7 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     /// Registers the remote frame observer once and returns whether the engine accepts it.
     private func registerVideoObserver() -> Bool {
         guard !videoObserverRegistered else { return true }
-        videoObserverRegistered = LocalMediaPreparationTiming.measure(.registerVideoObserver) {
-            roomEngine.setVideoFrameDelegate(videoObserver)
-        }
+        videoObserverRegistered = roomEngine.setVideoFrameDelegate(videoObserver)
         return videoObserverRegistered
     }
 
