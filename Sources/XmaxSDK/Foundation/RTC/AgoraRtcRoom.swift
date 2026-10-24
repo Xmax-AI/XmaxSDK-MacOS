@@ -16,17 +16,26 @@ import Foundation
 final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
 
     /// Platform resources
-    private let platform: AgoraRtcPlatform
+    private let platform: any AgoraRtcRoomPlatform
     private let roomID: String
     let connection = AgoraRtcConnection()
     private var bridge: RtcRoomEventBridge?
     private var videoSink: RtcRemoteVideoSink?
 
-    /// Users and events
-    private var listener: (@Sendable (RtcRoomEvent) -> Void)?
+    /// Control state is serialized by platform.lock; Agora callbacks must never wait for it.
     private var accounts: [UInt: String] = [:]
     private var publications: [UInt: Bool] = [:]
-    private var frameListeners: [UInt: RtcRemoteVideoFrameListener] = [:]
+
+    private struct CallbackState {
+        var isClosed = false
+        var isJoined = false
+        var listener: (@Sendable (RtcRoomEvent) -> Void)?
+        var frameListeners: [UInt: RtcRemoteVideoFrameListener] = [:]
+    }
+    /// Only short state access is allowed under this lock, never engine calls or listener invocation.
+    private let callbackLock = NSLock()
+    private var callbackState = CallbackState()
+    private let eventQueue = DispatchQueue(label: "ai.xmax.sdk.agora-room-events")
 
     /// Signaling resources
     private var dataStreamID = 0
@@ -42,7 +51,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
     /// - Parameters:
     ///   - platform: The platform adapter retaining the Agora engine.
     ///   - roomID: The RTC room identifier.
-    init(platform: AgoraRtcPlatform, roomID: String) {
+    init(platform: any AgoraRtcRoomPlatform, roomID: String) {
         self.platform = platform
         self.roomID = roomID
         connection.channelId = roomID
@@ -52,8 +61,8 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
     ///
     /// - Parameter listener: The neutral event callback; nil clears it.
     func setEventListener(_ listener: (@Sendable (RtcRoomEvent) -> Void)?) {
-        platform.lock.withLock {
-            self.listener = isClosed ? nil : listener
+        callbackLock.withLock {
+            callbackState.listener = callbackState.isClosed ? nil : listener
         }
     }
 
@@ -68,19 +77,21 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
             }
             account = configuration.userID
             let bridge = RtcRoomEventBridge { [weak self] event in
-                self?.handle(event)
+                // Return to Agora immediately; lifecycle handling can acquire control locks or call the engine.
+                self?.enqueue(event)
             }
             self.bridge = bridge
 
             let sink = RtcRemoteVideoSink { [weak self] uid, channelID, frame in
                 guard let self else { return }
-                let callback = platform.lock.withLock {
-                    !isClosed && isJoined && channelID == roomID ? frameListeners[uid] : nil
+                let callback = callbackLock.withLock {
+                    !callbackState.isClosed && callbackState.isJoined && channelID == roomID
+                        ? callbackState.frameListeners[uid] : nil
                 }
                 callback?(frame)
             }
             videoSink = sink
-            guard platform.engine.setVideoFrameDelegate(sink) else {
+            guard platform.roomEngine.setVideoFrameDelegate(sink) else {
                 throw XmaxError(
                     code: .rtcError, message: "Failed to register RTC video frame observer")
             }
@@ -95,7 +106,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
             options.autoSubscribeAudio = false
             options.autoSubscribeVideo = false
             try AgoraRtcPlatform.checkResult(
-                platform.engine.joinChannelEx(
+                platform.roomEngine.joinChannelEx(
                     byToken: configuration.token,
                     channelId: roomID,
                     userAccount: configuration.userID,
@@ -110,20 +121,20 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
 
     /// Stops callbacks, clears signals and frame listeners, and leaves the room; repeated calls are harmless.
     func destroy() {
+        // Invalidate callbacks before entering SDK calls that may wait for in-flight callbacks to return.
+        callbackLock.withLock { callbackState = CallbackState(isClosed: true) }
         platform.lock.withLock {
             guard !isClosed else { return }
             isClosed = true
             isJoined = false
-            listener = nil
             sender?.close()
             sender = nil
-            frameListeners.removeAll()
             accounts.removeAll()
             publications.removeAll()
 
             if let account {
-                platform.engine.setVideoFrameDelegate(nil)
-                _ = platform.engine.leaveChannelEx(
+                _ = platform.roomEngine.setVideoFrameDelegate(nil)
+                _ = platform.roomEngine.leaveChannelEx(
                     roomID, userAccount: account, leaveChannelBlock: nil)
             }
             bridge = nil
@@ -174,7 +185,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
         try platform.lock.withLock {
             try requireJoined()
             try AgoraRtcPlatform.checkResult(
-                platform.engine.muteRemoteVideoStreamEx(
+                platform.roomEngine.muteRemoteVideoStreamEx(
                     try resolveUID(userID), mute: !subscribe, connection: connection
                 ),
                 operation: "subscribeRemoteVideo"
@@ -192,7 +203,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
         try platform.lock.withLock {
             try requireJoined()
             try AgoraRtcPlatform.checkResult(
-                platform.engine.muteRemoteAudioStreamEx(
+                platform.roomEngine.muteRemoteAudioStreamEx(
                     try resolveUID(userID), mute: !subscribe, connection: connection
                 ),
                 operation: "subscribeRemoteAudio"
@@ -210,7 +221,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
         try platform.lock.withLock {
             try requireJoined()
             try AgoraRtcPlatform.checkResult(
-                platform.engine.adjustUserPlaybackSignalVolumeEx(
+                platform.roomEngine.adjustUserPlaybackSignalVolumeEx(
                     try resolveUID(userID), volume: volume, connection: connection
                 ),
                 operation: "setRemoteAudioVolume"
@@ -229,7 +240,10 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
     {
         try platform.lock.withLock {
             try requireJoined()
-            frameListeners[try resolveUID(userID)] = listener
+            let uid = try resolveUID(userID)
+            callbackLock.withLock {
+                if !callbackState.isClosed { callbackState.frameListeners[uid] = listener }
+            }
         }
     }
 
@@ -264,6 +278,10 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
 }
 
 private extension AgoraRtcRoom {
+    func enqueue(_ event: RtcRoomEventBridge.Event) {
+        eventQueue.async { [weak self] in self?.handle(event) }
+    }
+
     /// Converts platform connection callbacks to room events and notifies listeners after unlocking.
     ///
     /// - Parameter event: The Agora connection callback event.
@@ -295,30 +313,28 @@ private extension AgoraRtcRoom {
             case .failure(let message):
                 return [.failure(XmaxError(code: .rtcError, message: message))]
             case .quality(let up, let down):
-                return [
-                    .quality(
-                        uplink: RtcQualityConverter.convertLevel(up),
-                        downlink: RtcQualityConverter.convertLevel(down)
-                    )
-                ]
-            case .localStats(let stats):
-                let statistics = RtcQualityConverter.uplinkVideoStatistics(stats)
+                return [.quality(uplink: up, downlink: down)]
+            case .localStats(let statistics, let adaptation, let width, let height, let frameRate):
                 RtcStatsLogger.logUplinkVideoStatistics(statistics)
-                let adaptation = stats.qualityAdaptIndication.rawValue
                 let events: [RtcRoomEvent] = [.uplinkVideoStatistics(statistics)]
                 guard adaptation == 1 || adaptation == 2 else { return events }
                 return events + [
                     .performance(
                         limited: adaptation == 2,
-                        width: stats.encodedFrameWidth,
-                        height: stats.encodedFrameHeight,
-                        frameRate: stats.encoderOutputFrameRate
+                        width: width,
+                        height: height,
+                        frameRate: frameRate
                     )
                 ]
-            case .remoteStats(let stats):
-                resolveAccount(uid: stats.uid)
-                guard let account = accounts[stats.uid] else { return [] }
-                let statistics = RtcQualityConverter.downlinkVideoStatistics(userID: account, stats)
+            case .remoteStats(let uid, let stats):
+                resolveAccount(uid: uid)
+                guard let account = accounts[uid] else { return [] }
+                let statistics = DownlinkVideoStatistics(
+                    userID: account, width: stats.width, height: stats.height,
+                    decodeFrameRate: stats.decodeFrameRate, renderFrameRate: stats.renderFrameRate,
+                    bitrateKbps: stats.bitrateKbps, packetLossPercent: stats.packetLossPercent,
+                    endToEndDelayMs: stats.endToEndDelayMs
+                )
                 RtcStatsLogger.logDownlinkVideoStatistics(statistics)
                 return [.downlinkVideoStatistics(statistics)]
             }
@@ -338,7 +354,7 @@ private extension AgoraRtcRoom {
         config.ordered = true
         config.syncWithAudio = false
         try AgoraRtcPlatform.checkResult(
-            platform.engine.createDataStreamEx(
+            platform.roomEngine.createDataStreamEx(
                 &dataStreamID, config: config, connection: connection),
             operation: "createDataStreamEx"
         )
@@ -348,7 +364,7 @@ private extension AgoraRtcRoom {
                 try platform.lock.withLock {
                     try requireJoined()
                     try AgoraRtcPlatform.checkResult(
-                        platform.engine.sendStreamMessageEx(
+                        platform.roomEngine.sendStreamMessageEx(
                             dataStreamID, data: data, connection: connection),
                         operation: "sendStreamMessageEx"
                     )
@@ -357,13 +373,16 @@ private extension AgoraRtcRoom {
             onFailure: { [weak self] error in self?.emit(.failure(error)) }
         )
         isJoined = true
+        callbackLock.withLock {
+            if !callbackState.isClosed { callbackState.isJoined = true }
+        }
     }
 
     /// Sends an event to a valid room listener.
     ///
     /// - Parameter event: The room event to report.
     func emit(_ event: RtcRoomEvent) {
-        let callback = platform.lock.withLock { isClosed ? nil : listener }
+        let callback = callbackLock.withLock { callbackState.isClosed ? nil : callbackState.listener }
         callback?(event)
     }
 
@@ -395,7 +414,7 @@ private extension AgoraRtcRoom {
     func resolveAccount(uid: UInt) {
         guard accounts[uid] == nil else { return }
         accounts[uid] =
-            platform.engine.getUserInfo(
+            platform.roomEngine.getUserInfo(
                 byUidEx: uid, connection: connection, withError: nil
             )?.userAccount
     }
@@ -407,7 +426,7 @@ private extension AgoraRtcRoom {
     /// - Throws: An error if account mapping is unavailable.
     func resolveUID(_ account: String) throws -> UInt {
         if let uid = accounts.first(where: { $0.value == account })?.key { return uid }
-        if let info = platform.engine.getUserInfo(
+        if let info = platform.roomEngine.getUserInfo(
             byUserAccountEx: account, connection: connection, withError: nil
         ) {
             accounts[info.uid] = account
@@ -433,7 +452,7 @@ private extension AgoraRtcRoom {
     /// - Throws: An error if the platform configuration update fails.
     func update(_ options: AgoraRtcChannelMediaOptions, operation: String) throws {
         try AgoraRtcPlatform.checkResult(
-            platform.engine.updateChannelEx(with: options, connection: connection),
+            platform.roomEngine.updateChannelEx(with: options, connection: connection),
             operation: operation
         )
     }

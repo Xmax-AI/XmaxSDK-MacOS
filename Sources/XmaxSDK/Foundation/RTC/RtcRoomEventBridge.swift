@@ -15,15 +15,15 @@ import Foundation
 /// Forwards one Agora connection's callbacks to the RTC manager.
 final class RtcRoomEventBridge: NSObject, AgoraRtcEngineDelegate {
     /// Wraps user, media, and quality events for one Agora connection.
-    enum Event {
+    enum Event: Sendable {
         case joined(UInt)
         case account(UInt, String)
         case publication(UInt, Bool)
         case userJoined(UInt)
         case failure(String)
-        case quality(AgoraNetworkQuality, AgoraNetworkQuality)
-        case localStats(AgoraRtcLocalVideoStats)
-        case remoteStats(AgoraRtcRemoteVideoStats)
+        case quality(RtcQualityLevel, RtcQualityLevel)
+        case localStats(UplinkVideoStatistics, adaptation: Int, width: Int, height: Int, frameRate: Int)
+        case remoteStats(UInt, DownlinkVideoStatistics)
     }
 
     /// Event callbacks
@@ -175,7 +175,9 @@ final class RtcRoomEventBridge: NSObject, AgoraRtcEngineDelegate {
     ///   - txQuality: The upstream network quality.
     ///   - rxQuality: The downstream network quality.
     func rtcEngine(_ engine: AgoraRtcEngineKit, networkQuality uid: UInt, txQuality: AgoraNetworkQuality, rxQuality: AgoraNetworkQuality) {
-        if uid == 0 { handler(.quality(txQuality, rxQuality)) }
+        if uid == 0 {
+            handler(.quality(RtcQualityConverter.convertLevel(txQuality), RtcQualityConverter.convertLevel(rxQuality)))
+        }
     }
 
     /// Forwards local upstream video statistics.
@@ -185,7 +187,11 @@ final class RtcRoomEventBridge: NSObject, AgoraRtcEngineDelegate {
     ///   - stats: The current local video statistics.
     ///   - sourceType: The video source type associated with the statistics.
     func rtcEngine(_ engine: AgoraRtcEngineKit, localVideoStats stats: AgoraRtcLocalVideoStats, sourceType: AgoraVideoSourceType) {
-        handler(.localStats(stats))
+        // Snapshot vendor-owned mutable objects before the room handles events asynchronously.
+        handler(.localStats(
+            RtcQualityConverter.uplinkVideoStatistics(stats), adaptation: stats.qualityAdaptIndication.rawValue,
+            width: stats.encodedFrameWidth, height: stats.encodedFrameHeight, frameRate: stats.encoderOutputFrameRate
+        ))
     }
 
     /// Forwards remote downstream video statistics.
@@ -194,6 +200,6 @@ final class RtcRoomEventBridge: NSObject, AgoraRtcEngineDelegate {
     ///   - engine: The RTC engine producing the callback.
     ///   - stats: The current remote video statistics.
     func rtcEngine(_ engine: AgoraRtcEngineKit, remoteVideoStats stats: AgoraRtcRemoteVideoStats) {
-        handler(.remoteStats(stats))
+        handler(.remoteStats(stats.uid, RtcQualityConverter.downlinkVideoStatistics(userID: "", stats)))
     }
 }

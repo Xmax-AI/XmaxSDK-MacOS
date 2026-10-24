@@ -13,10 +13,12 @@
 import Foundation
 
 /// Adapts neutral engine operations to Agora calls.
-final class AgoraRtcPlatform: RtcPlatform, @unchecked Sendable {
+final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Sendable {
 
     /// Platform resources
     let engine: AgoraRtcEngineKit
+    var roomEngine: any AgoraRtcRoomEngine { engine }
+    /// Serializes engine operations. Agora callback threads must use their independent state lock.
     let lock = NSRecursiveLock()
     private weak var room: AgoraRtcRoom?
 
