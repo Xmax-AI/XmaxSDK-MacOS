@@ -1,10 +1,9 @@
 //
 //  XmaxError.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -83,12 +82,6 @@ public struct XmaxError: Error, LocalizedError, Equatable, Sendable {
     public let httpStatus: Int?
 
     /// Creates an SDK error.
-    ///
-    /// - Parameters:
-    ///   - code: The unified SDK error code.
-    ///   - message: A readable error description for callers.
-    ///   - apiCode: The optional business error code returned by the Xmax API.
-    ///   - httpStatus: The optional HTTP response status code.
     public init(
         code: XmaxErrorCode,
         message: String,
@@ -109,8 +102,11 @@ public struct XmaxError: Error, LocalizedError, Equatable, Sendable {
     /// Converts unknown errors to internal SDK errors, preserving existing `XmaxError` values.
     ///
     /// - Parameter error: The error to convert.
+    ///
     /// - Returns: The unified error to throw or report to callers.
-    public static func from(_ error: any Error) -> XmaxError {
+    public static func from(
+        _ error: any Error
+    ) -> XmaxError {
         if let xmaxError = error as? XmaxError {
             return xmaxError
         }

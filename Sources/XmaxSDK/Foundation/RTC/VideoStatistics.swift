@@ -1,10 +1,9 @@
 //
 //  VideoStatistics.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -33,16 +32,7 @@ public struct UplinkVideoStatistics: Equatable, Sendable {
     /// The local-to-RTC packet loss percentage in 0...100.
     public let packetLossPercent: Int?
 
-    /// Creates video statistics.
-    ///
-    /// - Parameters:
-    ///   - width: The actual encoding width in pixels; nil when unavailable.
-    ///   - height: The actual encoding height in pixels; nil when unavailable.
-    ///   - captureFrameRate: The actual capture frame rate in fps; nil when unavailable.
-    ///   - encodeFrameRate: The actual encoding frame rate in fps; nil when unavailable.
-    ///   - sendFrameRate: The actual sending frame rate in fps; nil when unavailable.
-    ///   - bitrateKbps: The sending bitrate in kbps; nil when unavailable.
-    ///   - packetLossPercent: The local-to-RTC packet loss percentage in 0...100; nil when unavailable.
+    /// Creates uplink video statistics.
     public init(
         width: Int? = nil,
         height: Int? = nil,
@@ -89,17 +79,7 @@ public struct DownlinkVideoStatistics: Equatable, Sendable {
     /// The RTC media end-to-end latency in milliseconds, excluding full AI generation time.
     public let endToEndDelayMs: Int?
 
-    /// Creates video statistics.
-    ///
-    /// - Parameters:
-    ///   - userID: The remote user identifier.
-    ///   - width: The received video width in pixels; nil when unavailable.
-    ///   - height: The received video height in pixels; nil when unavailable.
-    ///   - decodeFrameRate: The decoding frame rate in fps; nil when unavailable.
-    ///   - renderFrameRate: The RTC rendering frame rate in fps, excluding SDK interpolation; nil when unavailable.
-    ///   - bitrateKbps: The receiving bitrate in kbps; nil when unavailable.
-    ///   - packetLossPercent: The downstream video packet loss percentage in 0...100; nil when unavailable.
-    ///   - endToEndDelayMs: The RTC media end-to-end latency in milliseconds, excluding full AI generation time; nil when unavailable.
+    /// Creates downlink video statistics.
     public init(
         userID: String,
         width: Int? = nil,

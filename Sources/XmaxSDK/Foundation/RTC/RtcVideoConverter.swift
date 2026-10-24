@@ -1,10 +1,9 @@
 //
 //  RtcVideoConverter.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -16,19 +15,26 @@ import Foundation
 /// Retains an Agora external video frame and contiguous pixel data.
 final class RtcVideoFrame {
 
-    /// RTC resources
+    /// The external frame ready for Agora.
     let value: AgoraVideoFrame
 
     /// Validates video planes and copies them into an Agora external frame.
     ///
     /// - Parameter frame: The source frame containing pixel planes, dimensions, and timestamp.
+    ///
     /// - Throws: An error if dimensions exceed platform limits or plane count or layout is invalid.
-    init(frame: VideoFrame) throws {
+    init(
+        frame: VideoFrame
+    ) throws {
         let width = frame.format.width
         let height = frame.format.height
         guard let rtcWidth = Int32(exactly: width),
-              let rtcHeight = Int32(exactly: height) else {
-            throw XmaxError(code: .invalidConfiguration, message: "Video frame dimensions exceed the RTC range")
+            let rtcHeight = Int32(exactly: height)
+        else {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Video frame dimensions exceed the RTC range"
+            )
         }
 
         let layout: [(bytes: Int, rows: Int)]
@@ -41,21 +47,34 @@ final class RtcVideoFrame {
             layout = [(width * 4, height)]
         }
         guard frame.planes.count == layout.count else {
-            throw XmaxError(code: .invalidConfiguration, message: "Video frame requires \(layout.count) data planes")
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Video frame requires \(layout.count) data planes"
+            )
         }
 
         var data = Data()
-        for (plane, size) in zip(frame.planes, layout) {
+        for (plane, size) in zip(
+            frame.planes,
+            layout
+        ) {
             guard plane.stride >= size.bytes,
-                  size.rows > 0,
-                  plane.byteLength >= size.bytes,
-                  size.rows - 1 <= (plane.byteLength - size.bytes) / plane.stride else {
-                throw XmaxError(code: .invalidConfiguration, message: "Video frame plane is smaller than its dimensions")
+                size.rows > 0,
+                plane.byteLength >= size.bytes,
+                size.rows - 1 <= (plane.byteLength - size.bytes) / plane.stride
+            else {
+                throw XmaxError(
+                    code: .invalidConfiguration,
+                    message: "Video frame plane is smaller than its dimensions"
+                )
             }
             plane.data.withUnsafeBytes { bytes in
                 for row in 0..<size.rows {
                     let start = bytes.baseAddress!.advanced(by: plane.byteOffset + row * plane.stride)
-                    data.append(start.assumingMemoryBound(to: UInt8.self), count: size.bytes)
+                    data.append(
+                        start.assumingMemoryBound(to: UInt8.self),
+                        count: size.bytes
+                    )
                 }
             }
         }
@@ -71,8 +90,13 @@ final class RtcVideoFrame {
     /// Updates timestamp and rotation when reusing pixel data.
     ///
     /// - Parameter frame: The frame supplying the latest timestamp and rotation.
-    func updateMetadata(from frame: VideoFrame) {
-        value.time = CMTime(value: frame.timestampUs, timescale: 1000000)
+    func updateMetadata(
+        from frame: VideoFrame
+    ) {
+        value.time = CMTime(
+            value: frame.timestampUs,
+            timescale: 1000000
+        )
         value.rotation = Int32(frame.rotation.rawValue)
     }
 }
@@ -80,15 +104,19 @@ final class RtcVideoFrame {
 /// Reuses RTC data for frames explicitly declaring unchanged pixels.
 final class RtcVideoFrameCache {
 
-    /// Frame cache
+    /// The last reusable buffer and its Agora representation.
     private var cachedFrame: (id: UUID, frame: RtcVideoFrame)?
 
     /// Gets a source frame's RTC representation, caching data by pixel reuse identity.
     ///
     /// - Parameter frame: The source video frame to adapt.
+    ///
     /// - Returns: The RTC frame with pixel data prepared.
+    ///
     /// - Throws: An error if frame dimensions or pixel data layout are invalid.
-    func frame(for frame: VideoFrame) throws -> RtcVideoFrame {
+    func frame(
+        for frame: VideoFrame
+    ) throws -> RtcVideoFrame {
         if let id = frame.bufferReuseID, let cachedFrame, cachedFrame.id == id {
             cachedFrame.frame.updateMetadata(from: frame)
             return cachedFrame.frame
@@ -107,41 +135,56 @@ final class RtcVideoFrameCache {
 
 /// Converts between neutral video models and Agora types.
 enum RtcVideoConverter {
+
     /// Converts an SDK video frame to an Agora external frame.
     ///
     /// - Parameter frame: The SDK video frame to convert.
+    ///
     /// - Returns: The RTC frame retaining contiguous pixel data.
+    ///
     /// - Throws: An error if frame dimensions or pixel data layout are invalid.
-    static func convertFrame(_ frame: VideoFrame) throws -> RtcVideoFrame {
+    static func convertFrame(
+        _ frame: VideoFrame
+    ) throws -> RtcVideoFrame {
         try RtcVideoFrame(frame: frame)
     }
 
     /// Converts SDK encoding parameters to Agora configuration.
     ///
     /// - Parameter configuration: Dimensions, frame rate, bitrate bounds, and encoding preferences.
+    ///
     /// - Returns: Agora encoding configuration with upstream mirroring disabled and adaptive orientation.
-    static func makeEncoderConfiguration(_ configuration: VideoEncodingConfiguration) -> AgoraVideoEncoderConfiguration {
+    static func makeEncoderConfiguration(
+        _ configuration: VideoEncodingConfiguration
+    ) -> AgoraVideoEncoderConfiguration {
         let result = AgoraVideoEncoderConfiguration(
-            size: CGSize(width: configuration.width, height: configuration.height),
+            size: CGSize(
+                width: configuration.width,
+                height: configuration.height
+            ),
             frameRate: configuration.frameRate,
             bitrate: max(0, configuration.maximumBitrate),
             orientationMode: .adaptative,
             mirrorMode: .disabled
         )
         result.minBitrate = configuration.minimumBitrate
-        result.degradationPreference = switch configuration.encoderPreference {
-        case .auto: .maintainAuto
-        case .maintainFramerate: .maintainFramerate
-        case .maintainQuality: .maintainQuality
-        }
+        result.degradationPreference =
+            switch configuration.encoderPreference {
+            case .auto: .maintainAuto
+            case .maintainFramerate: .maintainFramerate
+            case .maintainQuality: .maintainQuality
+            }
         return result
     }
 
     /// Maps SDK pixel formats to Agora external frame formats.
     ///
     /// - Parameter format: The SDK video pixel format.
+    ///
     /// - Returns: The corresponding Agora pixel format identifier.
-    static func convertPixelFormat(_ format: VideoPixelFormat) -> Int {
+    static func convertPixelFormat(
+        _ format: VideoPixelFormat
+    ) -> Int {
         switch format {
         case .i420: 1
         case .bgra: 2

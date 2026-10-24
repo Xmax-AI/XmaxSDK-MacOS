@@ -1,10 +1,9 @@
 //
 //  VideoRenderBinding.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -15,18 +14,16 @@ import AppKit
 @MainActor
 final class VideoRenderBinding {
 
-    /// Render operations
+    /// The operation attaching this track to a video view.
     private let attachHandler: (NSView, VideoContentMode) throws -> Void
+
+    /// The operation removing this track from a video view.
     private let detachHandler: (NSView) throws -> Void
 
-    /// Runtime state
+    /// The current rendering host without ownership of its lifetime.
     private weak var attachedView: NSView?
 
     /// Creates a track-to-view render binding.
-    ///
-    /// - Parameters:
-    ///   - attachHandler: The operation binding content to a view and applying its display mode.
-    ///   - detachHandler: The operation removing content from a view.
     init(
         attachHandler: @escaping (NSView, VideoContentMode) throws -> Void,
         detachHandler: @escaping (NSView) throws -> Void
@@ -40,6 +37,7 @@ final class VideoRenderBinding {
     /// - Parameters:
     ///   - view: The new render target view.
     ///   - contentMode: The video scaling and cropping mode.
+    ///
     /// - Throws: An error if unbinding the old view or binding the new view fails.
     func attach(
         to view: NSView,
@@ -50,15 +48,21 @@ final class VideoRenderBinding {
             self.attachedView = nil
         }
 
-        try attachHandler(view, contentMode)
+        try attachHandler(
+            view,
+            contentMode
+        )
         attachedView = view
     }
 
     /// Unbinds rendering only if the specified view is currently bound.
     ///
     /// - Parameter view: The view to unbind.
+    ///
     /// - Throws: An error if the underlying unbind operation fails.
-    func detach(from view: NSView) throws {
+    func detach(
+        from view: NSView
+    ) throws {
         guard attachedView === view else {
             return
         }

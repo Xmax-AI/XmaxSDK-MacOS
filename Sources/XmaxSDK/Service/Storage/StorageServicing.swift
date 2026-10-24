@@ -1,10 +1,9 @@
 //
 //  StorageServicing.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -21,7 +20,9 @@ protocol StorageServicing: Sendable {
     ///   - fileName: The filename including extension, used to construct object paths.
     ///   - contentType: The file MIME type.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The upload result with access URL, object path, and ETag when available.
+    ///
     /// - Throws: An error on invalid input, credential retrieval failure, or upload failure.
     func uploadImage(
         data: Data,
@@ -36,7 +37,9 @@ protocol StorageServicing: Sendable {
     ///   - fileURL: The readable local image file URL.
     ///   - contentType: The file MIME type; inferred from the filename when `nil`.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The upload result with access URL, object path, and ETag when available.
+    ///
     /// - Throws: An error on invalid files, credential retrieval failure, or upload failure.
     func uploadImageFile(
         fileURL: URL,
@@ -51,7 +54,9 @@ protocol StorageServicing: Sendable {
     ///   - fileName: The filename including extension, used to construct object paths.
     ///   - contentType: The file MIME type.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The upload result with access URL, object path, and ETag when available.
+    ///
     /// - Throws: An error on invalid input, credential retrieval or upload failure, or safety check failure.
     func uploadImageWithSafetyCheck(
         data: Data,
@@ -66,7 +71,9 @@ protocol StorageServicing: Sendable {
     ///   - fileURL: The readable local image file URL.
     ///   - contentType: The file MIME type; inferred from the filename when `nil`.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The upload result with access URL, object path, and ETag when available.
+    ///
     /// - Throws: An error on invalid files, credential retrieval or upload failure, or safety check failure.
     func uploadImageFileWithSafetyCheck(
         fileURL: URL,
@@ -81,7 +88,9 @@ protocol StorageServicing: Sendable {
     ///   - fileName: The filename including extension, used to construct object paths.
     ///   - contentType: The file MIME type.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The upload result with access URL, object path, and ETag when available.
+    ///
     /// - Throws: An error on invalid input, credential retrieval failure, or upload failure.
     func uploadVideo(
         data: Data,
@@ -96,7 +105,9 @@ protocol StorageServicing: Sendable {
     ///   - fileURL: The readable local video file URL.
     ///   - contentType: The file MIME type; inferred from the filename when `nil`.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The upload result with access URL, object path, and ETag when available.
+    ///
     /// - Throws: An error on invalid files, credential retrieval failure, or upload failure.
     func uploadVideoFile(
         fileURL: URL,
@@ -110,7 +121,9 @@ protocol StorageServicing: Sendable {
     ///   - remoteURL: The remote file URL to download.
     ///   - destinationURL: The local destination file URL.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The completed local file URL and byte count.
+    ///
     /// - Throws: An error on invalid URLs, download or file write failure, or cancellation.
     func downloadImage(
         remoteURL: URL,
@@ -124,7 +137,9 @@ protocol StorageServicing: Sendable {
     ///   - remoteURL: The remote file URL to download.
     ///   - destinationURL: The local destination file URL.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The completed local file URL and byte count.
+    ///
     /// - Throws: An error on invalid URLs, download or file write failure, or cancellation.
     func downloadVideo(
         remoteURL: URL,

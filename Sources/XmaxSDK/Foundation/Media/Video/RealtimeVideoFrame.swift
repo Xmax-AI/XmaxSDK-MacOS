@@ -1,10 +1,9 @@
 //
 //  RealtimeVideoFrame.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -30,11 +29,6 @@ public struct RealtimeVideoFrame: @unchecked Sendable {
     public let duration: CMTime
 
     /// Creates a realtime video frame for display or recording.
-    ///
-    /// - Parameters:
-    ///   - pixelBuffer: The buffer retaining the current frame pixels.
-    ///   - presentationTimeStamp: The frame presentation time on the realtime video timeline.
-    ///   - duration: The suggested display duration; `.invalid` when unknown.
     init(
         pixelBuffer: CVPixelBuffer,
         presentationTimeStamp: CMTime,
@@ -47,6 +41,7 @@ public struct RealtimeVideoFrame: @unchecked Sendable {
 }
 
 /// A listener receiving final remote video frames.
-public typealias RealtimeVideoFrameListener = @Sendable (
-    _ frame: RealtimeVideoFrame
-) -> Void
+public typealias RealtimeVideoFrameListener =
+    @Sendable (
+        _ frame: RealtimeVideoFrame
+    ) -> Void

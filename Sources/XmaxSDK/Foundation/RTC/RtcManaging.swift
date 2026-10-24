@@ -1,10 +1,9 @@
 //
 //  RtcManaging.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -25,6 +24,7 @@ protocol RtcManaging: RtcCameraCapturing {
     /// Applies upstream video encoding configuration.
     ///
     /// - Parameter configuration: Dimensions, frame rate, bitrate, and encoding preferences.
+    ///
     /// - Throws: An error if the vendor engine rejects configuration.
     func configureVideoEncoding(
         _ configuration: VideoEncodingConfiguration
@@ -58,18 +58,25 @@ protocol RtcManaging: RtcCameraCapturing {
     /// Pushes an external video frame.
     ///
     /// - Parameter frame: The SDK's neutral video frame.
+    ///
     /// - Throws: An error if frame format or data is invalid.
-    func pushExternalVideoFrame(_ frame: VideoFrame) throws
+    func pushExternalVideoFrame(
+        _ frame: VideoFrame
+    ) throws
 
     /// Pushes an external audio frame.
     ///
     /// - Parameter frame: Timestamped 10 ms PCM data.
+    ///
     /// - Throws: An error if frame format or data is invalid.
-    func pushExternalAudioFrame(_ frame: AudioFrame) throws
+    func pushExternalAudioFrame(
+        _ frame: AudioFrame
+    ) throws
 
     /// Joins an RTC room and waits for connection.
     ///
     /// - Parameter configuration: The room, user identifier, and token configuration.
+    ///
     /// - Throws: An error on unavailable engine, join failure, timeout, or cancellation.
     func joinRoom(
         configuration: RoomJoinConfiguration
@@ -103,6 +110,7 @@ protocol RtcManaging: RtcCameraCapturing {
     /// - Parameters:
     ///   - userID: The remote RTC user identifier.
     ///   - subscribe: Whether to subscribe to the video stream.
+    ///
     /// - Throws: An error on unavailable room, user mapping failure, or subscription configuration failure.
     func subscribeRemoteVideo(
         userID: String,
@@ -114,6 +122,7 @@ protocol RtcManaging: RtcCameraCapturing {
     /// - Parameters:
     ///   - userID: The remote RTC user identifier.
     ///   - subscribe: Whether to subscribe to the audio stream.
+    ///
     /// - Throws: An error on unavailable room, user mapping failure, or subscription configuration failure.
     func subscribeRemoteAudio(
         userID: String,
@@ -125,6 +134,7 @@ protocol RtcManaging: RtcCameraCapturing {
     /// - Parameters:
     ///   - volume: The playback volume from 0 to 100.
     ///   - userID: The remote RTC user identifier.
+    ///
     /// - Throws: An error if the room is unavailable or volume configuration fails.
     func setRemoteAudioVolume(
         _ volume: Int,
@@ -136,6 +146,7 @@ protocol RtcManaging: RtcCameraCapturing {
     /// - Parameters:
     ///   - listener: The decoded frame callback; `nil` clears it.
     ///   - stream: The remote stream to observe.
+    ///
     /// - Throws: An error if the room is unavailable or frame listener configuration fails.
     func setRemoteVideoFrameListener(
         _ listener: RtcRemoteVideoFrameListener?,
@@ -147,10 +158,15 @@ protocol RtcManaging: RtcCameraCapturing {
     /// - Parameters:
     ///   - message: The complete JSON signal.
     ///   - reportFailure: Whether asynchronous send failures report room faults.
+    ///
     /// - Returns: The signal send task for awaiting this message's result independently.
+    ///
     /// - Throws: An error if enqueueing fails.
     @discardableResult
-    func sendRoomMessage(_ message: String, reportFailure: Bool) throws -> Task<Void, any Error>
+    func sendRoomMessage(
+        _ message: String,
+        reportFailure: Bool
+    ) throws -> Task<Void, any Error>
 
     /// Waits for queued room signals to finish sending.
     ///
@@ -160,20 +176,31 @@ protocol RtcManaging: RtcCameraCapturing {
     /// Sets the RTC connection and media event listener.
     ///
     /// - Parameter listener: The event listener; `nil` clears it.
-    func setEventListener(_ listener: (any RtcEventListener)?)
+    func setEventListener(
+        _ listener: (any RtcEventListener)?
+    )
 
     /// Sets the RTC network and media quality listener.
     ///
     /// - Parameter listener: The quality listener; `nil` clears it.
-    func setQualityListener(_ listener: (any RtcQualityListener)?)
+    func setQualityListener(
+        _ listener: (any RtcQualityListener)?
+    )
 }
 
 extension RtcManaging {
+
     /// Enqueues a room signal with asynchronous send failure reporting enabled.
     ///
     /// - Parameter message: The complete JSON signal.
+    ///
     /// - Throws: An error if the signal cannot be enqueued.
-    func sendRoomMessage(_ message: String) throws {
-        try sendRoomMessage(message, reportFailure: true)
+    func sendRoomMessage(
+        _ message: String
+    ) throws {
+        try sendRoomMessage(
+            message,
+            reportFailure: true
+        )
     }
 }

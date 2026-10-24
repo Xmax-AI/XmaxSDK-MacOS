@@ -319,7 +319,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         camera: (any CameraControlling)? = nil,
         mediaService: (any MediaServicing)? = nil
     ) -> (manager: XmaxRealtimeManager, media: MediaController, rtc: RtcManagingStub) {
-        let errors = RealtimeErrorHandler()
+        let errors = XmaxRealtimeErrorManager()
         let timing = RealtimeTiming()
         let service: any MediaServicing = mediaService ?? MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4))
         let render = RenderController(rtcManager: rtc, errorListener: { errors.forward($0, target: .connection) })
@@ -347,13 +347,13 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         let connection = XmaxRealtimeConnectionManager(
             sessionService: RealtimeSessionServicingStub(session: session),
-            interactionController: media, renderController: render, streamController: stream, timing: timing
+            interactionController: media, renderController: render, streamController: stream, timing: timing, mediaService: service, errorManager: errors
         )
-        let generation = XmaxRealtimeGenerationManager(interactionController: media, streamController: stream, renderController: render)
+        let generation = XmaxRealtimeGenerationManager(interactionController: media, streamController: stream, renderController: render, timing: timing)
         let manager = XmaxRealtimeManager(
             options: RealtimeConfiguration(model: .x2_1_1_preview_cn),
             streamController: stream, mediaController: media, renderController: render,
-            mediaService: service, connectionManager: connection, errorHandler: errors,
+            mediaService: service, connectionManager: connection, errorManager: errors,
             generationManager: generation, timing: timing
         )
         return (manager, media, rtc)

@@ -1,10 +1,9 @@
 //
 //  EncodingControlling.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,7 +13,11 @@ protocol EncodingControlling: Sendable {
 
     /// Validates video format and applies resolved RTC encoding parameters.
     ///
-    /// - Parameter videoFormat: The format containing dimensions, frame rate, optional bitrate, and encoding preferences.
+    /// - Parameter videoFormat: The format containing dimensions, frame rate, optional bitrate, and encoding
+    ///   preferences.
+    ///
     /// - Throws: An error on invalid format, default bitrate resolution failure, or RTC configuration failure.
-    func configure(_ videoFormat: RealtimeVideoFormat) throws
+    func configure(
+        _ videoFormat: RealtimeVideoFormat
+    ) throws
 }

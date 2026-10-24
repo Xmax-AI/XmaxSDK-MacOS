@@ -1,10 +1,9 @@
 //
 //  CameraControlling.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -12,9 +11,10 @@
 import Foundation
 
 /// Reports camera preview readiness with a validity check for asynchronous handling.
-typealias CameraPreviewReadyHandler = @MainActor @Sendable (
-    _ isCurrent: @escaping @Sendable () -> Bool
-) -> Void
+typealias CameraPreviewReadyHandler =
+    @MainActor @Sendable (
+        _ isCurrent: @escaping @Sendable () -> Bool
+    ) -> Void
 
 /// Defines local camera stream, microphone capture, and preview resource management.
 protocol CameraControlling: Sendable {
@@ -33,16 +33,22 @@ protocol CameraControlling: Sendable {
     /// Reports ready capture and a bound preview. Native capture uses engine state events, including for hidden views.
     ///
     /// - Parameter handler: The readiness callback; an empty value clears it.
-    func setPreviewReadyHandler(_ handler: CameraPreviewReadyHandler?)
+    func setPreviewReadyHandler(
+        _ handler: CameraPreviewReadyHandler?
+    )
 
     /// Creates and starts a local camera stream.
     ///
     /// - Parameters:
-    ///   - videoFormat: The requested dimensions, frame rate, and encoding configuration; dimensions follow model rules.
+    ///   - videoFormat: The requested dimensions, frame rate, and encoding configuration; dimensions follow model
+    ///     rules.
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
     ///   - useMicrophone: Whether to request microphone permission and allow capture when realtime connects.
+    ///
     /// - Returns: The media stream containing the local camera video track.
-    /// - Throws: An error on an existing camera stream, invalid format, insufficient permissions, or capture startup failure.
+    ///
+    /// - Throws: An error on an existing camera stream, invalid format, insufficient permissions, or capture startup
+    ///   failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
@@ -65,7 +71,10 @@ protocol CameraControlling: Sendable {
     /// Switches to the specified camera device while retaining the current video track.
     ///
     /// - Returns: The media stream containing the updated camera track.
+    ///
     /// - Throws: An error if no camera stream is active or device switching fails.
-    func switchCamera(to deviceID: String) async throws -> RealtimeMediaStream
+    func switchCamera(
+        to deviceID: String
+    ) async throws -> RealtimeMediaStream
 
 }

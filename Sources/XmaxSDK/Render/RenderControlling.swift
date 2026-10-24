@@ -1,10 +1,9 @@
 //
 //  RenderControlling.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -12,9 +11,10 @@
 import Foundation
 
 /// Asynchronously receives interaction frames captured by the render view.
-typealias RenderInteractionListener = @Sendable (
-    _ frame: InteractionFrame
-) async -> Void
+typealias RenderInteractionListener =
+    @Sendable (
+        _ frame: InteractionFrame
+    ) async -> Void
 
 /// Defines unified render capabilities exposed to Core.
 @MainActor
@@ -24,13 +24,18 @@ protocol RenderControlling: AnyObject, Sendable {
     var isFrameInterpolationEnabled: Bool { get async }
 
     /// Enables interaction only after generation confirmation; false cancels active gestures.
-    func setInteractionEnabled(_ enabled: Bool)
+    func setInteractionEnabled(
+        _ enabled: Bool
+    )
 
     /// Updates the decoded frame source and invalidates old stream caches and waits.
     ///
     /// - Parameter stream: The new remote stream; `nil` clears the source.
+    ///
     /// - Throws: An error if removing the old listener or binding the new listener fails.
-    func setRemoteStream(_ stream: RemoteStream?) throws
+    func setRemoteStream(
+        _ stream: RemoteStream?
+    ) throws
 
     /// Sets the final remote video frame listener.
     ///
@@ -64,6 +69,7 @@ protocol RenderControlling: AnyObject, Sendable {
     /// - Parameters:
     ///   - enabled: Whether to enable interpolation.
     ///   - videoFormat: The expected return video format; nil before local stream creation.
+    ///
     /// - Throws: Explicit enablement throws if the device or video format does not support interpolation.
     func setFrameInterpolationEnabled(
         _ enabled: Bool,
@@ -78,6 +84,9 @@ protocol RenderControlling: AnyObject, Sendable {
     /// Unregisters remote track bindings, resets display, and waits for in-flight frame processing.
     ///
     /// - Parameter track: The remote track to unregister; frame processing is cleared even without a track.
+    ///
     /// - Throws: An error if removing the RTC frame listener fails.
-    func resetRemoteTrack(_ track: RealtimeVideoTrack?) async throws
+    func resetRemoteTrack(
+        _ track: RealtimeVideoTrack?
+    ) async throws
 }

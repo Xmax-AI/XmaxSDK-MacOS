@@ -1,10 +1,9 @@
 //
 //  StorageManaging.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -22,7 +21,9 @@ protocol StorageManaging: Sendable {
     ///   - contentType: The upload content MIME type.
     ///   - configuration: The storage endpoint, bucket, and temporary credentials.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The upload result with access URL, object path, and ETag when available.
+    ///
     /// - Throws: An error on invalid input or credentials, upload failure, or cancellation.
     func upload(
         source: StorageUploadSource,
@@ -38,7 +39,9 @@ protocol StorageManaging: Sendable {
     ///   - remoteURL: The remote file URL to download.
     ///   - destinationURL: The local destination file URL.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The completed local file URL and byte count.
+    ///
     /// - Throws: An error on invalid URLs, download or file write failure, or cancellation.
     func download(
         remoteURL: URL,
@@ -56,7 +59,9 @@ extension StorageManaging {
     ///   - objectKey: The destination object path within the bucket.
     ///   - contentType: The upload content MIME type.
     ///   - configuration: The storage endpoint, bucket, and temporary credentials.
+    ///
     /// - Returns: The upload result with access URL, object path, and ETag when available.
+    ///
     /// - Throws: An error on invalid input or credentials, upload failure, or cancellation.
     func upload(
         source: StorageUploadSource,
@@ -78,7 +83,9 @@ extension StorageManaging {
     /// - Parameters:
     ///   - remoteURL: The remote file URL to download.
     ///   - destinationURL: The local destination file URL.
+    ///
     /// - Returns: The completed local file URL and byte count.
+    ///
     /// - Throws: An error on invalid URLs, download or file write failure, or cancellation.
     func download(
         remoteURL: URL,

@@ -1,10 +1,9 @@
 //
 //  ApiService.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,15 +13,19 @@ import Foundation
 /// Sends Xmax API requests with unified response, logging, and error handling.
 final class ApiService: ApiServicing, Sendable {
 
-    /// API configuration
+    /// The default HTTP timeout, in seconds.
     static let defaultTimeoutInterval: TimeInterval = 15
 
-    /// Request configuration
+    /// The API access key.
     private let apiKey: String
+
+    /// The API base URL.
     private let baseURL: URL
+
+    /// The HTTP request timeout, in seconds.
     private let timeoutInterval: TimeInterval
 
-    /// Network resources
+    /// The HTTP URL session.
     private let session: URLSession
 
     /// Creates an API service with the specified URL, credentials, and network session.
@@ -51,7 +54,9 @@ final class ApiService: ApiServicing, Sendable {
     ///   - path: The request path relative to the API base URL.
     ///   - body: The encoded request body; `nil` omits the body.
     ///   - responseType: The response data decoding type.
+    ///
     /// - Returns: The business data parsed from the API response.
+    ///
     /// - Throws: An error on invalid credentials or URL, request failure, server error, or response parsing failure.
     func request<Response: Decodable & Sendable>(
         _ method: ApiMethod,
@@ -139,16 +144,20 @@ private extension ApiService {
     /// Common metadata in the unified Xmax API response.
     struct EnvelopeMetadata: Decodable {
 
-        /// Response status
+        /// The API success indicator.
         let success: Bool?
+
+        /// The API business error code.
         let code: Int?
+
+        /// The API business error message.
         let message: String?
     }
 
     /// Business data in a successful Xmax API response.
     struct PayloadEnvelope<Response: Decodable>: Decodable {
 
-        /// Business data
+        /// The decoded response data.
         let data: Response?
     }
 
@@ -163,8 +172,9 @@ private extension ApiService {
             )
         }
         guard baseURL.scheme?.lowercased() == "https",
-              baseURL.host != nil,
-              timeoutInterval > 0 else {
+            baseURL.host != nil,
+            timeoutInterval > 0
+        else {
             throw XmaxError(
                 code: .invalidConfiguration,
                 message: "API service configuration is invalid"
@@ -178,7 +188,9 @@ private extension ApiService {
     ///   - method: The request HTTP method.
     ///   - path: The path relative to the API base URL; other hosts are disallowed.
     ///   - body: The encoded request body; `nil` omits the body.
+    ///
     /// - Returns: The HTTP request configured with timeout, headers, and body.
+    ///
     /// - Throws: A configuration error for empty or invalid paths, or paths targeting another host.
     func makeRequest(
         method: ApiMethod,
@@ -189,23 +201,27 @@ private extension ApiService {
             in: .whitespacesAndNewlines
         )
         guard !normalizedPath.isEmpty,
-              !normalizedPath.contains("://"),
-              !normalizedPath.hasPrefix("//") else {
+            !normalizedPath.contains("://"),
+            !normalizedPath.hasPrefix("//")
+        else {
             throw XmaxError(
                 code: .invalidConfiguration,
                 message: "API request path is invalid"
             )
         }
 
-        let base = baseURL.absoluteString.hasSuffix("/")
+        let base =
+            baseURL.absoluteString.hasSuffix("/")
             ? String(baseURL.absoluteString.dropLast())
             : baseURL.absoluteString
-        let relativePath = normalizedPath.hasPrefix("/")
+        let relativePath =
+            normalizedPath.hasPrefix("/")
             ? normalizedPath
             : "/\(normalizedPath)"
         guard let url = URL(string: base + relativePath),
-              url.scheme?.lowercased() == baseURL.scheme?.lowercased(),
-              url.host?.lowercased() == baseURL.host?.lowercased() else {
+            url.scheme?.lowercased() == baseURL.scheme?.lowercased(),
+            url.host?.lowercased() == baseURL.host?.lowercased()
+        else {
             throw XmaxError(
                 code: .invalidConfiguration,
                 message: "API request path is invalid"
@@ -219,14 +235,35 @@ private extension ApiService {
         )
         request.httpMethod = method.rawValue
         request.httpBody = body
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
+        request.setValue(
+            "application/json",
+            forHTTPHeaderField: "Accept"
+        )
+        request.setValue(
+            "application/json",
+            forHTTPHeaderField: "Content-Type"
+        )
+        request.setValue(
+            apiKey,
+            forHTTPHeaderField: "X-Api-Key"
+        )
         let runtime = RuntimeInfo.current
-        request.setValue(runtime.platform, forHTTPHeaderField: "X-Platform")
-        request.setValue(runtime.osVersion, forHTTPHeaderField: "X-OS-Version")
-        request.setValue(runtime.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
-        request.setValue(runtime.deviceModel, forHTTPHeaderField: "X-Device-Model")
+        request.setValue(
+            runtime.platform,
+            forHTTPHeaderField: "X-Platform"
+        )
+        request.setValue(
+            runtime.osVersion,
+            forHTTPHeaderField: "X-OS-Version"
+        )
+        request.setValue(
+            runtime.sdkVersion,
+            forHTTPHeaderField: "X-SDK-Version"
+        )
+        request.setValue(
+            runtime.deviceModel,
+            forHTTPHeaderField: "X-Device-Model"
+        )
         return request
     }
 
@@ -236,7 +273,9 @@ private extension ApiService {
     ///   - data: The server response body.
     ///   - statusCode: The HTTP response status code.
     ///   - as: The target business data decoding type.
+    ///
     /// - Returns: The parsed business data.
+    ///
     /// - Throws: An API error for invalid JSON, unsuccessful requests, missing data, or type mismatch.
     static func parseResponse<Response: Decodable>(
         _ data: Data,
@@ -258,7 +297,8 @@ private extension ApiService {
         }
 
         guard (200..<300).contains(statusCode),
-              metadata.success == true else {
+            metadata.success == true
+        else {
             let message = metadata.message?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let resolvedMessage: String
@@ -302,8 +342,11 @@ private extension ApiService {
     /// Converts network errors to SDK cancellation or network errors.
     ///
     /// - Parameter error: The original network request error.
+    ///
     /// - Returns: The SDK error preserving cancellation semantics.
-    static func transportError(_ error: any Error) -> XmaxError {
+    static func transportError(
+        _ error: any Error
+    ) -> XmaxError {
         if error is CancellationError {
             return XmaxError(
                 code: .cancelled,
@@ -313,7 +356,8 @@ private extension ApiService {
 
         let platformError = error as NSError
         if platformError.domain == NSURLErrorDomain,
-           platformError.code == NSURLErrorCancelled {
+            platformError.code == NSURLErrorCancelled
+        {
             return XmaxError(
                 code: .cancelled,
                 message: "API request was cancelled"
@@ -322,17 +366,20 @@ private extension ApiService {
 
         return XmaxError(
             code: .networkError,
-            message: "HTTP request failed: " +
-                ErrorMessageFormatter.format(error)
+            message: "HTTP request failed: " + ErrorMessageFormatter.format(error)
         )
     }
 
     /// Calculates elapsed time since the specified monotonic timestamp.
     ///
     /// - Parameter startedAt: The system uptime at request start, in nanoseconds.
+    ///
     /// - Returns: The elapsed integer milliseconds.
-    static func durationMs(since startedAt: UInt64) -> Int {
-        let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds
+    static func durationMs(
+        since startedAt: UInt64
+    ) -> Int {
+        let elapsedNanoseconds =
+            DispatchTime.now().uptimeNanoseconds
             - startedAt
         return Int(elapsedNanoseconds / 1_000_000)
     }

@@ -1,10 +1,9 @@
 //
 //  RealtimeVideoFormat.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -34,7 +33,7 @@ public struct RealtimeVideoFormat: Equatable, Sendable {
     /// The video frame rate.
     public let fps: Int
 
-    /// The minimum upstream bitrate in kbps; nil defaults to 100, while 0 removes the minimum.
+    /// The upstream encoder minimum in kbps; `nil` uses 500 capped by the resolved maximum, and 0 removes the minimum.
     public let minimumBitrate: Int?
 
     /// The maximum upstream bitrate in kbps; nil uses the SDK default, explicit values must be positive.
@@ -44,14 +43,6 @@ public struct RealtimeVideoFormat: Equatable, Sendable {
     public let encoderPreference: RealtimeVideoEncoderPreference
 
     /// Creates a realtime video format.
-    ///
-    /// - Parameters:
-    ///   - width: The video width in pixels.
-    ///   - height: The video height in pixels.
-    ///   - fps: The video frame rate; must be positive.
-    ///   - minimumBitrate: The minimum upstream bitrate in kbps; nil defaults to 100, while 0 removes the minimum.
-    ///   - maximumBitrate: The maximum upstream bitrate in kbps; nil calculates from final upload dimensions and frame rate.
-    ///   - encoderPreference: The upstream encoding preference; defaults to maintainFramerate.
     public init(
         width: Int,
         height: Int,
@@ -73,36 +64,51 @@ public struct RealtimeVideoFormat: Equatable, Sendable {
     /// - Throws: An error if dimensions, frame rate, or bitrate configuration is invalid.
     public func validate() throws {
         guard width > 0,
-              height > 0,
-              fps > 0,
-              width.isMultiple(of: 2),
-              height.isMultiple(of: 2) else {
+            height > 0,
+            fps > 0,
+            width.isMultiple(of: 2),
+            height.isMultiple(of: 2)
+        else {
             throw XmaxError(
                 code: .invalidConfiguration,
-                message: "Realtime video width and height must be positive " +
-                    "even numbers, and fps must be greater than zero"
+                message: "Realtime video width and height must be positive "
+                    + "even numbers, and fps must be greater than zero"
             )
         }
         if let minimumBitrate, minimumBitrate < 0 {
-            throw XmaxError(code: .invalidConfiguration, message: "Minimum bitrate must not be negative")
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Minimum bitrate must not be negative"
+            )
         }
         if let maximumBitrate, maximumBitrate <= 0 {
-            throw XmaxError(code: .invalidConfiguration, message: "Maximum bitrate must be greater than zero")
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Maximum bitrate must be greater than zero"
+            )
         }
         if let minimumBitrate, let maximumBitrate, minimumBitrate > maximumBitrate {
-            throw XmaxError(code: .invalidConfiguration, message: "Minimum bitrate must not exceed maximum bitrate")
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Minimum bitrate must not exceed maximum bitrate"
+            )
         }
     }
 }
 
 extension RealtimeVideoFormat {
+
     /// Creates a resized video format retaining frame rate and encoding configuration.
     ///
     /// - Parameters:
     ///   - width: The target width in pixels.
     ///   - height: The target height in pixels.
+    ///
     /// - Returns: The new video format with target dimensions.
-    func resized(width: Int, height: Int) -> RealtimeVideoFormat {
+    func resized(
+        width: Int,
+        height: Int
+    ) -> RealtimeVideoFormat {
         RealtimeVideoFormat(
             width: width,
             height: height,

@@ -1,10 +1,9 @@
 //
 //  ImageManaging.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -17,7 +16,11 @@ protocol ImageManaging: Sendable {
     /// Decodes image data, applies orientation, and returns reusable pixel data.
     ///
     /// - Parameter data: Encoded image data in JPEG, PNG, or another supported format.
+    ///
     /// - Returns: The decoded image with source orientation applied.
+    ///
     /// - Throws: An error on empty data, unsupported formats, or image decoding failure.
-    func decode(_ data: Data) throws -> any DecodedImage
+    func decode(
+        _ data: Data
+    ) throws -> any DecodedImage
 }

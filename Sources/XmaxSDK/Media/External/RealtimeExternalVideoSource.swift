@@ -1,6 +1,10 @@
 //
 //  RealtimeExternalVideoSource.swift
 //  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
+//
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
@@ -25,8 +29,11 @@ public protocol RealtimeExternalVideoSource: AnyObject, Sendable {
     /// before supplying frames. A failed or cancelled start is followed by `stop()`.
     ///
     /// - Parameter sink: The SDK frame receiver for this binding.
+    ///
     /// - Throws: An error if the source cannot bind frame delivery.
-    func start(sink: any RealtimeExternalFrameSink) async throws
+    func start(
+        sink: any RealtimeExternalFrameSink
+    ) async throws
 
     /// Unbinds frame delivery and clears the stored sink; repeated calls must be safe.
     /// This does not transfer ownership of the caller's camera or decoder to the SDK.
@@ -37,25 +44,36 @@ public protocol RealtimeExternalVideoSource: AnyObject, Sendable {
     /// - Parameters:
     ///   - container: The AppKit container hosting the preview.
     ///   - contentMode: The requested proportional fitting or cropping mode.
-    func attachPreview(to container: NSView, contentMode: VideoContentMode)
+    func attachPreview(
+        to container: NSView,
+        contentMode: VideoContentMode
+    )
 
     /// Removes a preview from its container without stopping capture.
     ///
     /// - Parameter container: The container previously hosting the preview.
-    func detachPreview(from container: NSView)
+    func detachPreview(
+        from container: NSView
+    )
 }
 
 public extension RealtimeExternalVideoSource {
+
     /// Leaves preview presentation to the caller by default.
-    func attachPreview(to container: NSView, contentMode: VideoContentMode) {}
+    func attachPreview(
+        to container: NSView,
+        contentMode: VideoContentMode
+    ) {}
 
     /// Performs no preview cleanup when no SDK preview was mounted.
-    func detachPreview(from container: NSView) {}
+    func detachPreview(
+        from container: NSView
+    ) {}
 }
 
 /// A synchronous video input bound to one external source lifecycle.
 ///
-/// This first version accepts video only. The SDK copies pixels during `pushVideo`;
+/// This input accepts video only. The SDK copies pixels during `pushVideo`;
 /// the caller may reuse the input buffer after the method returns, but must not
 /// modify it concurrently with submission. Stale bindings silently discard input.
 public protocol RealtimeExternalFrameSink: AnyObject, Sendable {
@@ -77,10 +95,15 @@ public protocol RealtimeExternalFrameSink: AnyObject, Sendable {
     /// - Parameters:
     ///   - pixelBuffer: A `420v` NV12 or `32BGRA` pixel buffer.
     ///   - timestampUs: A nonnegative, strictly increasing monotonic timestamp in microseconds.
-    func pushVideo(_ pixelBuffer: CVPixelBuffer, timestampUs: Int64)
+    func pushVideo(
+        _ pixelBuffer: CVPixelBuffer,
+        timestampUs: Int64
+    )
 
     /// Reports an unrecoverable capture or conversion failure for the current binding.
     ///
     /// - Parameter error: The failure ending external media input.
-    func reportError(_ error: any Error)
+    func reportError(
+        _ error: any Error
+    )
 }

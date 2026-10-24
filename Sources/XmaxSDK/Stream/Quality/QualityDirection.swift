@@ -1,10 +1,9 @@
 //
 //  QualityDirection.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,20 +13,34 @@ import Foundation
 /// Network sampling and tier adjustment rules for one transport direction.
 struct QualityDirection: Sendable {
 
-    /// Media baseline
+    /// The resolved media baseline, unchanged by quality levels.
     let baseline: RealtimeVideoFormat
+
+    /// Whether this policy governs downlink rather than uplink.
     let downlink: Bool
+
+    /// The minimum uplink area, in pixels; ignored for downlink.
     let minimumInputPixels: Int
 
-    /// Current tier
+    /// The currently applied quality tier.
     private(set) var level: Int
 
-    /// Sampling window
+    /// The consecutive good sample count.
     private var goodSamples = 0
+
+    /// The consecutive poor sample count.
     private var poorSamples = 0
+
+    /// The last valid monotonic sample time, in seconds.
     private var lastSample: TimeInterval?
+
+    /// The adjustment stabilization deadline, in seconds.
     private var stableUntil: TimeInterval = 0
+
+    /// The earliest next upgrade time, in seconds.
     private var upgradeAfter: TimeInterval = 0
+
+    /// The post-upgrade probing deadline, in seconds.
     private var probeUntil: TimeInterval = 0
 
     /// Creates a directional quality policy and resolves an available initial tier.
@@ -37,7 +50,12 @@ struct QualityDirection: Sendable {
     ///   - level: The initial tier, clamped to `1...5`.
     ///   - downlink: Whether this is the downstream direction.
     ///   - minimumInputPixels: The model's minimum uplink area; ignored for downlink.
-    init(baseline: RealtimeVideoFormat, level: Int, downlink: Bool, minimumInputPixels: Int = 0) {
+    init(
+        baseline: RealtimeVideoFormat,
+        level: Int,
+        downlink: Bool,
+        minimumInputPixels: Int = 0
+    ) {
         self.baseline = baseline
         self.downlink = downlink
         self.minimumInputPixels = minimumInputPixels
@@ -45,15 +63,23 @@ struct QualityDirection: Sendable {
         while self.level > 1, !supports(self.level) { self.level -= 1 }
     }
 
-    /// Current transport format
+    /// The transport format for this direction and level.
     var format: RealtimeVideoFormat { format(at: level) }
 
     /// Calculates the transport format for a tier.
     ///
     /// - Parameter level: The target transport tier.
+    ///
     /// - Returns: The format resolved from the current media baseline and direction.
-    func format(at level: Int) -> RealtimeVideoFormat {
-        QualityVideoFormat.resolve(baseline, level: level, downlink: downlink, minimumInputPixels: minimumInputPixels)
+    func format(
+        at level: Int
+    ) -> RealtimeVideoFormat {
+        QualityVideoFormat.resolve(
+            baseline,
+            level: level,
+            downlink: downlink,
+            minimumInputPixels: minimumInputPixels
+        )
     }
 
     /// Clears consecutive good and poor network samples and the last sample time.
@@ -69,8 +95,13 @@ struct QualityDirection: Sendable {
     ///   - quality: The current network quality level.
     ///   - sampledAt: The quality sample's monotonic timestamp in seconds.
     ///   - now: The current monotonic timestamp in seconds.
+    ///
     /// - Returns: The actionable candidate tier, or `nil` if no adjustment is needed.
-    mutating func observe(_ quality: RealtimeNetworkQualityLevel, sampledAt: TimeInterval, now: TimeInterval) -> Int? {
+    mutating func observe(
+        _ quality: RealtimeNetworkQualityLevel,
+        sampledAt: TimeInterval,
+        now: TimeInterval
+    ) -> Int? {
         guard sampledAt <= now, lastSample.map({ sampledAt > $0 }) ?? true else { return nil }
         if let lastSample, sampledAt - lastSample > 5 { resetSamples() }
         lastSample = sampledAt
@@ -112,7 +143,11 @@ struct QualityDirection: Sendable {
     ///   - next: The attempted target tier.
     ///   - success: Whether the tier applied successfully.
     ///   - now: The current monotonic timestamp in seconds.
-    mutating func complete(level next: Int, success: Bool, now: TimeInterval) {
+    mutating func complete(
+        level next: Int,
+        success: Bool,
+        now: TimeInterval
+    ) {
         resetSamples()
         stableUntil = now + 4
         guard success else { return }
@@ -128,8 +163,11 @@ struct QualityDirection: Sendable {
     /// Checks whether a tier meets the current direction's encoding budget.
     ///
     /// - Parameter level: The tier to validate.
+    ///
     /// - Returns: `true` if the downstream or upstream bitrate budget resolves successfully.
-    func supports(_ level: Int) -> Bool {
+    func supports(
+        _ level: Int
+    ) -> Bool {
         downlink || (try? EncodingBitratePolicy.resolve(format(at: level))) != nil
     }
 }

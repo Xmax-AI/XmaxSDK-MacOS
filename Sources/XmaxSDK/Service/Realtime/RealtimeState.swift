@@ -1,10 +1,9 @@
 //
 //  RealtimeState.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -64,12 +63,6 @@ public struct RealtimeState: Equatable, Sendable {
     public let reason: RealtimeReason?
 
     /// Creates a realtime state snapshot.
-    ///
-    /// - Parameters:
-    ///   - connectionState: The current connection lifecycle state.
-    ///   - sessionID: The current or most recent realtime session identifier.
-    ///   - taskID: The current generation task identifier.
-    ///   - reason: The state change reason; none by default.
     public init(
         connectionState: RealtimeConnectionState,
         sessionID: String? = nil,
@@ -84,6 +77,7 @@ public struct RealtimeState: Equatable, Sendable {
 }
 
 /// The realtime state listener.
-public typealias RealtimeStateListener = @MainActor @Sendable (
-    RealtimeState
-) -> Void
+public typealias RealtimeStateListener =
+    @MainActor @Sendable (
+        RealtimeState
+    ) -> Void

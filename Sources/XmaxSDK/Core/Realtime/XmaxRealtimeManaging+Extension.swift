@@ -1,16 +1,32 @@
+//
+//  XmaxRealtimeManaging+Extension.swift
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import Foundation
 
 /// Provides common defaults for local stream creation and generation calls.
 public extension XmaxRealtimeManaging {
+
     /// Binds external video using source dimensions and the model's default frame rate.
     ///
     /// - Parameter source: The caller-owned video source.
+    ///
     /// - Returns: The bound local video stream.
+    ///
     /// - Throws: An error on invalid media state, unsupported dimensions, or binding failure.
     func createExternalVideoStream(
         source: any RealtimeExternalVideoSource
     ) async throws -> RealtimeMediaStream {
-        try await createExternalVideoStream(source: source, videoFormat: nil)
+        try await createExternalVideoStream(
+            source: source,
+            videoFormat: nil
+        )
     }
 
     /// Creates a camera stream with the specified format and no microphone.
@@ -18,7 +34,9 @@ public extension XmaxRealtimeManaging {
     /// - Parameters:
     ///   - videoFormat: A camera output format supported by the model.
     ///   - deviceID: The device identifier; an empty value uses the system default camera.
+    ///
     /// - Returns: The media stream containing the local camera track.
+    ///
     /// - Throws: An error on permission, device configuration, or capture startup failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
@@ -36,7 +54,9 @@ public extension XmaxRealtimeManaging {
     /// - Parameters:
     ///   - deviceID: The device identifier; an empty value uses the system default camera.
     ///   - useMicrophone: Whether to use the microphone; disabled by default.
+    ///
     /// - Returns: The media stream containing the local camera track.
+    ///
     /// - Throws: An error on permission, device configuration, or capture startup failure.
     func createLocalCameraStream(
         deviceID: String? = nil,
@@ -54,17 +74,29 @@ public extension XmaxRealtimeManaging {
     /// Initial generation has no cached conditions; use the overload accepting `context` first.
     ///
     /// - Parameter faceRestoration: Whether to restore the original face; disabled by default.
+    ///
     /// - Throws: An error if no reusable conditions exist or generation startup or update fails.
-    func startGeneration(faceRestoration: Bool = false) async throws {
-        try await startGeneration(context: nil, faceRestoration: faceRestoration)
+    func startGeneration(
+        faceRestoration: Bool = false
+    ) async throws {
+        try await startGeneration(
+            context: nil,
+            faceRestoration: faceRestoration
+        )
     }
 
     /// Starts or updates generation with face restoration disabled by default.
     ///
     /// - Parameter context: The generation conditions; `nil` reuses cached conditions.
+    ///
     /// - Throws: An error if conditions are invalid or generation startup or update fails.
-    func startGeneration(context: RealtimeContext?) async throws {
-        try await startGeneration(context: context, faceRestoration: false)
+    func startGeneration(
+        context: RealtimeContext?
+    ) async throws {
+        try await startGeneration(
+            context: context,
+            faceRestoration: false
+        )
     }
 
     /// Connects with the current local stream when needed and starts generation with face restoration disabled.
@@ -72,7 +104,9 @@ public extension XmaxRealtimeManaging {
     /// - Parameters:
     ///   - localStream: The local media stream created and owned by this manager.
     ///   - context: The generation conditions; required for initial generation.
+    ///
     /// - Returns: The remote media stream for the current connection.
+    ///
     /// - Throws: An error on invalid local stream, connection failure, or generation startup failure.
     func startGeneration(
         localStream: RealtimeMediaStream,
@@ -92,8 +126,11 @@ public extension XmaxRealtimeManaging {
     /// - Parameters:
     ///   - localStream: The local media stream created and owned by this manager.
     ///   - faceRestoration: Whether to restore the original face; disabled by default.
+    ///
     /// - Returns: The remote media stream for the current RTC connection.
-    /// - Throws: An error on missing reusable conditions, invalid local stream, or connection or generation startup failure.
+    ///
+    /// - Throws: An error on missing reusable conditions, invalid local stream, or connection or generation startup
+    ///   failure.
     func startGeneration(
         localStream: RealtimeMediaStream,
         faceRestoration: Bool = false

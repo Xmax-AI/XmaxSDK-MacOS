@@ -1,10 +1,9 @@
 //
 //  MediaControlling.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -37,15 +36,20 @@ protocol MediaControlling: Actor, InteractionControlling {
     /// Sets a one-time internal readiness handler for the current camera stream.
     ///
     /// - Parameter handler: Called after capture is ready and preview is bound; an empty value clears it.
-    func setCameraPreviewReadyHandler(_ handler: CameraPreviewReadyHandler?)
+    func setCameraPreviewReadyHandler(
+        _ handler: CameraPreviewReadyHandler?
+    )
 
     /// Creates and retains a local camera stream, starting capture and local preview.
     ///
     /// - Parameters:
     ///   - videoFormat: The target camera capture video format.
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
-    ///   - useMicrophone: Whether to use the microphone; permission is checked at creation and capture starts on connection.
+    ///   - useMicrophone: Whether to use the microphone; permission is checked at creation and capture starts on
+    ///     connection.
+    ///
     /// - Returns: The media stream containing the local camera video track.
+    ///
     /// - Throws: An error on camera permission, RTC initialization, or capture startup failure;
     ///   also fails if a media source is already active.
     func createLocalCameraStream(
@@ -85,8 +89,11 @@ protocol MediaControlling: Actor, InteractionControlling {
     /// Switches to the specified camera device while retaining the current video track.
     ///
     /// - Returns: The local media stream with the updated camera position.
+    ///
     /// - Throws: An error if the current source is not a camera, another media operation exists, or switching fails.
-    func switchCamera(to deviceID: String) async throws -> RealtimeMediaStream
+    func switchCamera(
+        to deviceID: String
+    ) async throws -> RealtimeMediaStream
 
     /// Stops and releases the local media stream, preview binding, and RTC engine;
     /// does nothing without an active source.
@@ -95,7 +102,10 @@ protocol MediaControlling: Actor, InteractionControlling {
     /// Checks whether the active media source owns the specified stream.
     ///
     /// - Parameter stream: The media stream whose ownership is being validated.
+    ///
     /// - Returns: `true` if the active source owns the stream's video track;
     ///   otherwise returns `false`.
-    func owns(_ stream: RealtimeMediaStream) -> Bool
+    func owns(
+        _ stream: RealtimeMediaStream
+    ) -> Bool
 }

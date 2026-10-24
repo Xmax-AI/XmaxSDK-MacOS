@@ -1,10 +1,9 @@
 //
 //  XmaxStorageManager.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,20 +13,22 @@ import Foundation
 /// Public file storage entry point adapting service capabilities to public APIs.
 final class XmaxStorageManager: XmaxStorageManaging, Sendable {
 
-    /// Service components
+    /// The service that uploads, downloads, and checks media.
     private let storageService: any StorageServicing
 
     /// Creates a file manager with the specified storage service.
-    ///
-    /// - Parameter storageService: The service handling file uploads, downloads, and content safety checks.
-    init(storageService: any StorageServicing) {
+    init(
+        storageService: any StorageServicing
+    ) {
         self.storageService = storageService
     }
 
     /// Creates a file manager using the default object storage implementation.
     ///
     /// - Parameter apiService: The API service providing temporary storage credentials and content safety checks.
-    convenience init(apiService: any ApiServicing) {
+    convenience init(
+        apiService: any ApiServicing
+    ) {
         self.init(
             storageService: StorageService(
                 apiService: apiService,
@@ -43,7 +44,9 @@ final class XmaxStorageManager: XmaxStorageManaging, Sendable {
     ///   - fileName: The filename including extension, used to construct the storage object name.
     ///   - contentType: The file MIME type, such as image/jpeg.
     ///   - progress: The transfer progress callback; nil disables progress reporting.
+    ///
     /// - Returns: The uploaded file URL, object identifier, and entity tag when available.
+    ///
     /// - Throws: An error on invalid input, credential retrieval failure, or upload failure.
     func uploadImage(
         _ data: Data,
@@ -67,7 +70,9 @@ final class XmaxStorageManager: XmaxStorageManaging, Sendable {
     ///   - fileURL: The readable local image file URL.
     ///   - contentType: The file MIME type; inferred from the filename when nil.
     ///   - progress: The transfer progress callback; nil disables progress reporting.
+    ///
     /// - Returns: The uploaded file URL, object identifier, and entity tag when available.
+    ///
     /// - Throws: An error on invalid input, credential retrieval failure, or upload failure.
     func uploadImage(
         at fileURL: URL,
@@ -90,7 +95,9 @@ final class XmaxStorageManager: XmaxStorageManaging, Sendable {
     ///   - fileName: The filename including extension, used to construct the storage object name.
     ///   - contentType: The file MIME type, such as image/jpeg.
     ///   - progress: The transfer progress callback; nil disables progress reporting.
+    ///
     /// - Returns: The uploaded file URL, object identifier, and entity tag when available.
+    ///
     /// - Throws: An error on invalid input, credential or upload failure, or failed content safety checks.
     func uploadImageWithSafetyCheck(
         _ data: Data,
@@ -114,7 +121,9 @@ final class XmaxStorageManager: XmaxStorageManaging, Sendable {
     ///   - fileURL: The readable local image file URL.
     ///   - contentType: The file MIME type; inferred from the filename when nil.
     ///   - progress: The transfer progress callback; nil disables progress reporting.
+    ///
     /// - Returns: The uploaded file URL, object identifier, and entity tag when available.
+    ///
     /// - Throws: An error on invalid input, credential or upload failure, or failed content safety checks.
     func uploadImageWithSafetyCheck(
         at fileURL: URL,
@@ -137,7 +146,9 @@ final class XmaxStorageManager: XmaxStorageManaging, Sendable {
     ///   - fileName: The filename including extension, used to construct the storage object name.
     ///   - contentType: The file MIME type, such as video/mp4.
     ///   - progress: The transfer progress callback; nil disables progress reporting.
+    ///
     /// - Returns: The uploaded file URL, object identifier, and entity tag when available.
+    ///
     /// - Throws: An error on invalid input, credential retrieval failure, or upload failure.
     func uploadVideo(
         _ data: Data,
@@ -161,7 +172,9 @@ final class XmaxStorageManager: XmaxStorageManaging, Sendable {
     ///   - fileURL: The readable local video file URL.
     ///   - contentType: The file MIME type; inferred from the filename when nil.
     ///   - progress: The transfer progress callback; nil disables progress reporting.
+    ///
     /// - Returns: The uploaded file URL, object identifier, and entity tag when available.
+    ///
     /// - Throws: An error on invalid input, credential retrieval failure, or upload failure.
     func uploadVideo(
         at fileURL: URL,
@@ -183,7 +196,9 @@ final class XmaxStorageManager: XmaxStorageManaging, Sendable {
     ///   - remoteURL: The remote image URL to download.
     ///   - destinationURL: The destination local file URL.
     ///   - progress: The transfer progress callback; nil disables progress reporting.
+    ///
     /// - Returns: The local file URL and downloaded byte count.
+    ///
     /// - Throws: An error on invalid URLs, file write failure, or download failure.
     func downloadImage(
         from remoteURL: URL,
@@ -205,7 +220,9 @@ final class XmaxStorageManager: XmaxStorageManaging, Sendable {
     ///   - remoteURL: The remote video URL to download.
     ///   - destinationURL: The destination local file URL.
     ///   - progress: The transfer progress callback; nil disables progress reporting.
+    ///
     /// - Returns: The local file URL and downloaded byte count.
+    ///
     /// - Throws: An error on invalid URLs, file write failure, or download failure.
     func downloadVideo(
         from remoteURL: URL,
@@ -223,9 +240,11 @@ final class XmaxStorageManager: XmaxStorageManaging, Sendable {
 }
 
 private extension XmaxStorageManager {
+
     /// Converts byte progress into the public file progress callback.
     ///
     /// - Parameter handler: The callback receiving Progress; nil disables reporting.
+    ///
     /// - Returns: The byte progress listener for storage services, or nil if no callback was provided.
     func progressListener(
         _ handler: XmaxStorageProgressHandler?
@@ -243,7 +262,9 @@ private extension XmaxStorageManager {
     /// Uploads a file and converts the result to the public upload type.
     ///
     /// - Parameter operation: The asynchronous operation returning the service upload result.
+    ///
     /// - Returns: The remote file information exposed to callers.
+    ///
     /// - Throws: The converted XmaxError on upload failure.
     func uploadedFile(
         _ operation: () async throws -> StoredFile
@@ -263,7 +284,9 @@ private extension XmaxStorageManager {
     /// Downloads a file and converts the result to the public download type.
     ///
     /// - Parameter operation: The asynchronous operation returning the service download result.
+    ///
     /// - Returns: The local file information exposed to callers.
+    ///
     /// - Throws: The converted XmaxError on download failure.
     func downloadedFile(
         _ operation: () async throws -> DownloadedFile

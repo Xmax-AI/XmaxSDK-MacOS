@@ -1,10 +1,9 @@
 //
 //  RtcMessageQueue.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -13,15 +12,23 @@ import Foundation
 
 /// Splits room JSON signals into Agora DataStream fragments matching the server protocol.
 enum RtcMessageCodec {
+
     /// Encodes UTF-8 signals as single packets or reassemblable JSON fragments.
     ///
     /// - Parameter message: The complete room signal.
+    ///
     /// - Returns: The packets in send order.
+    ///
     /// - Throws: An error on empty signals, size or fragment count limits, or JSON encoding failure.
-    static func encode(_ message: String) throws -> [Data] {
+    static func encode(
+        _ message: String
+    ) throws -> [Data] {
         let bytes = Data(message.utf8)
         guard !bytes.isEmpty, bytes.count <= 256 * 1024 else {
-            throw XmaxError(code: .invalidConfiguration, message: "RTC room message must contain between 1 and 262144 bytes")
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "RTC room message must contain between 1 and 262144 bytes"
+            )
         }
         if bytes.count <= 800 { return [bytes] }
 
@@ -41,27 +48,44 @@ enum RtcMessageCodec {
         }
         if !chunk.isEmpty { chunks.append(chunk) }
         guard chunks.count <= 512 else {
-            throw XmaxError(code: .invalidConfiguration, message: "RTC room message contains too many fragments")
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "RTC room message contains too many fragments"
+            )
         }
 
-        let eventID = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let eventID = UUID().uuidString.replacingOccurrences(
+            of: "-",
+            with: ""
+        )
         return try chunks.enumerated().map { index, chunk in
-            try JSONEncoder().encode(Fragment(eventId: eventID, index: index, count: chunks.count, data: chunk))
+            try JSONEncoder().encode(
+                Fragment(
+                    eventId: eventID,
+                    index: index,
+                    count: chunks.count,
+                    data: chunk
+                )
+            )
         }
     }
 
     /// A large signal fragment with reassembly information.
     private struct Fragment: Encodable {
 
-        /// Fragment identity
+        /// The signaling fragmentation event name.
         let event = "__agora_chunk__"
+
+        /// The identifier associating fragments of one message.
         let eventId: String
 
-        /// Fragment order
+        /// The fragment index within the message.
         let index: Int
+
+        /// The total fragment count.
         let count: Int
 
-        /// Fragment content
+        /// The encoded fragment contents.
         let data: String
     }
 }
@@ -69,24 +93,35 @@ enum RtcMessageCodec {
 /// Sends complete signal groups serially and limits DataStream packets and bytes per second.
 final class RtcMessageQueue: @unchecked Sendable {
 
-    /// Send dependencies
+    /// The operation submitting one packet.
     private let send: @Sendable (Data) throws -> Void
+
+    /// The handler for reportable asynchronous send failures.
     private let onFailure: @Sendable (XmaxError) -> Void
+
+    /// The packet and byte rate limiter.
     private let limiter = RateLimiter()
 
-    /// Concurrent state
+    /// The lock protecting tasks, coalescing, and closure state.
     private let lock = NSLock()
+
+    /// Whether the queue is closed.
     private var closed = false
+
+    /// The incomplete send tasks keyed by message identifier.
     private var tasks: [UUID: Task<Void, any Error>] = [:]
+
+    /// The preceding task preserving message order.
     private var lastTask: Task<Void, any Error>?
+
+    /// Whether failure of the last queued message blocks later messages.
     private var lastFailureIsFatal = true
 
     /// Creates a serial, rate-limited room signaling queue.
-    ///
-    /// - Parameters:
-    ///   - send: The synchronous operation submitting one packet.
-    ///   - onFailure: Receives asynchronous send failures requiring reporting.
-    init(send: @escaping @Sendable (Data) throws -> Void, onFailure: @escaping @Sendable (XmaxError) -> Void) {
+    init(
+        send: @escaping @Sendable (Data) throws -> Void,
+        onFailure: @escaping @Sendable (XmaxError) -> Void
+    ) {
         self.send = send
         self.onFailure = onFailure
     }
@@ -96,15 +131,23 @@ final class RtcMessageQueue: @unchecked Sendable {
     /// - Parameters:
     ///   - message: The complete signal to send.
     ///   - reportFailure: Whether asynchronous send failure invokes the fault callback.
+    ///
     /// - Returns: A task for independently awaiting this signal's send result.
+    ///
     /// - Throws: An error on encoding failure, closed queue, or full queue.
     @discardableResult
-    func enqueue(_ message: String, reportFailure: Bool = true) throws -> Task<Void, any Error> {
+    func enqueue(
+        _ message: String,
+        reportFailure: Bool = true
+    ) throws -> Task<Void, any Error> {
         let packets = try RtcMessageCodec.encode(message)
         return try lock.withLock {
             guard !closed else { throw CancellationError() }
             guard tasks.count < 64 else {
-                throw XmaxError(code: .rtcError, message: "RTC room message queue is full")
+                throw XmaxError(
+                    code: .rtcError,
+                    message: "RTC room message queue is full"
+                )
             }
 
             let previous = lastTask
@@ -128,7 +171,10 @@ final class RtcMessageQueue: @unchecked Sendable {
                         if reportFailure {
                             onFailure(XmaxError.from(error))
                         } else {
-                            XmaxLogger.rtc.warn(message: "发送配置失败 (Failed to Send Configuration)\n└─ \(ErrorMessageFormatter.format(error))")
+                            XmaxLogger.rtc.warn(
+                                message:
+                                    "发送配置失败 (Failed to Send Configuration)\n└─ \(ErrorMessageFormatter.format(error))"
+                            )
                         }
                     }
                     throw error
@@ -152,8 +198,11 @@ final class RtcMessageQueue: @unchecked Sendable {
     /// Waits for a specific signal, unaffected by later messages.
     ///
     /// - Parameter pending: The send task to await; `nil` requires no wait.
+    ///
     /// - Throws: An error if the task fails or waiting is cancelled.
-    static func waitForCompletion(of pending: Task<Void, any Error>?) async throws {
+    static func waitForCompletion(
+        of pending: Task<Void, any Error>?
+    ) async throws {
         let completion = AsyncThrowingStream<Void, any Error> { continuation in
             let observer = Task {
                 do {
@@ -182,22 +231,31 @@ final class RtcMessageQueue: @unchecked Sendable {
 }
 
 private extension RtcMessageQueue {
+
     /// Limits packet count and total bytes using a sliding time window.
     actor RateLimiter {
 
-        /// Send window
+        /// The send timestamps and byte counts in the current window.
         var sent: [(time: UInt64, bytes: Int)] = []
 
         /// Waits for sufficient packet and byte budget in the send window.
         ///
         /// - Parameter byteCount: The byte count of the packet to send.
+        ///
         /// - Throws: Cancellation if waiting is cancelled.
-        func wait(byteCount: Int) async throws {
+        func wait(
+            byteCount: Int
+        ) async throws {
             while true {
                 try Task.checkCancellation()
                 let now = DispatchTime.now().uptimeNanoseconds
                 sent.removeAll { now - $0.time >= 1000000000 }
-                if sent.count < 28, sent.reduce(0, { $0 + $1.bytes }) + byteCount <= 5800 {
+                if sent.count < 28,
+                    sent.reduce(
+                        0,
+                        { $0 + $1.bytes }
+                    ) + byteCount <= 5800
+                {
                     sent.append((now, byteCount))
                     return
                 }

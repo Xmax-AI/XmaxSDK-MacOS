@@ -170,7 +170,7 @@ In Xcode, choose **File → Add Package Dependencies**, enter the repository URL
 and add the **XmaxSDK** product to your application target:
 
 ```text
-https://github.com/XingMai/XmaxSDK-MacOS.git
+https://github.com/Xmax-AI/XmaxSDK-MacOS.git
 ```
 
 ### CocoaPods
@@ -186,7 +186,7 @@ use_frameworks! :linkage => :static
 
 target 'YourApp' do
   pod 'XmaxSDK',
-      :git => 'https://github.com/XingMai/XmaxSDK-MacOS.git',
+      :git => 'https://github.com/Xmax-AI/XmaxSDK-MacOS.git',
       :tag => '1.0.1'
 end
 
@@ -208,7 +208,7 @@ pod install --repo-update
 ### Manual
 
 Download
-[`XmaxSDK-1.0.1.xcframework.zip`](https://github.com/XingMai/XmaxSDK-MacOS/releases/download/1.0.1/XmaxSDK-1.0.1.xcframework.zip),
+[`XmaxSDK-1.0.1.xcframework.zip`](https://github.com/Xmax-AI/XmaxSDK-MacOS/releases/download/1.0.1/XmaxSDK-1.0.1.xcframework.zip),
 then follow the [manual integration guide](./Materials/installation.md#manual-integration)
 to add the required dependencies and configure your Xcode target.
 
@@ -398,7 +398,7 @@ without routing local pixels through the raw video frame observer.
 ## Contact us
 
 For bug reports and feature requests, please open a
-[GitHub Issue](https://github.com/XingMai/XmaxSDK-MacOS/issues). For integration
+[GitHub Issue](https://github.com/Xmax-AI/XmaxSDK-MacOS/issues). For integration
 assistance and technical support, contact us at [sdk@xmax.ai](mailto:sdk@xmax.ai).
 
 <br>

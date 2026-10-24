@@ -1,10 +1,9 @@
 //
 //  RealtimeSessionServicing.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -15,9 +14,13 @@ protocol RealtimeSessionServicing: Sendable {
     /// Creates a model session and parses RTC join information.
     ///
     /// - Parameter model: The realtime generation model for this session.
+    ///
     /// - Returns: The server-created session and RTC connection information.
+    ///
     /// - Throws: An error on request failure, missing response fields, or cancellation.
-    func createSession(model: RealtimeModel) async throws -> RealtimeSession
+    func createSession(
+        model: RealtimeModel
+    ) async throws -> RealtimeSession
 
     /// Starts periodic heartbeats for the specified session, replacing the previous heartbeat task.
     ///
@@ -35,6 +38,9 @@ protocol RealtimeSessionServicing: Sendable {
     /// Closes the specified server session.
     ///
     /// - Parameter sessionID: The session identifier to close.
+    ///
     /// - Throws: An error on close request failure or cancellation.
-    func closeSession(sessionID: String) async throws
+    func closeSession(
+        sessionID: String
+    ) async throws
 }

@@ -1,10 +1,9 @@
 //
 //  RenderController.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -18,14 +17,13 @@ final class RenderController: RenderControlling {
     /// Stores a displayable first-frame wait and its timeout task.
     private final class RemoteFrameReadyWaiter {
 
-        /// Wait resources
-        let continuation:
-            AsyncThrowingStream<Void, any Error>.Continuation
+        /// The continuation completing first-frame readiness.
+        let continuation: AsyncThrowingStream<Void, any Error>.Continuation
+
+        /// The remote first-frame timeout task.
         var timeoutTask: Task<Void, Never>?
 
         /// Creates a remote first-frame notification context.
-        ///
-        /// - Parameter continuation: The asynchronous stream continuation ending the first-frame wait.
         init(
             continuation:
                 AsyncThrowingStream<Void, any Error>.Continuation
@@ -34,19 +32,28 @@ final class RenderController: RenderControlling {
         }
     }
 
-    /// Foundation components
+    /// The RTC remote frame provider.
     private let rtcManager: any RtcManaging
 
-    /// Event listeners
+    /// The rendering and interpolation failure handler.
     private let errorListener: XmaxErrorListener
 
-    /// Remote frame processing
+    /// The initial interpolation setting.
     private let initialFrameInterpolationEnabled: Bool
-    private let frameInterpolationSupportChecker:
-        RemoteVideoFramePipeline.FrameInterpolationSupportChecker
+
+    /// The device and frame-size interpolation capability check.
+    private let frameInterpolationSupportChecker: RemoteVideoFramePipeline.FrameInterpolationSupportChecker
+
+    /// The remote first-frame timeout, in nanoseconds.
     private let remoteFrameReadyTimeoutNanoseconds: UInt64
+
+    /// The serial delivery of final remote video frames to your app.
     private let remoteVideoFrameDispatcher = RealtimeVideoFrameDispatcher()
+
+    /// The current rendering revision.
     private var renderingToken: UInt64 = 0
+
+    /// The remote frame processing and interpolation pipeline.
     private lazy var remoteFramePipeline = RemoteVideoFramePipeline(
         interpolationEnabled: initialFrameInterpolationEnabled,
         outputToken: renderingToken,
@@ -59,31 +66,53 @@ final class RenderController: RenderControlling {
             )
         },
         errorListener: { error in
-            XmaxLogger.realtime.error(message: "插帧已降级 (Frame Interpolation Disabled)\n└─ \(XmaxLogger.localized("原因：", "Reason: "))\(error.message)")
+            XmaxLogger.realtime.error(
+                message:
+                    "插帧已降级 (Frame Interpolation Disabled)\n└─ \(XmaxLogger.localized("原因：", "Reason: "))\(error.message)"
+            )
         }
     )
 
-    /// Remote render resources
+    /// The remote stream bound for rendering.
     private var remoteStream: RemoteStream?
+
+    /// The remote stream currently producing frames.
     private var activeRemoteFrameStream: RemoteStream?
+
+    /// The attached remote video view.
     private weak var remoteView: XmaxVideoView?
+
+    /// The remote video content mode.
     private var remoteContentMode = VideoContentMode.fill
+
+    /// The most recent frame retained for immediate display on attachment.
     private var latestRemoteFrame: RealtimeVideoFrame?
+
+    /// The remote track whose view bindings and trajectories are registered.
     private weak var registeredRemoteTrack: RealtimeVideoTrack?
+
+    /// Whether generation currently permits remote trajectory input.
     private var interactionEnabled = false
 
-    func setInteractionEnabled(_ enabled: Bool) {
+    /// Updates generation interaction availability for the registered remote track.
+    func setInteractionEnabled(
+        _ enabled: Bool
+    ) {
         interactionEnabled = enabled
         refreshInteractionAvailability()
     }
 
+    /// Enables trajectories only when generation, the remote stream, and a displayable frame are available.
     private func refreshInteractionAvailability() {
         guard let track = registeredRemoteTrack else { return }
-        TrajectoryRegistry.binding(for: track)?.update(enabled:
-            interactionEnabled && remoteStream != nil && latestRemoteFrame != nil)
+        TrajectoryRegistry.binding(for: track)?.update(
+            enabled:
+                interactionEnabled && remoteStream != nil && latestRemoteFrame != nil
+        )
     }
-    private var remoteFrameReadyWaiters:
-        [UUID: RemoteFrameReadyWaiter] = [:]
+
+    /// The pending result stream first-frame wait.
+    private var remoteFrameReadyWaiters: [UUID: RemoteFrameReadyWaiter] = [:]
 
     /// Creates a coordinator for remote rendering, interpolation, and frame callbacks.
     ///
@@ -98,9 +127,9 @@ final class RenderController: RenderControlling {
         frameInterpolationEnabled: Bool = false,
         frameInterpolationSupportChecker:
             @escaping RemoteVideoFramePipeline
-                .FrameInterpolationSupportChecker = {
-                    FrameInterpolationSupport.supports(size: $0)
-                },
+            .FrameInterpolationSupportChecker = {
+                FrameInterpolationSupport.supports(size: $0)
+            },
         remoteFrameReadyTimeoutNanoseconds: UInt64 = 10_000_000_000,
         errorListener: @escaping XmaxErrorListener = { _ in }
     ) {
@@ -113,7 +142,7 @@ final class RenderController: RenderControlling {
         self.errorListener = errorListener
     }
 
-    /// Interpolation state
+    /// Whether remote frame interpolation is enabled.
     var isFrameInterpolationEnabled: Bool {
         get async {
             await remoteFramePipeline.isFrameInterpolationEnabled
@@ -123,8 +152,11 @@ final class RenderController: RenderControlling {
     /// Updates the decoded frame source and invalidates old stream caches and waits.
     ///
     /// - Parameter stream: The new remote stream; `nil` clears the source.
+    ///
     /// - Throws: An error if removing the old listener or binding the new listener fails.
-    func setRemoteStream(_ stream: RemoteStream?) throws {
+    func setRemoteStream(
+        _ stream: RemoteStream?
+    ) throws {
         let previousStream = remoteStream
         if let previousStream, previousStream != stream {
             try deactivateRemoteFrames(for: previousStream)
@@ -161,7 +193,10 @@ final class RenderController: RenderControlling {
             TrajectoryRegistry.unregister(previous)
         }
         registeredRemoteTrack = track
-        TrajectoryRegistry.register(track, binding: TrajectoryBinding(listener: interactionListener))
+        TrajectoryRegistry.register(
+            track,
+            binding: TrajectoryBinding(listener: interactionListener)
+        )
         refreshInteractionAvailability()
         VideoRenderRegistry.register(
             track,
@@ -197,6 +232,7 @@ final class RenderController: RenderControlling {
     /// - Parameters:
     ///   - enabled: Whether to enable interpolation.
     ///   - videoFormat: The expected return video format; nil before local stream creation.
+    ///
     /// - Throws: Explicit enablement throws if the device or video format does not support interpolation.
     func setFrameInterpolationEnabled(
         _ enabled: Bool,
@@ -205,7 +241,10 @@ final class RenderController: RenderControlling {
         try await remoteFramePipeline.setFrameInterpolationEnabled(
             enabled,
             videoSize: videoFormat.map {
-                CGSize(width: $0.width, height: $0.height)
+                CGSize(
+                    width: $0.width,
+                    height: $0.height
+                )
             },
             outputToken: renderingToken
         )
@@ -230,8 +269,7 @@ final class RenderController: RenderControlling {
 
         let waiterID = UUID()
         let activeToken = renderingToken
-        var continuation:
-            AsyncThrowingStream<Void, any Error>.Continuation?
+        var continuation: AsyncThrowingStream<Void, any Error>.Continuation?
         let stream = AsyncThrowingStream<Void, any Error> {
             continuation = $0
         }
@@ -263,7 +301,8 @@ final class RenderController: RenderControlling {
 
         try await withTaskCancellationHandler {
             guard activeToken == renderingToken,
-                  remoteStream != nil else {
+                remoteStream != nil
+            else {
                 finishRemoteFrameReadyWaiter(
                     waiterID,
                     error: Self.remoteFrameWaitCancelledError()
@@ -289,8 +328,11 @@ final class RenderController: RenderControlling {
     /// Unregisters remote track bindings, resets display, and waits for in-flight frame processing.
     ///
     /// - Parameter track: The remote track to unregister; frame processing is cleared even without a track.
+    ///
     /// - Throws: An error if removing the RTC frame listener fails.
-    func resetRemoteTrack(_ track: RealtimeVideoTrack?) async throws {
+    func resetRemoteTrack(
+        _ track: RealtimeVideoTrack?
+    ) async throws {
         interactionEnabled = false
         if let registeredRemoteTrack {
             TrajectoryRegistry.unregister(registeredRemoteTrack)
@@ -306,11 +348,13 @@ final class RenderController: RenderControlling {
 }
 
 private extension RenderController {
+
     /// Binds a remote video view and immediately submits the cached valid frame.
     ///
     /// - Parameters:
     ///   - view: The `XmaxVideoView` displaying remote video.
     ///   - contentMode: The remote video scaling and cropping mode.
+    ///
     /// - Throws: An error on invalid view type or remote frame listener startup failure.
     func attachRemoteVideo(
         to view: NSView,
@@ -323,7 +367,8 @@ private extension RenderController {
             )
         }
         if let remoteView, remoteView !== videoView,
-           remoteStream != nil {
+            remoteStream != nil
+        {
             remoteView.clearDecodedVideoPreview()
         }
 
@@ -369,8 +414,11 @@ private extension RenderController {
     /// Installs a decoded frame listener for the current remote stream.
     ///
     /// - Parameter reportsError: Whether binding failure also invokes the error callback.
+    ///
     /// - Throws: An error if RTC frame listener configuration fails.
-    func activateRemoteFramesIfReady(reportsError: Bool) throws {
+    func activateRemoteFramesIfReady(
+        reportsError: Bool
+    ) throws {
         guard let remoteStream else { return }
         guard activeRemoteFrameStream != remoteStream else { return }
         let outputToken = renderingToken
@@ -398,10 +446,16 @@ private extension RenderController {
     /// Removes the decoded frame listener for the matching remote stream.
     ///
     /// - Parameter stream: The remote stream to stop observing.
+    ///
     /// - Throws: An error if removing the RTC frame listener fails.
-    func deactivateRemoteFrames(for stream: RemoteStream) throws {
+    func deactivateRemoteFrames(
+        for stream: RemoteStream
+    ) throws {
         guard activeRemoteFrameStream == stream else { return }
-        try rtcManager.setRemoteVideoFrameListener(nil, for: stream)
+        try rtcManager.setRemoteVideoFrameListener(
+            nil,
+            for: stream
+        )
         activeRemoteFrameStream = nil
     }
 
@@ -452,9 +506,11 @@ private extension RenderController {
         _ waiterID: UUID,
         error: XmaxError? = nil
     ) {
-        guard let waiter = remoteFrameReadyWaiters.removeValue(
-            forKey: waiterID
-        ) else {
+        guard
+            let waiter = remoteFrameReadyWaiters.removeValue(
+                forKey: waiterID
+            )
+        else {
             return
         }
         waiter.timeoutTask?.cancel()
@@ -469,10 +525,15 @@ private extension RenderController {
     /// Ends all current first-frame waits.
     ///
     /// - Parameter error: The wait failure reason; `nil` means the first frame is ready.
-    func finishAllRemoteFrameReadyWaiters(error: XmaxError? = nil) {
+    func finishAllRemoteFrameReadyWaiters(
+        error: XmaxError? = nil
+    ) {
         let waiterIDs = Array(remoteFrameReadyWaiters.keys)
         for waiterID in waiterIDs {
-            finishRemoteFrameReadyWaiter(waiterID, error: error)
+            finishRemoteFrameReadyWaiter(
+                waiterID,
+                error: error
+            )
         }
     }
 

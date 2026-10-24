@@ -1,10 +1,9 @@
 //
-//  RealtimeCoordinator.swift
+//  XmaxRealtimeLifecycleManager.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -12,10 +11,11 @@
 import Foundation
 
 /// Coordinates realtime operation admission, state commits, and scoped resource cleanup.
-actor RealtimeCoordinator {
+actor XmaxRealtimeLifecycleManager {
 
     /// Distinguishes media preparation, connection, generation, and configuration operations.
     enum OperationKind: Sendable {
+
         /// Creates, stops, or adjusts local media.
         case media
 
@@ -34,6 +34,7 @@ actor RealtimeCoordinator {
 
     /// Defines the resources released by a termination operation.
     enum TerminationScope: Int, Sendable {
+
         /// Stops generation while retaining the established connection and local media.
         case generation = -1
 
@@ -46,8 +47,11 @@ actor RealtimeCoordinator {
         /// Checks whether an operation belongs to this cleanup scope.
         ///
         /// - Parameter kind: The operation kind to check.
+        ///
         /// - Returns: `true` if the operation belongs to this cleanup scope.
-        func affects(_ kind: OperationKind) -> Bool {
+        func affects(
+            _ kind: OperationKind
+        ) -> Bool {
             switch self {
             case .generation:
                 kind == .generation || kind == .configuration || kind == .cameraSwitch
@@ -62,16 +66,17 @@ actor RealtimeCoordinator {
     /// Records the session identifier and retained local media after cleanup.
     struct CleanupResult: Sendable {
 
-        /// Cleanup result
+        /// The session identifier involved in cleanup, if any.
         let sessionID: String?
+
+        /// Whether usable local media remains after cleanup.
         let hasLocalMedia: Bool
 
         /// Creates a resource cleanup result.
-        ///
-        /// - Parameters:
-        ///   - sessionID: The session identifier involved in cleanup; pass `nil` if there is no session.
-        ///   - hasLocalMedia: Whether usable local media remains after cleanup.
-        init(sessionID: String? = nil, hasLocalMedia: Bool = false) {
+        init(
+            sessionID: String? = nil,
+            hasLocalMedia: Bool = false
+        ) {
             self.sessionID = sessionID
             self.hasLocalMedia = hasLocalMedia
         }
@@ -80,13 +85,15 @@ actor RealtimeCoordinator {
     /// Provides operation validity checks and failure cleanup scope configuration.
     struct Token: Sendable {
 
-        /// Operation token
+        /// The lease that tracks the operation's validity.
         fileprivate let lease: OperationLease
 
         /// Sets the resource cleanup scope for operation failure or cancellation.
         ///
         /// - Parameter scope: The resource scope to release.
-        func setFailureScope(_ scope: TerminationScope) {
+        func setFailureScope(
+            _ scope: TerminationScope
+        ) {
             lease.setFailureScope(scope)
         }
 
@@ -108,39 +115,53 @@ actor RealtimeCoordinator {
     /// - Parameters:
     ///   - scope: The resource scope to release.
     ///   - taskID: The generation task identifier to finish; an empty string if there is no task.
+    ///
     /// - Returns: The session identifier and retained local media after cleanup.
-    typealias CleanupHandler = @Sendable (
-        _ scope: TerminationScope,
-        _ taskID: String
-    ) async -> CleanupResult
+    typealias CleanupHandler =
+        @Sendable (
+            _ scope: TerminationScope,
+            _ taskID: String
+        ) async -> CleanupResult
 
-    /// Business components
-    private let errorHandler: RealtimeErrorHandler
+    /// The handler reporting errors and invalidating stale failure callbacks.
+    private let errorManager: XmaxRealtimeErrorManager
+
+    /// The handler that releases resources for a termination scope.
     private let cleanup: CleanupHandler
+
+    /// The operation that stops local capture before blocked cleanup finishes.
     private let stopLocalCapture: @Sendable () async -> Void
 
-    /// State management
+    /// The realtime state snapshot exposed to your app.
     private var state = RealtimeState(connectionState: .idle)
+
+    /// The listener for connection and generation state changes.
     private var stateListener: RealtimeStateListener?
 
-    /// Operation management
+    /// The operation currently admitted by the lifecycle manager.
     private var activeOperation: Operation?
+
+    /// The latest generation request, including one waiting for its predecessor's cleanup.
     private var generationRequest: GenerationRequest?
+
+    /// The merged termination request currently being processed.
     private var termination: Termination?
+
+    /// The number of pending or executing foreground requests, which take priority over adaptation.
     private var foregroundRequests = 0
 
-    /// Creates a realtime lifecycle coordinator.
+    /// Creates a realtime lifecycle manager.
     ///
     /// - Parameters:
-    ///   - errorHandler: The handler that logs errors and forwards runtime failures.
+    ///   - errorManager: The handler that logs errors and forwards runtime failures.
     ///   - cleanup: The callback that releases resources in the specified scope.
     ///   - stopLocalCapture: Releases SDK-owned capture immediately on full termination, before waiting for operations.
     init(
-        errorHandler: RealtimeErrorHandler,
+        errorManager: XmaxRealtimeErrorManager,
         cleanup: @escaping CleanupHandler,
         stopLocalCapture: @escaping @Sendable () async -> Void = {}
     ) {
-        self.errorHandler = errorHandler
+        self.errorManager = errorManager
         self.cleanup = cleanup
         self.stopLocalCapture = stopLocalCapture
     }
@@ -153,7 +174,9 @@ actor RealtimeCoordinator {
     /// Updates the state listener and immediately reports the current state.
     ///
     /// - Parameter listener: The state callback; pass `nil` to remove the listener.
-    func setStateListener(_ listener: RealtimeStateListener?) async {
+    func setStateListener(
+        _ listener: RealtimeStateListener?
+    ) async {
         stateListener = listener
         if let listener {
             await listener(state)
@@ -166,8 +189,11 @@ actor RealtimeCoordinator {
     ///   - kind: The requested operation kind.
     ///   - failureScope: The cleanup scope on failure or cancellation; `nil` skips proactive cleanup.
     ///   - body: The operation body, which uses the supplied token to check validity across asynchronous work.
+    ///
     /// - Returns: The result of a successful operation.
-    /// - Throws: An error if an operation or cleanup already owns the lifecycle, or the operation fails or is cancelled.
+    ///
+    /// - Throws: An error if an operation or cleanup already owns the lifecycle, or the operation fails or is
+    ///   cancelled.
     func run<Value: Sendable>(
         kind: OperationKind,
         failureScope: TerminationScope? = nil,
@@ -216,7 +242,7 @@ actor RealtimeCoordinator {
                 code: .invalidConfiguration,
                 message: "Another realtime operation is in progress; wait for it to finish"
             )
-            await errorHandler.report(error)
+            await errorManager.report(error)
             throw error
         }
 
@@ -271,7 +297,9 @@ actor RealtimeCoordinator {
     /// Applies a low-priority quality adjustment when idle; skips it when busy without changing public state.
     ///
     /// - Parameter body: The transport configuration operation; check the token after asynchronous boundaries.
+    ///
     /// - Returns: Whether the adjustment was admitted and completed successfully.
+    ///
     /// - Throws: An error if an admitted configuration operation fails or is terminated.
     func runAdaptiveConfiguration(
         _ body: @escaping @Sendable (Token) async throws -> Void
@@ -321,6 +349,7 @@ actor RealtimeCoordinator {
     /// - Parameters:
     ///   - nextState: The state to publish.
     ///   - token: The validity token for this operation.
+    ///
     /// - Throws: An error if the operation is invalid or cancelled.
     func commit(
         _ nextState: RealtimeState,
@@ -353,8 +382,11 @@ actor RealtimeCoordinator {
 
     /// Marks media preparation as ready once the current local preview is ready.
     ///
-    /// - Parameter isCurrent: The callback checking whether the preview notification belongs to the current local media.
-    func localPreviewDidBecomeReady(isCurrent: @Sendable () -> Bool) async {
+    /// - Parameter isCurrent: The callback checking whether the preview notification belongs to the current local
+    ///   media.
+    func localPreviewDidBecomeReady(
+        isCurrent: @Sendable () -> Bool
+    ) async {
         guard state.connectionState == .preparing, isCurrent() else { return }
         await setState(RealtimeState(connectionState: .ready))
     }
@@ -362,7 +394,9 @@ actor RealtimeCoordinator {
     /// Disconnects realtime and waits for connection operations and resource cleanup.
     ///
     /// - Parameter reason: The disconnect reason reported with the final state.
-    func disconnect(reason: RealtimeReason = .normal) async {
+    func disconnect(
+        reason: RealtimeReason = .normal
+    ) async {
         let task = await beginDisconnect(reason: reason)
         await task?.value
     }
@@ -370,18 +404,26 @@ actor RealtimeCoordinator {
     /// Starts connection cleanup and returns its completion task while retaining local media.
     ///
     /// - Parameter reason: The disconnect reason reported with the final state.
+    ///
     /// - Returns: The connection cleanup task, or `nil` if no connection or related operation needs termination.
-    func beginDisconnect(reason: RealtimeReason) async -> Task<Void, Never>? {
-        let hasConnectionOperation = activeOperation.map {
-            TerminationScope.connection.affects($0.kind)
-        } ?? false
-        guard hasConnectionOperation || generationRequest != nil || termination != nil ||
-                (state.connectionState != .idle &&
-                    state.connectionState != .preparing &&
-                    state.connectionState != .ready) else {
+    func beginDisconnect(
+        reason: RealtimeReason
+    ) async -> Task<Void, Never>? {
+        let hasConnectionOperation =
+            activeOperation.map {
+                TerminationScope.connection.affects($0.kind)
+            } ?? false
+        guard
+            hasConnectionOperation || generationRequest != nil || termination != nil
+                || (state.connectionState != .idle && state.connectionState != .preparing
+                    && state.connectionState != .ready)
+        else {
             return nil
         }
-        return await requestTermination(.connection, reason: reason)
+        return await requestTermination(
+            .connection,
+            reason: reason
+        )
     }
 
     /// Terminates operations in scope and waits for cleanup; concurrent requests merge to the broadest scope.
@@ -423,7 +465,8 @@ actor RealtimeCoordinator {
     }
 }
 
-private extension RealtimeCoordinator {
+private extension XmaxRealtimeLifecycleManager {
+
     /// A generation request's cancellation handle and resource-completion barrier.
     final class GenerationRequest: @unchecked Sendable {
 
@@ -493,7 +536,7 @@ private extension RealtimeCoordinator {
                 code: .invalidConfiguration,
                 message: "Another realtime operation is in progress; wait for it to finish"
             )
-            await errorHandler.report(error)
+            await errorManager.report(error)
             throw error
         }
 
@@ -531,20 +574,22 @@ private extension RealtimeCoordinator {
     /// Controls operation cancellation and failure cleanup through a thread-safe validity token.
     final class OperationLease: @unchecked Sendable {
 
-        /// Concurrency control
+        /// The lock protecting lease validity and the terminal error.
         private let lock = NSLock()
 
-        /// Operation state
+        /// Whether the operation can still commit results.
         private var valid = true
+
+        /// The terminal error returned after the operation is invalidated.
         private var terminalError: XmaxError?
 
-        /// Failure cleanup configuration
+        /// The resources to release if this operation fails.
         private var storedFailureScope: TerminationScope?
 
         /// Creates an operation token.
-        ///
-        /// - Parameter failureScope: The cleanup scope on failure or cancellation; `nil` skips proactive cleanup.
-        init(failureScope: TerminationScope?) {
+        init(
+            failureScope: TerminationScope?
+        ) {
             storedFailureScope = failureScope
         }
 
@@ -566,7 +611,9 @@ private extension RealtimeCoordinator {
         /// Updates the resource cleanup scope on operation failure or cancellation.
         ///
         /// - Parameter scope: The resource scope to release.
-        func setFailureScope(_ scope: TerminationScope) {
+        func setFailureScope(
+            _ scope: TerminationScope
+        ) {
             lock.withLock {
                 storedFailureScope = scope
             }
@@ -575,7 +622,9 @@ private extension RealtimeCoordinator {
         /// Invalidates the operation and preserves the first termination error.
         ///
         /// - Parameter error: The invalidating error; pass `nil` for explicit cancellation.
-        func invalidate(error: XmaxError? = nil) {
+        func invalidate(
+            error: XmaxError? = nil
+        ) {
             lock.withLock {
                 valid = false
                 if terminalError == nil {
@@ -612,20 +661,34 @@ private extension RealtimeCoordinator {
     /// Stores the identity, cancellation control, and completion task of one realtime operation.
     final class Operation: @unchecked Sendable {
 
-        /// Operation identity and kind
+        /// The identifier distinguishing this operation from concurrent requests.
         let id = UUID()
+
+        /// The operation kind used for admission and termination decisions.
         let kind: OperationKind
+
+        /// Whether this is a background operation that yields to foreground requests.
         let background: Bool
+
+        /// The generation request owning this operation, retained through rollback.
         let generationRequest: GenerationRequest?
+
+        /// Whether this operation owns the preparation state it may roll back on failure.
         var didBeginMediaPreparation = false
+
+        /// The final state published only after successful completion and admission release.
         var completionState: RealtimeState?
 
-        /// Operation execution control
+        /// The lease managing validity and failure cleanup for this operation.
         let lease: OperationLease
+
+        /// The closure that cancels the underlying task.
         var cancel: @Sendable () -> Void = {}
+
+        /// The closure that awaits underlying task completion before releasing its resources.
         var waitForCompletion: @Sendable () async -> Void = {}
 
-        /// Termination completion
+        /// The resource cleanup task assigned to this operation.
         var terminationTask: Task<Void, Never>?
 
         /// Creates a realtime operation record.
@@ -650,26 +713,31 @@ private extension RealtimeCoordinator {
     /// Merges concurrent termination requests and stores the cleanup scope, reason, and completion task.
     final class Termination: @unchecked Sendable {
 
-        /// Termination request
+        /// The identifier distinguishing successive termination lifecycles.
         let id = UUID()
+
+        /// The resources to release for this termination.
         var target: TerminationScope
+
+        /// The reason delivered to the state listener after cleanup.
         var reason: RealtimeReason
+
+        /// The failure that triggered termination, or `nil` for an explicit request.
         var error: XmaxError?
 
-        /// Session cleanup result
+        /// The server session identifier involved in cleanup.
         var sessionID: String?
 
-        /// Asynchronous completion
+        /// The operations that must complete before resources are released.
         var waitForOperations: [@Sendable () async -> Void] = []
+
+        /// The shared cleanup task awaited by concurrent termination requests.
         var task: Task<Void, Never>!
+
+        /// The shared immediate capture-stop task for full termination.
         var captureStopTask: Task<Void, Never>?
 
         /// Creates a resource termination record.
-        ///
-        /// - Parameters:
-        ///   - target: The initial resource cleanup scope.
-        ///   - reason: The completion reason.
-        ///   - error: The cleanup-triggering error; pass `nil` for an explicit stop.
         init(
             target: TerminationScope,
             reason: RealtimeReason,
@@ -686,7 +754,9 @@ private extension RealtimeCoordinator {
     /// - Parameters:
     ///   - error: The error produced during operation execution.
     ///   - operation: The operation record that produced the error.
+    ///
     /// - Returns: Never returns a result; always throws after error handling finishes.
+    ///
     /// - Throws: Termination or cancellation for cancelled operations; otherwise throws the converted SDK error.
     func handleFailure<Value: Sendable>(
         _ error: any Error,
@@ -714,9 +784,11 @@ private extension RealtimeCoordinator {
             } else if let termination {
                 terminationTask = termination.task
             } else {
-                let isReplacement = operation.generationRequest != nil && generationRequest != nil
+                let isReplacement =
+                    operation.generationRequest != nil && generationRequest != nil
                     && operation.generationRequest !== generationRequest
-                let scope = isReplacement && state.connectionState == .connected
+                let scope =
+                    isReplacement && state.connectionState == .connected
                     ? .generation : operation.lease.failureScope ?? TerminationScope.connection
                 terminationTask = await requestTermination(
                     scope,
@@ -747,7 +819,7 @@ private extension RealtimeCoordinator {
             if operation.didBeginMediaPreparation, state.connectionState == .preparing {
                 await setState(RealtimeState(connectionState: .idle))
             }
-            await errorHandler.report(resolvedError)
+            await errorManager.report(resolvedError)
             throw resolvedError
         }
 
@@ -762,6 +834,7 @@ private extension RealtimeCoordinator {
     ///   - error: The cleanup-triggering error; pass `nil` for an explicit stop.
     ///   - reason: The reason included in the final state.
     ///   - origin: The failed operation initiating cleanup; `nil` for external termination requests.
+    ///
     /// - Returns: The merged resource cleanup task.
     func requestTermination(
         _ target: TerminationScope,
@@ -887,13 +960,13 @@ private extension RealtimeCoordinator {
             let listener = state != finalState ? stateListener : nil
             state = finalState
             termination = nil
-            errorHandler.invalidatePendingFailures(target: requestedTarget)
+            errorManager.invalidatePendingFailures(target: requestedTarget)
 
             if let listener {
                 await listener(finalState)
             }
             if let error = pending.error {
-                await errorHandler.report(error)
+                await errorManager.report(error)
             }
             return
         }
@@ -917,7 +990,9 @@ private extension RealtimeCoordinator {
     /// Updates realtime state and notifies listeners only when the state changes.
     ///
     /// - Parameter nextState: The state to publish.
-    func setState(_ nextState: RealtimeState) async {
+    func setState(
+        _ nextState: RealtimeState
+    ) async {
         guard state != nextState else {
             return
         }
@@ -930,10 +1005,12 @@ private extension RealtimeCoordinator {
     /// Checks whether an error represents operation cancellation.
     ///
     /// - Parameter error: The error to check.
+    ///
     /// - Returns: `true` for task cancellation or SDK cancellation errors.
-    static func isCancellation(_ error: any Error) -> Bool {
-        error is CancellationError ||
-            (error as? XmaxError)?.code == .cancelled
+    static func isCancellation(
+        _ error: any Error
+    ) -> Bool {
+        error is CancellationError || (error as? XmaxError)?.code == .cancelled
     }
 
     /// Creates a realtime operation cancellation error.

@@ -1,10 +1,9 @@
 //
 //  StreamController.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -12,48 +11,58 @@
 import Foundation
 
 /// Updates remote result bindings on the main thread; nil clears the binding.
-typealias RemoteStreamListener = @MainActor @Sendable (
-    RemoteStream?
-) throws -> Void
+typealias RemoteStreamListener =
+    @MainActor @Sendable (
+        RemoteStream?
+    ) throws -> Void
 
 /// Coordinates RTC rooms, media streams, encoding, and quality events.
 final class StreamController: StreamControlling, RtcEventListener,
-    @unchecked Sendable {
+    @unchecked Sendable
+{
 
-    /// Foundation components
+    /// The RTC media publication, subscription, and frame adapter.
     private let rtcManager: any RtcManaging
 
-    /// Transport components
+    /// The room connection and signaling controller.
     private let roomController: any RoomControlling
+
+    /// The uplink encoder configuration controller.
     private let encodingController: any EncodingControlling
+
+    /// The quality statistics and adaptation controller.
     private let qualityController: any QualityControlling
 
-    /// Event listeners
+    /// The transport failure handler.
     private let errorListener: XmaxErrorListener
+
+    /// The remote result publication and end handler.
     private let remoteStreamListener: RemoteStreamListener
 
-    /// Generation configuration
+    /// The generation stream confirmation timeout.
     private let generationTiming: StreamGenerationTiming
 
-    /// Timing metrics
+    /// The connection and generation startup timing recorder.
     private let timing: RealtimeTiming
 
-    /// Audio configuration
+    /// The remote volume percentage, from 0 to 100.
     private var remoteAudioVolumePercentage = 100
 
-    /// Concurrency control
+    /// The lock protecting connection, media, and generation state.
     private let stateLock = NSLock()
+
+    /// The lock serializing media and generation operations.
     private let operationLock = NSRecursiveLock()
 
-    /// Runtime state
+    /// The transport state snapshot.
     private var state = State()
 
-    /// Generation state query
+    /// Whether a generation task remains active.
     var hasGenerationTask: Bool {
         stateLock.withLock { state.generationTask != nil }
     }
 
-    /// Remote volume query
+    /// The remote playback volume, from 0 to 1.
     var remoteAudioVolume: Float {
         Float(stateLock.withLock { remoteAudioVolumePercentage }) / 100
     }
@@ -123,6 +132,7 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// Sets realtime video encoder configuration.
     ///
     /// - Parameter videoFormat: The width, height, and frame rate for RTC encoding.
+    ///
     /// - Throws: An error on invalid video format or RTC encoding configuration failure.
     func setVideoEncoderConfig(
         _ videoFormat: RealtimeVideoFormat
@@ -130,7 +140,7 @@ final class StreamController: StreamControlling, RtcEventListener,
         try encodingController.configure(videoFormat)
     }
 
-    /// Quality configuration query
+    /// The current media baseline and directional quality levels.
     var qualityConfiguration: QualityConfiguration? { qualityController.qualityConfiguration }
 
     /// Prepares upstream and downstream tiers from media baseline and model history.
@@ -138,15 +148,24 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// - Parameters:
     ///   - baseline: The original local media output format, unchanged by tier adjustments.
     ///   - model: The model identifier isolating tier history.
+    ///
     /// - Returns: The initial upstream and downstream configuration for this connection.
-    func prepareQuality(baseline: RealtimeVideoFormat, model: String) -> QualityConfiguration {
-        qualityController.prepareQuality(baseline: baseline, model: model)
+    func prepareQuality(
+        baseline: RealtimeVideoFormat,
+        model: String
+    ) -> QualityConfiguration {
+        qualityController.prepareQuality(
+            baseline: baseline,
+            model: model
+        )
     }
 
     /// Sets the internal tier adjustment callback without affecting public network quality observation.
     ///
     /// - Parameter listener: Receives network quality and monotonic sample time; nil removes it.
-    func setAdaptiveQualityListener(_ listener: (@Sendable (RealtimeNetworkQuality, TimeInterval) -> Void)?) {
+    func setAdaptiveQualityListener(
+        _ listener: (@Sendable (RealtimeNetworkQuality, TimeInterval) -> Void)?
+    ) {
         qualityController.setAdaptiveQualityListener(listener)
     }
 
@@ -155,9 +174,16 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// - Parameters:
     ///   - quality: The current upstream and downstream network quality.
     ///   - sampledAt: The monotonic sample time in seconds.
+    ///
     /// - Returns: The candidate tiers meeting consecutive sample and cooldown requirements.
-    func proposeQuality(_ quality: RealtimeNetworkQuality, sampledAt: TimeInterval) -> QualityChange {
-        qualityController.proposeQuality(quality, sampledAt: sampledAt)
+    func proposeQuality(
+        _ quality: RealtimeNetworkQuality,
+        sampledAt: TimeInterval
+    ) -> QualityChange {
+        qualityController.proposeQuality(
+            quality,
+            sampledAt: sampledAt
+        )
     }
 
     /// Commits tier adjustment results and saves history on success.
@@ -166,8 +192,16 @@ final class StreamController: StreamControlling, RtcEventListener,
     ///   - downlink: true indicates downstream; false indicates upstream.
     ///   - level: The attempted tier in 1...5.
     ///   - success: Whether configuration applied successfully.
-    func completeQuality(downlink: Bool, level: Int, success: Bool) {
-        qualityController.completeQuality(downlink: downlink, level: level, success: success)
+    func completeQuality(
+        downlink: Bool,
+        level: Int,
+        success: Bool
+    ) {
+        qualityController.completeQuality(
+            downlink: downlink,
+            level: level,
+            success: success
+        )
     }
 
     /// Clears the consecutive sampling window.
@@ -175,15 +209,21 @@ final class StreamController: StreamControlling, RtcEventListener,
 
     /// Sets the upstream video statistics listener.
     ///
-    /// - Parameter listener: The main-thread callback; receives nil before publication or after disconnect. Pass nil to clear it.
-    func setUplinkVideoStatisticsListener(_ listener: UplinkVideoStatisticsListener?) {
+    /// - Parameter listener: The main-thread callback; receives nil before publication or after disconnect. Pass nil to
+    ///   clear it.
+    func setUplinkVideoStatisticsListener(
+        _ listener: UplinkVideoStatisticsListener?
+    ) {
         qualityController.setUplinkVideoStatisticsListener(listener)
     }
 
     /// Sets the downstream video statistics listener.
     ///
-    /// - Parameter listener: The main-thread callback; receives nil when the result stream is cleared. Pass nil to clear it.
-    func setDownlinkVideoStatisticsListener(_ listener: DownlinkVideoStatisticsListener?) {
+    /// - Parameter listener: The main-thread callback; receives nil when the result stream is cleared. Pass nil to
+    ///   clear it.
+    func setDownlinkVideoStatisticsListener(
+        _ listener: DownlinkVideoStatisticsListener?
+    ) {
         qualityController.setDownlinkVideoStatisticsListener(listener)
     }
 
@@ -208,8 +248,11 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// Sets the playback volume for remote generated audio.
     ///
     /// - Parameter volume: The validated volume in `0...1`.
+    ///
     /// - Throws: An error if RTC volume configuration fails.
-    func setRemoteAudioVolume(_ volume: Float) throws {
+    func setRemoteAudioVolume(
+        _ volume: Float
+    ) throws {
         let rtcVolume = Int((volume * 100).rounded())
         try operationLock.withLock {
             let userIDs = stateLock.withLock {
@@ -233,6 +276,7 @@ final class StreamController: StreamControlling, RtcEventListener,
     ///   - connection: The RTC room, user, token, and target bot information.
     ///   - includeLocalAudio: Whether to publish local audio alongside video.
     ///   - ensureActive: The callback validating connection operation identity across asynchronous boundaries;
+    ///
     /// - Throws: An error on connection cancellation or RTC join, room configuration, or local publication
     ///   failure.
     func connect(
@@ -242,7 +286,10 @@ final class StreamController: StreamControlling, RtcEventListener,
         ensureActive: @escaping @Sendable () throws -> Void
     ) async throws {
         try ensureActive()
-        try configureRoom(roomID: connection.roomID, botName: connection.botName)
+        try configureRoom(
+            roomID: connection.roomID,
+            botName: connection.botName
+        )
         try await roomController.join(
             connection: connection,
             ensureActive: ensureActive
@@ -271,8 +318,11 @@ final class StreamController: StreamControlling, RtcEventListener,
     ///   - context: The generation conditions, including reference image and prompt.
     ///   - faceRestoration: Whether to restore the original face.
     ///   - paddingContain: Whether to preserve source aspect ratio and pad the canvas using contain mode.
+    ///
     /// - Returns: The task awaiting remote result stream publication confirmation.
-    /// - Throws: An error on invalid task parameters, unready room, existing generation task, signal failure, or send timeout.
+    ///
+    /// - Throws: An error on invalid task parameters, unready room, existing generation task, signal failure, or send
+    ///   timeout.
     func beginGeneration(
         taskID: String,
         videoFormat: RealtimeVideoFormat,
@@ -296,7 +346,10 @@ final class StreamController: StreamControlling, RtcEventListener,
                 group.addTask { try await self.rtcManager.awaitPendingMessages() }
                 group.addTask {
                     try await Task.sleep(nanoseconds: self.generationTiming.timeoutNanoseconds)
-                    throw XmaxError(code: .timeout, message: "Realtime generation start timed out")
+                    throw XmaxError(
+                        code: .timeout,
+                        message: "Realtime generation start timed out"
+                    )
                 }
                 defer { group.cancelAll() }
                 try await group.next()
@@ -339,6 +392,7 @@ final class StreamController: StreamControlling, RtcEventListener,
     ///   - context: The generation conditions, including reference image and prompt.
     ///   - faceRestoration: Whether to restore the original face.
     ///   - paddingContain: Whether to preserve source aspect ratio and pad the canvas using contain mode.
+    ///
     /// - Throws: An error on unready room, invalid parameters, or signal submission failure.
     func updateGeneration(
         taskID: String,
@@ -354,15 +408,18 @@ final class StreamController: StreamControlling, RtcEventListener,
             targetSize: targetSize,
             context: context,
             faceRestoration: faceRestoration,
-                paddingContain: paddingContain
+            paddingContain: paddingContain
         )
     }
 
     /// Stops generation and clears the remote result stream.
     ///
     /// - Parameter taskID: The generation task identifier to stop; an empty string stops
+    ///
     /// - Throws: An error if sending the RTC stop signal fails.
-    func stopGeneration(taskID: String) async throws {
+    func stopGeneration(
+        taskID: String
+    ) async throws {
         let stoppedTaskID = await stopStreamGeneration(taskID: taskID)
         guard taskID.isEmpty || !stoppedTaskID.isEmpty else {
             return
@@ -375,6 +432,7 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// - Parameters:
     ///   - taskID: The generation task identifier receiving the trajectory.
     ///   - points: The trajectory points to send; empty arrays are ignored.
+    ///
     /// - Throws: An error on unready RTC room, invalid task identity, or trajectory signal
     ///   failure.
     func sendTracks(
@@ -392,13 +450,15 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// - Parameters:
     ///   - roomID: The RTC room identifier.
     ///   - botName: The target bot account; `nil` or empty permits any account.
+    ///
     /// - Throws: An error if the room identifier is empty or media state remains active.
     func configureRoom(
         roomID: String,
         botName: String?
     ) throws {
         let roomID = roomID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let botName = botName?
+        let botName =
+            botName?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !roomID.isEmpty else {
             throw XmaxError(
@@ -410,13 +470,13 @@ final class StreamController: StreamControlling, RtcEventListener,
         try operationLock.withLock {
             try stateLock.withLock {
                 guard !state.localVideoPublished,
-                      !state.localAudioPublished,
-                      state.subscribedRemoteUserIDs.isEmpty,
-                      state.generationTask == nil else {
+                    !state.localAudioPublished,
+                    state.subscribedRemoteUserIDs.isEmpty,
+                    state.generationTask == nil
+                else {
                     throw XmaxError(
                         code: .invalidConfiguration,
-                        message: "Reset the current RTC room before " +
-                            "configuring another one"
+                        message: "Reset the current RTC room before " + "configuring another one"
                     )
                 }
                 state.roomID = roomID
@@ -428,15 +488,17 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// Publishes local video and configured local audio.
     ///
     /// - Parameter includeAudio: Whether to also publish local audio.
+    ///
     /// - Throws: An error if the room is unconfigured or RTC media publication fails.
-    func publishLocalStream(includeAudio: Bool) throws {
+    func publishLocalStream(
+        includeAudio: Bool
+    ) throws {
         try operationLock.withLock {
             let currentState = stateLock.withLock { state }
             guard !currentState.roomID.isEmpty else {
                 throw XmaxError(
                     code: .invalidConfiguration,
-                    message: "Configure an RTC room before publishing " +
-                        "the local stream"
+                    message: "Configure an RTC room before publishing " + "the local stream"
                 )
             }
 
@@ -469,8 +531,11 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// Pushes local external video during an active generation task; ignores frames otherwise.
     ///
     /// - Parameter frame: The local video frame prepared for RTC.
+    ///
     /// - Throws: An error if RTC resources are unready or frame conversion fails.
-    func pushLocalVideoFrame(_ frame: VideoFrame) throws {
+    func pushLocalVideoFrame(
+        _ frame: VideoFrame
+    ) throws {
         guard stateLock.withLock({ state.generationTask != nil }) else {
             return
         }
@@ -484,8 +549,11 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// Pushes a local external audio frame.
     ///
     /// - Parameter frame: The PCM frame prepared for RTC;
+    ///
     /// - Throws: An error if RTC resources are unready or audio frame conversion fails.
-    func pushLocalAudioFrame(_ frame: AudioFrame) throws {
+    func pushLocalAudioFrame(
+        _ frame: AudioFrame
+    ) throws {
         guard stateLock.withLock({ state.localAudioPublished }) else {
             return
         }
@@ -502,6 +570,7 @@ final class StreamController: StreamControlling, RtcEventListener,
     ///   - taskID: The current generation task identifier.
     ///   - targetSize: The returned integer-pixel dimensions.
     ///   - ensureActive: Checks current configuration operation validity before sending.
+    ///
     /// - Throws: An error on cancellation, unready room, or signal send failure.
     func changeTargetSize(
         taskID: String,
@@ -518,7 +587,9 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// Creates a generation result confirmation wait and its timeout task.
     ///
     /// - Parameter taskID: The generation task identifier to confirm.
+    ///
     /// - Returns: The cancellable result confirmation task.
+    ///
     /// - Throws: An error on invalid task identity, unconfigured room, existing task, or waiter creation failure.
     func beginGenerationConfirmation(
         taskID: String
@@ -546,8 +617,7 @@ final class StreamController: StreamControlling, RtcEventListener,
                 )
             }
 
-            var continuation:
-                AsyncThrowingStream<Void, any Error>.Continuation?
+            var continuation: AsyncThrowingStream<Void, any Error>.Continuation?
             let stream = AsyncThrowingStream<Void, any Error> {
                 continuation = $0
             }
@@ -608,6 +678,7 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// - Parameters:
     ///   - taskID: The task identifier to stop; an empty string indicates the current task.
     ///   - reason: The cancellation reason ending confirmation waiting.
+    ///
     /// - Returns: The stopped task identifier; an empty string if none matches.
     @discardableResult
     func stopStreamGeneration(
@@ -622,10 +693,11 @@ final class StreamController: StreamControlling, RtcEventListener,
                 return nil
             }
 
-            let stoppedState = stateLock.withLock { () -> (
-                GenerationWaiter?,
-                Set<String>
-            ) in
+            let stoppedState = stateLock.withLock {
+                () -> (
+                    GenerationWaiter?,
+                    Set<String>
+                ) in
                 let waiter = state.generationWaiter
                 let remoteAudioUserIDs =
                     state.subscribedRemoteAudioUserIDs
@@ -647,7 +719,10 @@ final class StreamController: StreamControlling, RtcEventListener,
 
         reject(
             result.waiter,
-            error: XmaxError(code: .cancelled, message: reason)
+            error: XmaxError(
+                code: .cancelled,
+                message: reason
+            )
         )
         for userID in result.remoteAudioUserIDs.sorted() {
             performCleanup("取消订阅 RTC 远端音频失败 (Failed to Unsubscribe from RTC Remote Audio)") {
@@ -711,14 +786,19 @@ final class StreamController: StreamControlling, RtcEventListener,
         operationLock.withLock {
             let currentState = stateLock.withLock { state }
             guard !currentState.roomID.isEmpty,
-                  currentState.botName.isEmpty ||
-                    currentState.botName == userID else {
+                currentState.botName.isEmpty || currentState.botName == userID
+            else {
                 return
             }
 
             if published {
                 subscribeRemoteVideo(userID: userID)
-                confirmRemoteStream(RemoteStream(roomID: currentState.roomID, userID: userID))
+                confirmRemoteStream(
+                    RemoteStream(
+                        roomID: currentState.roomID,
+                        userID: userID
+                    )
+                )
             } else {
                 _ = stateLock.withLock {
                     state.subscribedRemoteUserIDs.remove(userID)
@@ -738,10 +818,15 @@ final class StreamController: StreamControlling, RtcEventListener,
     ///
     /// - Parameter error: The connection or signaling transport error.
     @MainActor
-    func onRtcFailure(_ error: XmaxError) {
+    func onRtcFailure(
+        _ error: XmaxError
+    ) {
         let taskID = stateLock.withLock { state.generationWaiter?.taskID }
         if let taskID {
-            rejectGenerationStart(taskID: taskID, error: error)
+            rejectGenerationStart(
+                taskID: taskID,
+                error: error
+            )
         } else {
             errorListener(error)
         }
@@ -749,18 +834,26 @@ final class StreamController: StreamControlling, RtcEventListener,
 }
 
 private extension StreamController {
+
     /// Marks the start signal as sent and confirms the published target result stream.
     ///
     /// - Parameter taskID: The generation task identifier associated with the start signal.
     @MainActor
-    func confirmPublishedRemoteStream(taskID: String) {
+    func confirmPublishedRemoteStream(
+        taskID: String
+    ) {
         let stream = stateLock.withLock { () -> RemoteStream? in
             guard let waiter = state.generationWaiter, waiter.taskID == taskID else { return nil }
             waiter.signalSent = true
-            guard let userID = state.subscribedRemoteUserIDs.first(where: {
-                state.botName.isEmpty || $0 == state.botName
-            }) else { return nil }
-            return RemoteStream(roomID: state.roomID, userID: userID)
+            guard
+                let userID = state.subscribedRemoteUserIDs.first(where: {
+                    state.botName.isEmpty || $0 == state.botName
+                })
+            else { return nil }
+            return RemoteStream(
+                roomID: state.roomID,
+                userID: userID
+            )
         }
         if let stream { confirmRemoteStream(stream) }
     }
@@ -769,17 +862,19 @@ private extension StreamController {
     ///
     /// - Parameter stream: The remote result stream to confirm.
     @MainActor
-    func confirmRemoteStream(_ stream: RemoteStream) {
+    func confirmRemoteStream(
+        _ stream: RemoteStream
+    ) {
         let waiter = operationLock.withLock { () -> GenerationWaiter? in
             stateLock.withLock {
                 guard state.generationTask != nil,
-                      let waiter = state.generationWaiter,
-                      waiter.signalSent,
-                      !waiter.confirmationPending,
-                      state.subscribedRemoteUserIDs.contains(stream.userID),
-                      stream.roomID == state.roomID,
-                      state.botName.isEmpty ||
-                        stream.userID == state.botName else {
+                    let waiter = state.generationWaiter,
+                    waiter.signalSent,
+                    !waiter.confirmationPending,
+                    state.subscribedRemoteUserIDs.contains(stream.userID),
+                    stream.roomID == state.roomID,
+                    state.botName.isEmpty || stream.userID == state.botName
+                else {
                     return nil
                 }
                 waiter.confirmationPending = true
@@ -810,55 +905,64 @@ private extension StreamController {
 }
 
 private extension StreamController {
+
     /// Stores media publication, subscription, and generation state for the current room.
     struct State {
 
-        /// Room identity
+        /// The current RTC room identifier.
         var roomID = ""
+
+        /// The server-assigned result user identifier.
         var botName = ""
 
-        /// Local publication
+        /// Whether local video is published.
         var localVideoPublished = false
+
+        /// Whether local audio is published.
         var localAudioPublished = false
 
-        /// Remote subscriptions
+        /// The remote users with subscribed video.
         var subscribedRemoteUserIDs: Set<String> = []
+
+        /// The remote users with subscribed audio.
         var subscribedRemoteAudioUserIDs: Set<String> = []
 
-        /// Generation task
+        /// The submitted generation task.
         var generationTask: GenerationTask?
+
+        /// The waiter for generation signaling and remote stream readiness.
         var generationWaiter: GenerationWaiter?
 
-        /// Result stream
+        /// The confirmed remote result stream.
         var activeRemoteStream: RemoteStream?
     }
 
     /// Identifies the active generation task.
     struct GenerationTask {
 
-        /// Task identity
+        /// The unique generation task identifier.
         let id: String
     }
 
     /// Manages result stream confirmation, timeouts, and asynchronous notifications.
     final class GenerationWaiter: @unchecked Sendable {
 
-        /// Task identity
+        /// The generation task awaiting its result stream.
         let taskID: String
 
-        /// Completion notification and timeout
+        /// The continuation completing confirmation.
         let continuation: AsyncThrowingStream<Void, any Error>.Continuation
+
+        /// The generation result timeout task.
         var timeoutTask: Task<Void, Never>?
 
-        /// Confirmation state
+        /// Whether a matching result stream is being confirmed.
         var confirmationPending = false
+
+        /// Whether start signaling was submitted successfully.
         var signalSent = false
 
         /// Creates a generation result confirmation context.
-        ///
-        /// - Parameters:
-        ///   - taskID: The generation task identifier awaiting its result stream.
-        ///   - continuation: The asynchronous stream continuation completing confirmation.
         init(
             taskID: String,
             continuation:
@@ -872,18 +976,22 @@ private extension StreamController {
     /// Stores waiters and audio subscriptions requiring cleanup after generation stops.
     struct StopResult {
 
-        /// Stop task
+        /// The generation task to stop.
         let taskID: String
+
+        /// The generation waiter to finish during cleanup.
         let waiter: GenerationWaiter?
 
-        /// Subscriptions pending cleanup
+        /// The remote audio subscriptions to cancel.
         let remoteAudioUserIDs: Set<String>
     }
 
     /// Subscribes to remote video and reports failures to the startup waiter or error callback.
     ///
     /// - Parameter userID: The remote user account to subscribe to.
-    func subscribeRemoteVideo(userID: String) {
+    func subscribeRemoteVideo(
+        userID: String
+    ) {
         let alreadySubscribed = stateLock.withLock {
             state.subscribedRemoteUserIDs.contains(userID)
         }
@@ -920,8 +1028,11 @@ private extension StreamController {
     /// Applies the current volume before subscribing to remote audio.
     ///
     /// - Parameter userID: The remote user account to subscribe to.
+    ///
     /// - Throws: An error on volume or audio subscription configuration failure.
-    func subscribeRemoteAudio(userID: String) throws {
+    func subscribeRemoteAudio(
+        userID: String
+    ) throws {
         let audioState = stateLock.withLock {
             (
                 state.subscribedRemoteAudioUserIDs.contains(userID),
@@ -948,7 +1059,9 @@ private extension StreamController {
     /// Cancels the recorded remote audio subscription.
     ///
     /// - Parameter userID: The remote user account to unsubscribe from.
-    func unsubscribeRemoteAudio(userID: String) {
+    func unsubscribeRemoteAudio(
+        userID: String
+    ) {
         let wasSubscribed = stateLock.withLock {
             state.subscribedRemoteAudioUserIDs.remove(userID) != nil
         }
@@ -966,11 +1079,14 @@ private extension StreamController {
     /// Successfully completes result confirmation for the matching task.
     ///
     /// - Parameter taskID: The generation task identifier whose result stream is confirmed.
-    func resolveGenerationStart(taskID: String) {
+    func resolveGenerationStart(
+        taskID: String
+    ) {
         let waiter = operationLock.withLock { () -> GenerationWaiter? in
             stateLock.withLock {
                 guard state.generationTask?.id == taskID,
-                      state.generationWaiter?.taskID == taskID else {
+                    state.generationWaiter?.taskID == taskID
+                else {
                     return nil
                 }
                 let waiter = state.generationWaiter
@@ -998,7 +1114,8 @@ private extension StreamController {
         let waiter = operationLock.withLock { () -> GenerationWaiter? in
             stateLock.withLock {
                 guard state.generationTask?.id == taskID,
-                      state.generationWaiter?.taskID == taskID else {
+                    state.generationWaiter?.taskID == taskID
+                else {
                     return nil
                 }
                 let waiter = state.generationWaiter
@@ -1006,7 +1123,10 @@ private extension StreamController {
                 return waiter
             }
         }
-        reject(waiter, error: error)
+        reject(
+            waiter,
+            error: error
+        )
     }
 
     /// Cancels the timeout and fails the specified waiter.
@@ -1033,9 +1153,8 @@ private extension StreamController {
             try remoteStreamListener(nil)
         } catch {
             XmaxLogger.stream.error(
-                message: "清理 RTC 远端生成流失败 (Failed to Clean Up RTC Remote Generation Stream)\n" +
-                    "└─ \(XmaxLogger.localized("原因：", "Reason: "))" +
-                    (error as NSError).localizedDescription
+                message: "清理 RTC 远端生成流失败 (Failed to Clean Up RTC Remote Generation Stream)\n"
+                    + "└─ \(XmaxLogger.localized("原因：", "Reason: "))" + (error as NSError).localizedDescription
             )
         }
     }
@@ -1050,9 +1169,8 @@ private extension StreamController {
             }
         } catch {
             XmaxLogger.stream.error(
-                message: "回滚 RTC 本地视频发布失败 (Failed to Roll Back RTC Local Video Publication)\n" +
-                    "└─ \(XmaxLogger.localized("原因：", "Reason: "))" +
-                    (error as NSError).localizedDescription
+                message: "回滚 RTC 本地视频发布失败 (Failed to Roll Back RTC Local Video Publication)\n"
+                    + "└─ \(XmaxLogger.localized("原因：", "Reason: "))" + (error as NSError).localizedDescription
             )
         }
     }
@@ -1070,8 +1188,8 @@ private extension StreamController {
             try action()
         } catch {
             XmaxLogger.stream.error(
-                message: "\(title)\n└─ \(XmaxLogger.localized("原因：", "Reason: "))" +
-                    (error as NSError).localizedDescription
+                message: "\(title)\n└─ \(XmaxLogger.localized("原因：", "Reason: "))"
+                    + (error as NSError).localizedDescription
             )
         }
     }
@@ -1080,10 +1198,10 @@ private extension StreamController {
 /// Defines the generation confirmation timeout.
 struct StreamGenerationTiming: Sendable {
 
-    /// Confirmation timeout
+    /// The result stream confirmation timeout, in nanoseconds.
     let timeoutNanoseconds: UInt64
 
-    /// Default configuration
+    /// The default result confirmation timeout.
     static let live = StreamGenerationTiming(
         timeoutNanoseconds: 30_000_000_000
     )

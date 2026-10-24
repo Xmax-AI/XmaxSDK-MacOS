@@ -1,10 +1,9 @@
 //
 //  RoomController.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,17 +13,19 @@ import Foundation
 /// Manages RTC room lifecycle, heartbeat, and generation signals.
 actor RoomController: RoomControlling {
 
-    /// Foundation components
+    /// The RTC manager.
     private let rtcManager: any RtcManaging
 
-    /// Transport components
+    /// The room signaling heartbeat.
     private let heartbeat: RoomHeartbeat
 
-    /// Timing metrics
+    /// The shared startup timing recorder.
     private let timing: RealtimeTiming
 
-    /// Room resources
+    /// The room connection phase.
     private var state = State.idle
+
+    /// The shared pending room leave operation.
     private var leaveOperation: LeaveOperation?
 
     /// Creates a room controller with the default heartbeat component.
@@ -42,11 +43,6 @@ actor RoomController: RoomControlling {
     }
 
     /// Creates a room controller with the specified heartbeat component.
-    ///
-    /// - Parameters:
-    ///   - rtcManager: The underlying RTC manager.
-    ///   - heartbeat: The heartbeat component maintaining periodic room signals.
-    ///   - timing: The shared realtime startup timing recorder.
     init(
         rtcManager: any RtcManaging,
         heartbeat: RoomHeartbeat,
@@ -62,6 +58,7 @@ actor RoomController: RoomControlling {
     /// - Parameters:
     ///   - connection: The server-assigned RTC connection information.
     ///   - ensureActive: The callback checking current connection validity.
+    ///
     /// - Throws: An error on invalid room state, RTC join failure, timeout, or cancellation.
     func join(
         connection: RealtimeSessionConnection,
@@ -97,8 +94,9 @@ actor RoomController: RoomControlling {
             timing.finishRoomJoin()
             try ensureActive()
             guard case .joining(let currentID) = state,
-                  currentID == operationID,
-                  leaveOperation == nil else {
+                currentID == operationID,
+                leaveOperation == nil
+            else {
                 throw XmaxError(
                     code: .cancelled,
                     message: "RTC room join was cancelled"
@@ -109,8 +107,9 @@ actor RoomController: RoomControlling {
             heartbeat.start(userID: connection.userID)
         } catch {
             if case .joining(let currentID) = state,
-               currentID == operationID,
-               leaveOperation == nil {
+                currentID == operationID,
+                leaveOperation == nil
+            {
                 state = .leaving
                 heartbeat.stop()
                 await rtcManager.leaveRoom()
@@ -139,7 +138,10 @@ actor RoomController: RoomControlling {
             }
             await self.performLeave(operationID: operationID)
         }
-        leaveOperation = LeaveOperation(id: operationID, task: task)
+        leaveOperation = LeaveOperation(
+            id: operationID,
+            task: task
+        )
         await task.value
     }
 
@@ -152,6 +154,7 @@ actor RoomController: RoomControlling {
     ///   - context: The current generation conditions.
     ///   - faceRestoration: Whether to restore the original face.
     ///   - paddingContain: Whether to preserve source aspect ratio and pad the generation canvas.
+    ///
     /// - Throws: An error if the room is unready or signal encoding or enqueueing fails.
     func startGeneration(
         taskID: String,
@@ -183,6 +186,7 @@ actor RoomController: RoomControlling {
     ///   - context: The current generation conditions.
     ///   - faceRestoration: Whether to restore the original face.
     ///   - paddingContain: Whether to preserve source aspect ratio and pad the generation canvas.
+    ///
     /// - Throws: An error on unready room, cancellation, signal encoding failure, or enqueueing failure.
     func changeGenerationCondition(
         taskID: String,
@@ -212,6 +216,7 @@ actor RoomController: RoomControlling {
     ///   - taskID: The current generation task identifier.
     ///   - targetSize: The returned integer-pixel dimensions.
     ///   - ensureActive: Checks current configuration operation validity before sending.
+    ///
     /// - Throws: An error on cancellation, unready room, or signal send failure.
     func changeTargetSize(
         taskID: String,
@@ -233,10 +238,14 @@ actor RoomController: RoomControlling {
     /// Enqueues a stop signal; ignores an unjoined room or empty task.
     ///
     /// - Parameter taskID: The generation task identifier to stop.
+    ///
     /// - Throws: An error if stop signal encoding or enqueueing fails.
-    func stopGeneration(taskID: String) throws {
+    func stopGeneration(
+        taskID: String
+    ) throws {
         guard !taskID.isEmpty,
-              case .joined(let userID) = state else {
+            case .joined(let userID) = state
+        else {
             return
         }
 
@@ -253,6 +262,7 @@ actor RoomController: RoomControlling {
     /// - Parameters:
     ///   - taskID: The destination task identifier; empty values are not sent.
     ///   - points: Media-normalized points in `[0, 1]`; empty arrays are not sent.
+    ///
     /// - Throws: An error on unready room, trajectory encoding failure, or signal enqueueing failure.
     func sendTracks(
         taskID: String,
@@ -273,14 +283,23 @@ actor RoomController: RoomControlling {
 }
 
 private extension RoomController {
+
     /// The room connection and departure lifecycle phase.
     enum State {
+
+        /// The room has not been joined.
         case idle
+
+        /// The room is joining with an operation identifier.
         case joining(id: UUID)
+
+        /// The room is joined with a local user identifier.
         case joined(userID: String)
+
+        /// The room is leaving.
         case leaving
 
-        /// Resource state
+        /// Whether the phase retains room resources requiring cleanup.
         var hasRoomResources: Bool {
             switch self {
             case .idle, .leaving:
@@ -294,17 +313,19 @@ private extension RoomController {
     /// Records a cleanup task shared by repeated leave calls.
     struct LeaveOperation {
 
-        /// Operation identity
+        /// The leave operation identifier.
         let id: UUID
 
-        /// Room departure task
+        /// The shared leave task.
         let task: Task<Void, Never>
     }
 
     /// Stops room heartbeats and completes the current departure operation.
     ///
     /// - Parameter operationID: The operation identifier validating the departure task.
-    func performLeave(operationID: UUID) async {
+    func performLeave(
+        operationID: UUID
+    ) async {
         state = .idle
         heartbeat.stop()
         await rtcManager.leaveRoom()
@@ -319,13 +340,21 @@ private extension RoomController {
     /// - Parameters:
     ///   - message: The complete room JSON signal.
     ///   - reportFailure: Whether asynchronous send failure invokes the RTC fault callback.
+    ///
     /// - Returns: The send task for this signal.
+    ///
     /// - Throws: An SDK error if signal submission fails.
     @discardableResult
-    func send(_ message: String, reportFailure: Bool = true) throws -> Task<Void, any Error> {
+    func send(
+        _ message: String,
+        reportFailure: Bool = true
+    ) throws -> Task<Void, any Error> {
         let sending: Task<Void, any Error>
         do {
-            sending = try rtcManager.sendRoomMessage(message, reportFailure: reportFailure)
+            sending = try rtcManager.sendRoomMessage(
+                message,
+                reportFailure: reportFailure
+            )
         } catch {
             throw XmaxError.from(error)
         }
@@ -338,19 +367,23 @@ private extension RoomController {
     /// Formats room signals into readable send logs.
     ///
     /// - Parameter message: The original room signal text.
+    ///
     /// - Returns: The event type and JSON body log; preserves the original text if parsing fails.
-    func formatSignalLog(_ message: String) -> String {
+    func formatSignalLog(
+        _ message: String
+    ) -> String {
         guard let data = message.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data),
-              let event = object as? [String: Any],
-              let formattedData = try? JSONSerialization.data(
-                  withJSONObject: event,
-                  options: [.prettyPrinted, .sortedKeys]
-              ),
-              let formattedMessage = String(
-                  data: formattedData,
-                  encoding: .utf8
-              ) else {
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let event = object as? [String: Any],
+            let formattedData = try? JSONSerialization.data(
+                withJSONObject: event,
+                options: [.prettyPrinted, .sortedKeys]
+            ),
+            let formattedMessage = String(
+                data: formattedData,
+                encoding: .utf8
+            )
+        else {
             return "发送房间信令 (Outbound Room Signaling)\n└─ \(XmaxLogger.localized("内容：", "Content: "))\(message)"
         }
 
@@ -359,15 +392,14 @@ private extension RoomController {
             of: "\n",
             with: "\n   "
         )
-        return "发送房间信令 (Outbound Room Signaling)\n" +
-            "├─ \(XmaxLogger.localized("类型：", "Type: "))\(eventType)\n" +
-            "└─ \(XmaxLogger.localized("内容：", "Content: "))\n" +
-            "   \(indentedMessage)"
+        return "发送房间信令 (Outbound Room Signaling)\n" + "├─ \(XmaxLogger.localized("类型：", "Type: "))\(eventType)\n"
+            + "└─ \(XmaxLogger.localized("内容：", "Content: "))\n" + "   \(indentedMessage)"
     }
 
     /// Gets the local user identifier of a connected room.
     ///
     /// - Returns: The local RTC user account.
+    ///
     /// - Throws: An error if the room is not connected.
     func requireUserID() throws -> String {
         guard case .joined(let userID) = state else {

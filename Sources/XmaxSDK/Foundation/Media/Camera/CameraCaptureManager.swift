@@ -1,10 +1,9 @@
 //
 //  CameraCaptureManager.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -15,24 +14,43 @@ import Foundation
 /// Captures video with AVFoundation, serializing device operations and frame handling on one queue.
 final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Sendable {
 
-    /// Platform resources
+    /// The capture session.
     private let session = AVCaptureSession()
-    private let output = AVCaptureVideoDataOutput()
-    private let captureQueue = DispatchQueue(label: "ai.xmax.sdk.camera", qos: .userInitiated)
 
-    /// Capture configuration (captureQueue only)
+    /// The raw video output.
+    private let output = AVCaptureVideoDataOutput()
+
+    /// The queue serializing capture configuration and frame processing.
+    private let captureQueue = DispatchQueue(
+        label: "ai.xmax.sdk.camera",
+        qos: .userInitiated
+    )
+
+    /// The active camera input, accessed only on `captureQueue`.
     private var input: AVCaptureDeviceInput?
+
+    /// The cropped and scaled frame format.
     private var videoFormat: VideoFormat?
+
+    /// The requested capture frame rate, in frames per second.
     private var frameRate = 0
 
-    /// Event listeners
+    /// The handler for oriented and scaled frames.
     private var frameListener: (@Sendable (VideoFrame) throws -> Void)?
+
+    /// The handler for capture and frame processing failures.
     private var errorListener: XmaxErrorListener?
+
+    /// The capture session notification observers.
     private var observers: [NSObjectProtocol] = []
 
-    /// Runtime state
+    /// The most recent output timestamp, in microseconds.
     private var lastTimestampUs: Int64?
+
+    /// Whether a frame processing failure has already been reported for this capture.
     private var hasReportedFrameError = false
+
+    /// The diagnostic span awaiting the first delivered capture frame.
     private var firstFrameTiming: LocalMediaPreparationTiming.Span?
 
     /// Lists built-in, external, and system Continuity Camera devices.
@@ -42,7 +60,7 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
         Self.availableCameraDevices()
     }
 
-    /// Device discovery can also be used by RTC capture without creating an AVCaptureSession.
+    /// Lists camera devices without creating a capture session.
     static func availableCameraDevices() -> [CameraDevice] {
         let defaultID = AVCaptureDevice.default(for: .video)?.uniqueID
         return Self.captureDevices().map { device in
@@ -50,16 +68,21 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
                 id: device.uniqueID,
                 name: device.localizedName,
                 isDefault: device.uniqueID == defaultID,
-                position: Self.resolvePosition(device.position, deviceType: device.deviceType)
+                position: Self.resolvePosition(
+                    device.position,
+                    deviceType: device.deviceType
+                )
             )
         }
     }
 
-    /// Converts system camera positions to SDK positions; treats built-in macOS cameras with unknown positions as front-facing.
+    /// Converts system camera positions to SDK positions; treats built-in macOS cameras with unknown positions as
+    /// front-facing.
     ///
     /// - Parameters:
     ///   - position: The camera position reported by the system.
     ///   - deviceType: The device type used to identify built-in cameras.
+    ///
     /// - Returns: The camera position used for preview mirroring.
     static func resolvePosition(
         _ position: AVCaptureDevice.Position,
@@ -81,7 +104,9 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
             types = [.builtInWideAngleCamera, .externalUnknown]
         }
         return AVCaptureDevice.DiscoverySession(
-            deviceTypes: types, mediaType: .video, position: .unspecified
+            deviceTypes: types,
+            mediaType: .video,
+            position: .unspecified
         ).devices
     }
 
@@ -91,12 +116,21 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
     ///   - frameRate: The requested nominal frame rate.
     ///   - minimum: The device's shortest supported frame duration.
     ///   - maximum: The device's longest supported frame duration.
+    ///
     /// - Returns: A supported duration, or nil when the nominal rate is unavailable.
-    static func captureFrameDuration(frameRate: Int, minimum: CMTime, maximum: CMTime) -> CMTime? {
+    static func captureFrameDuration(
+        frameRate: Int,
+        minimum: CMTime,
+        maximum: CMTime
+    ) -> CMTime? {
         guard frameRate > 0, frameRate <= Int(Int32.max),
-              minimum.isNumeric, maximum.isNumeric,
-              minimum > .zero, maximum >= minimum else { return nil }
-        let requested = CMTime(value: 1, timescale: Int32(frameRate))
+            minimum.isNumeric, maximum.isNumeric,
+            minimum > .zero, maximum >= minimum
+        else { return nil }
+        let requested = CMTime(
+            value: 1,
+            timescale: Int32(frameRate)
+        )
         let supported = min(max(requested, minimum), maximum)
         guard abs(1 / supported.seconds - Double(frameRate)) <= 0.001 else { return nil }
         return supported
@@ -110,6 +144,7 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
     ///   - deviceID: The target camera device identifier.
     ///   - frameListener: Receives video frames on the serial capture queue.
     ///   - errorListener: Receives capture runtime errors.
+    ///
     /// - Throws: An error on invalid devices or formats, or capture startup failure.
     func start(
         videoFormat: VideoFormat,
@@ -132,8 +167,9 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
                             throw Self.cameraError("Camera capture is already running")
                         }
                         guard frameRate > 0, frameRate <= Int(Int32.max),
-                              videoFormat.pixelFormat == .nv12,
-                              videoFormat.width.isMultiple(of: 2), videoFormat.height.isMultiple(of: 2) else {
+                            videoFormat.pixelFormat == .nv12,
+                            videoFormat.width.isMultiple(of: 2), videoFormat.height.isMultiple(of: 2)
+                        else {
                             throw Self.cameraError("Camera capture format is invalid")
                         }
 
@@ -158,16 +194,22 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
                                 }
                                 session.addOutput(output)
 
-                                guard output.availableVideoPixelFormatTypes.contains(
-                                    kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-                                ) else {
+                                guard
+                                    output.availableVideoPixelFormatTypes.contains(
+                                        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                                    )
+                                else {
                                     throw Self.cameraError("Camera does not support NV12 video output")
                                 }
                                 output.videoSettings = [
-                                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                                    kCVPixelBufferPixelFormatTypeKey as String:
+                                        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
                                 ]
                                 output.alwaysDiscardsLateVideoFrames = true
-                                output.setSampleBufferDelegate(self, queue: captureQueue)
+                                output.setSampleBufferDelegate(
+                                    self,
+                                    queue: captureQueue
+                                )
                                 try configureConnection()
                             }
                         } catch {
@@ -204,8 +246,11 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
     /// Switches cameras while retaining output dimensions and frame rate.
     ///
     /// - Parameter deviceID: The target camera device identifier.
+    ///
     /// - Throws: An error if the device is unavailable or switching fails.
-    func switchCamera(to deviceID: String) async throws {
+    func switchCamera(
+        to deviceID: String
+    ) async throws {
         try Task.checkCancellation()
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
@@ -262,6 +307,7 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
 }
 
 extension CameraCaptureManager: AVCaptureVideoDataOutputSampleBufferDelegate {
+
     /// Converts captured frames to the target dimensions and orientation, using host-clock timestamps for callbacks.
     ///
     /// - Parameters:
@@ -274,8 +320,9 @@ extension CameraCaptureManager: AVCaptureVideoDataOutputSampleBufferDelegate {
         from connection: AVCaptureConnection
     ) {
         guard let videoFormat, let frameListener,
-              connection === self.output.connection(with: .video),
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            connection === self.output.connection(with: .video),
+            let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+        else {
             return
         }
 
@@ -323,17 +370,24 @@ extension CameraCaptureManager: AVCaptureVideoDataOutputSampleBufferDelegate {
             }
 
             hasReportedFrameError = true
-            XmaxLogger.media.error(message: "摄像头帧处理失败 (Camera Frame Processing Failed)\n└─ \(XmaxLogger.localized("原因：", "Reason: "))\(error.localizedDescription)")
+            XmaxLogger.media.error(
+                message:
+                    "摄像头帧处理失败 (Camera Frame Processing Failed)\n└─ \(XmaxLogger.localized("原因：", "Reason: "))\(error.localizedDescription)"
+            )
         }
     }
 }
 
 private extension CameraCaptureManager {
+
     /// Replaces camera input and applies a capture format supporting the target frame rate.
     ///
     /// - Parameter deviceID: The target camera device identifier.
+    ///
     /// - Throws: An error on unavailable cameras, unsupported capture formats, or device configuration failure.
-    func replaceInput(deviceID: String) throws {
+    func replaceInput(
+        deviceID: String
+    ) throws {
         let device = try LocalMediaPreparationTiming.measure(.captureDeviceDiscovery) {
             guard let device = Self.captureDevices().first(where: { $0.uniqueID == deviceID }) else {
                 throw Self.cameraError("The requested camera is unavailable")
@@ -343,12 +397,19 @@ private extension CameraCaptureManager {
 
         // Prefers 16:9 formats up to 1920×1080, falling back to 4:3 formats up to 1920×1440.
         let selected = LocalMediaPreparationTiming.measure(.captureFormatSelection) {
-            device.formats.compactMap { format -> (
-                format: AVCaptureDevice.Format, area: Int64, isWide: Bool, duration: CMTime
-            )? in
-                guard let duration = format.videoSupportedFrameRateRanges.lazy.compactMap({
-                    Self.captureFrameDuration(frameRate: self.frameRate, minimum: $0.minFrameDuration, maximum: $0.maxFrameDuration)
-                }).first else {
+            device.formats.compactMap {
+                format -> (
+                    format: AVCaptureDevice.Format, area: Int64, isWide: Bool, duration: CMTime
+                )? in
+                guard
+                    let duration = format.videoSupportedFrameRateRanges.lazy.compactMap({
+                        Self.captureFrameDuration(
+                            frameRate: self.frameRate,
+                            minimum: $0.minFrameDuration,
+                            maximum: $0.maxFrameDuration
+                        )
+                    }).first
+                else {
                     return nil
                 }
 
@@ -357,8 +418,9 @@ private extension CameraCaptureManager {
                 let shortSide = Int64(min(dimensions.width, dimensions.height))
                 let isWide = longSide * 9 == shortSide * 16
                 guard longSide > 0, shortSide > 0,
-                      longSide <= 1920, shortSide <= 1440,
-                      isWide || longSide * 3 == shortSide * 4 else {
+                    longSide <= 1920, shortSide <= 1440,
+                    isWide || longSide * 3 == shortSide * 4
+                else {
                     return nil
                 }
 
@@ -429,45 +491,57 @@ private extension CameraCaptureManager {
     /// Observes device disconnection and capture failures, attempting recovery after interruptions end.
     func observeSession() {
         let errorListener = errorListener
-        observers.append(NotificationCenter.default.addObserver(
-            forName: AVCaptureDevice.wasDisconnectedNotification, object: nil, queue: nil
-        ) { [weak self] notification in
-            let deviceID = (notification.object as? AVCaptureDevice)?.uniqueID
-            self?.captureQueue.async { [weak self] in
-                guard let self, videoFormat != nil, input?.device.uniqueID == deviceID else { return }
-                errorListener?(Self.cameraError("The active camera was disconnected"))
-            }
-        })
-
-        observers.append(NotificationCenter.default.addObserver(
-            forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: nil
-        ) { [weak self] notification in
-            let error = notification.userInfo?[AVCaptureSessionErrorKey] as? NSError
-            let message = error?.localizedDescription ?? "Camera capture failed"
-
-            self?.captureQueue.async { [weak self] in
-                guard let self, videoFormat != nil else {
-                    return
-                }
-
-                errorListener?(Self.cameraError(message))
-            }
-        })
-
-        observers.append(NotificationCenter.default.addObserver(
-            forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: nil
-        ) { [weak self] _ in
-            self?.captureQueue.async { [weak self] in
-                guard let self, videoFormat != nil, !session.isRunning else {
-                    return
-                }
-
-                session.startRunning()
-                if !session.isRunning {
-                    errorListener?(Self.cameraError("Camera capture failed to resume"))
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: AVCaptureDevice.wasDisconnectedNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] notification in
+                let deviceID = (notification.object as? AVCaptureDevice)?.uniqueID
+                self?.captureQueue.async { [weak self] in
+                    guard let self, videoFormat != nil, input?.device.uniqueID == deviceID else { return }
+                    errorListener?(Self.cameraError("The active camera was disconnected"))
                 }
             }
-        })
+        )
+
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: AVCaptureSession.runtimeErrorNotification,
+                object: session,
+                queue: nil
+            ) { [weak self] notification in
+                let error = notification.userInfo?[AVCaptureSessionErrorKey] as? NSError
+                let message = error?.localizedDescription ?? "Camera capture failed"
+
+                self?.captureQueue.async { [weak self] in
+                    guard let self, videoFormat != nil else {
+                        return
+                    }
+
+                    errorListener?(Self.cameraError(message))
+                }
+            }
+        )
+
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: AVCaptureSession.interruptionEndedNotification,
+                object: session,
+                queue: nil
+            ) { [weak self] _ in
+                self?.captureQueue.async { [weak self] in
+                    guard let self, videoFormat != nil, !session.isRunning else {
+                        return
+                    }
+
+                    session.startRunning()
+                    if !session.isRunning {
+                        errorListener?(Self.cameraError("Camera capture failed to resume"))
+                    }
+                }
+            }
+        )
     }
 
     /// Stops capture and removes inputs, outputs, observers, and frame callbacks.
@@ -478,7 +552,10 @@ private extension CameraCaptureManager {
         errorListener = nil
         videoFormat = nil
 
-        output.setSampleBufferDelegate(nil, queue: nil)
+        output.setSampleBufferDelegate(
+            nil,
+            queue: nil
+        )
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -503,8 +580,14 @@ private extension CameraCaptureManager {
     /// Creates a camera capture error.
     ///
     /// - Parameter message: The error description.
+    ///
     /// - Returns: A media error with the specified description.
-    static func cameraError(_ message: String) -> XmaxError {
-        XmaxError(code: .mediaError, message: message)
+    static func cameraError(
+        _ message: String
+    ) -> XmaxError {
+        XmaxError(
+            code: .mediaError,
+            message: message
+        )
     }
 }

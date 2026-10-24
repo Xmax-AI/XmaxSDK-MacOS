@@ -1,10 +1,9 @@
 //
 //  InteractionController.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -12,36 +11,47 @@
 import Foundation
 
 /// Asynchronously receives a generation task identifier and media-normalized trajectory coordinates.
-typealias InteractionListener = @Sendable (
-    _ taskID: String,
-    _ points: [RealtimePoint]
-) async throws -> Void
+typealias InteractionListener =
+    @Sendable (
+        _ taskID: String,
+        _ points: [RealtimePoint]
+    ) async throws -> Void
 
-/// Maps touch locations from the render container to normalized coordinates in a fixed media reference and sends them.
+/// Maps pointer positions from the render container to normalized coordinates in a fixed media reference and sends
+/// them.
 actor InteractionController: InteractionControlling {
+
     /// Stores interaction coordinate mapping for the current generation task.
     private struct ActiveInteraction {
 
-        /// Generation task
+        /// The generation task receiving interactions.
         let taskID: String
 
-        /// Coordinate mapping rules
+        /// The local media dimensions used to normalize interaction coordinates.
         let videoFormat: RealtimeVideoFormat
     }
 
-    /// Interaction event listeners
+    /// The asynchronous task and normalized coordinate handler.
     private let listener: InteractionListener
 
-    /// Interaction resources
+    /// The active interaction configuration.
     private var activeInteraction: ActiveInteraction?
+
+    /// The latest unsent trajectory.
     private var pendingPoints: [RealtimePoint]?
+
+    /// The task serializing trajectory sends.
     private var drainTask: Task<Void, Never>?
+
+    /// The revision rejecting stale trajectory tasks.
     private var drainGeneration = 0
 
     /// Creates an interaction controller forwarding trajectory coordinates to signaling.
     ///
     /// - Parameter listener: The asynchronous callback receiving task identifiers and media-normalized coordinates.
-    init(listener: @escaping InteractionListener = { _, _ in }) {
+    init(
+        listener: @escaping InteractionListener = { _, _ in }
+    ) {
         self.listener = listener
     }
 
@@ -50,7 +60,7 @@ actor InteractionController: InteractionControlling {
         drainTask?.cancel()
     }
 
-    /// Starts receiving touch trajectories for the current generation task.
+    /// Starts receiving pointer trajectories for the current generation task.
     ///
     /// - Parameters:
     ///   - taskID: The current generation task identifier.
@@ -72,12 +82,15 @@ actor InteractionController: InteractionControlling {
         cancelPendingFrames()
     }
 
-    /// Submits a touch trajectory.
+    /// Submits a pointer trajectory.
     ///
     /// - Parameter frame: The trajectory and display dimensions captured from the current view.
-    func submitInteraction(_ frame: InteractionFrame) {
+    func submitInteraction(
+        _ frame: InteractionFrame
+    ) {
         guard let activeInteraction,
-              !frame.points.isEmpty else {
+            !frame.points.isEmpty
+        else {
             return
         }
 
@@ -104,6 +117,7 @@ actor InteractionController: InteractionControlling {
 }
 
 private extension InteractionController {
+
     /// Invalidates the current send task and clears pending trajectories.
     func cancelPendingFrames() {
         drainGeneration += 1
@@ -115,22 +129,26 @@ private extension InteractionController {
     /// Continuously sends the latest trajectory samples and rejects obsolete send loops.
     ///
     /// - Parameter generation: The current send loop version identifier.
-    func drainPendingFrames(generation: Int) async {
+    func drainPendingFrames(
+        generation: Int
+    ) async {
         while !Task.isCancelled,
-              generation == drainGeneration,
-              let interaction = activeInteraction,
-              let points = pendingPoints {
+            generation == drainGeneration,
+            let interaction = activeInteraction,
+            let points = pendingPoints
+        {
             pendingPoints = nil
             do {
-                try await listener(interaction.taskID, points)
+                try await listener(
+                    interaction.taskID,
+                    points
+                )
             } catch is CancellationError {
                 break
             } catch {
                 XmaxLogger.interaction.warn(
-                    message: "发送交互轨迹失败，已丢弃当前采样帧 " +
-                        "(Failed to Send Interaction Trajectory; Current Sample Dropped)\n" +
-                        "└─ \(XmaxLogger.localized("原因：", "Reason: "))" +
-                        (error as NSError).localizedDescription
+                    message: "发送交互轨迹失败，已丢弃当前采样帧 " + "(Failed to Send Interaction Trajectory; Current Sample Dropped)\n"
+                        + "└─ \(XmaxLogger.localized("原因：", "Reason: "))" + (error as NSError).localizedDescription
                 )
             }
         }

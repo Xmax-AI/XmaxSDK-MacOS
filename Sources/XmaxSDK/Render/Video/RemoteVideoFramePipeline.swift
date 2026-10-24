@@ -1,10 +1,9 @@
 //
 //  RemoteVideoFramePipeline.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -16,43 +15,63 @@ import Foundation
 
 /// Processes remote decoded frames serially, inserting one intermediate frame when available.
 actor RemoteVideoFramePipeline {
+
     /// Checks whether interpolation supports the specified video pixel dimensions.
-    typealias FrameInterpolationSupportChecker = @Sendable (
-        _ size: CGSize
-    ) -> Bool
+    typealias FrameInterpolationSupportChecker =
+        @Sendable (
+            _ size: CGSize
+        ) -> Bool
 
     /// Asynchronously receives final video frames and their output stream generation identifiers.
-    typealias OutputListener = @Sendable (
-        _ frame: RealtimeVideoFrame,
-        _ outputToken: UInt64
-    ) async -> Void
+    typealias OutputListener =
+        @Sendable (
+            _ frame: RealtimeVideoFrame,
+            _ outputToken: UInt64
+        ) async -> Void
 
     /// Creates an interpolator from the source format; nil when unavailable.
-    typealias InterpolationManagerFactory = @Sendable (
-        _ frame: RealtimeVideoFrame
-    ) throws -> (any FrameInterpolationManaging)?
+    typealias InterpolationManagerFactory =
+        @Sendable (
+            _ frame: RealtimeVideoFrame
+        ) throws -> (any FrameInterpolationManaging)?
 
-    /// Component dependencies
-    private let frameInterpolationSupportChecker:
-        FrameInterpolationSupportChecker
+    /// The dimension-based interpolation capability check.
+    private let frameInterpolationSupportChecker: FrameInterpolationSupportChecker
+
+    /// The frame-based interpolation processor factory.
     private let interpolationManagerFactory: InterpolationManagerFactory
 
-    /// Event listeners
+    /// The asynchronous final frame and stream identifier handler.
     private let outputListener: OutputListener
+
+    /// The interpolation failure and fallback handler.
     private let errorListener: XmaxErrorListener
 
-    /// Frame processing resources
-    private var interpolationManager:
-        (any FrameInterpolationManaging)?
+    /// The active remote interpolation processor.
+    private var interpolationManager: (any FrameInterpolationManaging)?
+
+    /// The latest unprocessed remote frame.
     private var pendingFrame: RealtimeVideoFrame?
+
+    /// The serial frame consumption task.
     private var drainTask: Task<Void, Never>?
+
+    /// The task releasing previous interpolation resources.
     private var cleanupTask: Task<Void, Never>?
 
-    /// Runtime state
+    /// The requested interpolation setting.
     private var interpolationEnabled: Bool
+
+    /// The current processor's video dimensions.
     private var interpolationVideoSize: CGSize?
+
+    /// The preceding output presentation time.
     private var previousPresentationTimeStamp: CMTime?
+
+    /// The processing revision rejecting stale output.
     private var generation = 0
+
+    /// The output stream identifier.
     private var outputToken: UInt64
 
     /// Creates a remote frame pipeline with stream validity checks.
@@ -72,15 +91,15 @@ actor RemoteVideoFramePipeline {
                 FrameInterpolationSupport.supports(size: $0)
             },
         interpolationManagerFactory: @escaping InterpolationManagerFactory = {
-#if targetEnvironment(simulator)
-            nil
-#else
-            if #available(macOS 26.0, *) {
-                try FrameInterpolationManager(frame: $0)
-            } else {
+            #if targetEnvironment(simulator)
                 nil
-            }
-#endif
+            #else
+                if #available(macOS 26.0, *) {
+                    try FrameInterpolationManager(frame: $0)
+                } else {
+                    nil
+                }
+            #endif
         },
         outputListener: @escaping OutputListener,
         errorListener: @escaping XmaxErrorListener
@@ -94,7 +113,7 @@ actor RemoteVideoFramePipeline {
         self.errorListener = errorListener
     }
 
-    /// Interpolation state
+    /// Whether interpolation is requested.
     var isFrameInterpolationEnabled: Bool {
         interpolationEnabled
     }
@@ -102,8 +121,13 @@ actor RemoteVideoFramePipeline {
     /// Enqueues a frame for the current output stream.
     ///
     /// - Parameter frame: The latest remote decoded frame.
-    func enqueue(_ frame: RealtimeVideoFrame) {
-        enqueue(frame, outputToken: outputToken)
+    func enqueue(
+        _ frame: RealtimeVideoFrame
+    ) {
+        enqueue(
+            frame,
+            outputToken: outputToken
+        )
     }
 
     /// Accepts the latest valid stream frame and starts processing after cleanup finishes.
@@ -138,6 +162,7 @@ actor RemoteVideoFramePipeline {
     ///   - enabled: Whether to enable interpolation.
     ///   - videoSize: The expected return dimensions; checks only device support when unknown.
     ///   - outputToken: The output stream identifier at call time.
+    ///
     /// - Throws: When enabling interpolation on unsupported devices or dimensions.
     func setFrameInterpolationEnabled(
         _ enabled: Bool,
@@ -145,7 +170,8 @@ actor RemoteVideoFramePipeline {
         outputToken: UInt64
     ) async throws {
         if enabled {
-            let supported = videoSize.map(frameInterpolationSupportChecker)
+            let supported =
+                videoSize.map(frameInterpolationSupportChecker)
                 ?? FrameInterpolationSupport.isSupported
             guard supported else {
                 throw Self.unsupportedError(videoSize: videoSize)
@@ -160,8 +186,11 @@ actor RemoteVideoFramePipeline {
 
     /// Updates output stream validity and waits for old processing resources to clear.
     ///
-    /// - Parameter outputToken: The target output stream identifier; old identifiers cannot overwrite the current stream.
-    func reset(outputToken: UInt64) async {
+    /// - Parameter outputToken: The target output stream identifier; old identifiers cannot overwrite the current
+    ///   stream.
+    func reset(
+        outputToken: UInt64
+    ) async {
         if outputToken > self.outputToken {
             resetProcessing(outputToken: outputToken)
         }
@@ -170,33 +199,45 @@ actor RemoteVideoFramePipeline {
 }
 
 private extension RemoteVideoFramePipeline {
+
     /// Records the frame format determining interpolator reuse.
     struct FrameSignature: Equatable {
 
-        /// Frame format
+        /// The interpolation input width, in pixels.
         let width: Int
+
+        /// The interpolation input height, in pixels.
         let height: Int
+
+        /// The interpolation input pixel format.
         let pixelFormat: OSType
 
         /// Extracts frame dimensions and pixel format.
         ///
         /// - Parameter frame: The frame used to check interpolator compatibility.
-        init(_ frame: RealtimeVideoFrame) {
+        init(
+            _ frame: RealtimeVideoFrame
+        ) {
             width = CVPixelBufferGetWidth(frame.pixelBuffer)
             height = CVPixelBufferGetHeight(frame.pixelBuffer)
             pixelFormat = CVPixelBufferGetPixelFormatType(frame.pixelBuffer)
         }
 
-        /// Pixel dimensions
+        /// The interpolation input dimensions.
         var size: CGSize {
-            CGSize(width: width, height: height)
+            CGSize(
+                width: width,
+                height: height
+            )
         }
     }
 
     /// Invalidates in-flight processing and serially releases the old interpolator and tasks.
     ///
     /// - Parameter outputToken: The new output stream generation identifier.
-    func resetProcessing(outputToken: UInt64) {
+    func resetProcessing(
+        outputToken: UInt64
+    ) {
         generation += 1
         self.outputToken = outputToken
         drainTask?.cancel()
@@ -224,8 +265,9 @@ private extension RemoteVideoFramePipeline {
         outputToken activeOutputToken: UInt64
     ) async {
         while !Task.isCancelled,
-              generation == activeGeneration,
-              let frame = pendingFrame {
+            generation == activeGeneration,
+            let frame = pendingFrame
+        {
             pendingFrame = nil
             let sourceDuration = frameDuration(
                 for: frame.presentationTimeStamp
@@ -236,15 +278,20 @@ private extension RemoteVideoFramePipeline {
                 generation: activeGeneration
             )
             guard !Task.isCancelled,
-                  generation == activeGeneration else {
+                generation == activeGeneration
+            else {
                 break
             }
             for outputFrame in outputFrames {
                 guard !Task.isCancelled,
-                      generation == activeGeneration else {
+                    generation == activeGeneration
+                else {
                     break
                 }
-                await outputListener(outputFrame, activeOutputToken)
+                await outputListener(
+                    outputFrame,
+                    activeOutputToken
+                )
             }
         }
         if generation == activeGeneration {
@@ -258,6 +305,7 @@ private extension RemoteVideoFramePipeline {
     ///   - frame: The current remote decoded frame.
     ///   - sourceDuration: The source frame display duration.
     ///   - activeGeneration: The current frame processing version.
+    ///
     /// - Returns: The output frames, or an empty array if processing is invalidated.
     func process(
         _ frame: RealtimeVideoFrame,
@@ -265,7 +313,12 @@ private extension RemoteVideoFramePipeline {
         generation activeGeneration: Int
     ) async -> [RealtimeVideoFrame] {
         guard interpolationEnabled else {
-            return [passthrough(frame, duration: sourceDuration)]
+            return [
+                passthrough(
+                    frame,
+                    duration: sourceDuration
+                )
+            ]
         }
 
         let signature = FrameSignature(frame)
@@ -274,11 +327,21 @@ private extension RemoteVideoFramePipeline {
             let previousManager = interpolationManager
             interpolationManager = nil
             await previousManager?.close()
-            return [passthrough(frame, duration: sourceDuration)]
+            return [
+                passthrough(
+                    frame,
+                    duration: sourceDuration
+                )
+            ]
         }
         guard frameInterpolationSupportChecker(signature.size) else {
             await disableAfterFailure(Self.unsupportedError(videoSize: signature.size))
-            return [passthrough(frame, duration: sourceDuration)]
+            return [
+                passthrough(
+                    frame,
+                    duration: sourceDuration
+                )
+            ]
         }
 
         do {
@@ -288,7 +351,8 @@ private extension RemoteVideoFramePipeline {
                 await previousManager?.close()
 
                 guard !Task.isCancelled,
-                      generation == activeGeneration else {
+                    generation == activeGeneration
+                else {
                     return []
                 }
                 interpolationManager = try interpolationManagerFactory(frame)
@@ -302,7 +366,8 @@ private extension RemoteVideoFramePipeline {
             )
         } catch {
             guard !Task.isCancelled,
-                  generation == activeGeneration else {
+                generation == activeGeneration
+            else {
                 return []
             }
             let resolvedError: XmaxError
@@ -311,19 +376,25 @@ private extension RemoteVideoFramePipeline {
             } else {
                 resolvedError = XmaxError(
                     code: .mediaError,
-                    message: "Frame interpolation failed: " +
-                        (error as NSError).localizedDescription
+                    message: "Frame interpolation failed: " + (error as NSError).localizedDescription
                 )
             }
             await disableAfterFailure(resolvedError)
-            return [passthrough(frame, duration: sourceDuration)]
+            return [
+                passthrough(
+                    frame,
+                    duration: sourceDuration
+                )
+            ]
         }
     }
 
     /// Disables interpolation, reports the fallback reason, and releases the processor.
     ///
     /// - Parameter error: The error causing interpolation fallback.
-    func disableAfterFailure(_ error: XmaxError) async {
+    func disableAfterFailure(
+        _ error: XmaxError
+    ) async {
         interpolationEnabled = false
         let previousManager = interpolationManager
         interpolationManager = nil
@@ -336,6 +407,7 @@ private extension RemoteVideoFramePipeline {
     /// - Parameters:
     ///   - frame: The video frame to pass through.
     ///   - duration: The output frame display duration.
+    ///
     /// - Returns: The source frame with a valid display duration.
     func passthrough(
         _ frame: RealtimeVideoFrame,
@@ -351,24 +423,39 @@ private extension RemoteVideoFramePipeline {
     /// Estimates source frame duration from adjacent valid timestamps.
     ///
     /// - Parameter presentationTimeStamp: The current frame presentation timestamp.
+    ///
     /// - Returns: The valid frame interval, or 1/24 second if it cannot be estimated.
-    func frameDuration(for presentationTimeStamp: CMTime) -> CMTime {
+    func frameDuration(
+        for presentationTimeStamp: CMTime
+    ) -> CMTime {
         defer {
             if presentationTimeStamp.isValid {
                 previousPresentationTimeStamp = presentationTimeStamp
             }
         }
         guard presentationTimeStamp.isValid,
-              let previousPresentationTimeStamp,
-              previousPresentationTimeStamp.isValid else {
-            return CMTime(value: 1, timescale: 24)
+            let previousPresentationTimeStamp,
+            previousPresentationTimeStamp.isValid
+        else {
+            return CMTime(
+                value: 1,
+                timescale: 24
+            )
         }
 
         let duration = presentationTimeStamp - previousPresentationTimeStamp
         guard duration.isValid,
-              duration > .zero,
-              duration < CMTime(seconds: 1, preferredTimescale: 600) else {
-            return CMTime(value: 1, timescale: 24)
+            duration > .zero,
+            duration
+                < CMTime(
+                    seconds: 1,
+                    preferredTimescale: 600
+                )
+        else {
+            return CMTime(
+                value: 1,
+                timescale: 24
+            )
         }
         return duration
     }
@@ -376,12 +463,14 @@ private extension RemoteVideoFramePipeline {
     /// Creates an error for unsupported interpolation devices or dimensions.
     ///
     /// - Parameter videoSize: The unsupported video dimensions; `nil` indicates unsupported device capability.
+    ///
     /// - Returns: An interpolation error describing the unsupported capability.
-    static func unsupportedError(videoSize: CGSize?) -> XmaxError {
+    static func unsupportedError(
+        videoSize: CGSize?
+    ) -> XmaxError {
         let sizeDescription: String
         if let videoSize {
-            sizeDescription = " for \(Int(videoSize.width)) × " +
-                "\(Int(videoSize.height)) video"
+            sizeDescription = " for \(Int(videoSize.width)) × " + "\(Int(videoSize.height)) video"
         } else {
             sizeDescription = " on this device"
         }

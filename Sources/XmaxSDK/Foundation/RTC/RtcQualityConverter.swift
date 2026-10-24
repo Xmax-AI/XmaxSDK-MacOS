@@ -1,10 +1,9 @@
 //
 //  RtcQualityConverter.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -13,11 +12,15 @@
 
 /// Converts Agora quality events to neutral quality models.
 enum RtcQualityConverter {
+
     /// Converts Agora local video statistics to SDK upstream metrics.
     ///
     /// - Parameter stats: The Agora upstream statistics.
+    ///
     /// - Returns: Upstream statistics with invalid metrics represented by `nil`.
-    static func uplinkVideoStatistics(_ stats: AgoraRtcLocalVideoStats) -> UplinkVideoStatistics {
+    static func uplinkVideoStatistics(
+        _ stats: AgoraRtcLocalVideoStats
+    ) -> UplinkVideoStatistics {
         UplinkVideoStatistics(
             width: stats.encodedFrameWidth > 0 ? stats.encodedFrameWidth : nil,
             height: stats.encodedFrameHeight > 0 ? stats.encodedFrameHeight : nil,
@@ -34,9 +37,11 @@ enum RtcQualityConverter {
     /// - Parameters:
     ///   - userID: The remote user account.
     ///   - stats: The Agora downstream statistics.
+    ///
     /// - Returns: Downstream statistics associated with a remote account, with invalid metrics represented by `nil`.
     static func downlinkVideoStatistics(
-        userID: String, _ stats: AgoraRtcRemoteVideoStats
+        userID: String,
+        _ stats: AgoraRtcRemoteVideoStats
     ) -> DownlinkVideoStatistics {
         DownlinkVideoStatistics(
             userID: userID,
@@ -53,16 +58,22 @@ enum RtcQualityConverter {
     /// Preserves nonnegative statistics and rejects negative values.
     ///
     /// - Parameter value: The statistic to validate.
+    ///
     /// - Returns: The original nonnegative value; `nil` for negative values.
-    private static func nonnegative(_ value: Int) -> Int? {
+    private static func nonnegative(
+        _ value: Int
+    ) -> Int? {
         value >= 0 ? value : nil
     }
 
     /// Converts Agora network quality to SDK quality levels.
     ///
     /// - Parameter quality: The Agora network quality level.
+    ///
     /// - Returns: The corresponding SDK level; `.unknown` for unknown values.
-    static func convertLevel(_ quality: AgoraNetworkQuality) -> RtcQualityLevel {
+    static func convertLevel(
+        _ quality: AgoraNetworkQuality
+    ) -> RtcQualityLevel {
         RtcQualityLevel(rawValue: Int(quality.rawValue)) ?? .unknown
     }
 }

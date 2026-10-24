@@ -1,10 +1,9 @@
 //
 //  RealtimeContext.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -20,7 +19,7 @@ public struct RealtimeContext: Equatable, Sendable {
     /// The optional remote path of an uploaded reference image.
     public let referencePath: String?
 
-    /// Creates generation conditions and trims the prompt and reference path.
+    /// Creates realtime generation conditions.
     ///
     /// - Parameters:
     ///   - prompt: The realtime generation text prompt.
@@ -33,7 +32,8 @@ public struct RealtimeContext: Equatable, Sendable {
         let normalizedReferencePath = referencePath?.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-        self.referencePath = normalizedReferencePath?.isEmpty == false
+        self.referencePath =
+            normalizedReferencePath?.isEmpty == false
             ? normalizedReferencePath
             : nil
     }

@@ -1,10 +1,9 @@
 //
 //  PermissionManager.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,13 +13,13 @@ import Foundation
 /// Checks and requests camera and microphone permissions required by the SDK.
 final class PermissionManager: PermissionManaging, Sendable {
 
-    /// Dependencies
+    /// The platform authorization client.
     private let authorizationClient: PermissionAuthorizationClient
 
     /// Creates a media permission manager.
-    ///
-    /// - Parameter authorizationClient: The platform interface for authorization status and permission requests.
-    init(authorizationClient: PermissionAuthorizationClient = .live) {
+    init(
+        authorizationClient: PermissionAuthorizationClient = .live
+    ) {
         self.authorizationClient = authorizationClient
     }
 
@@ -52,6 +51,7 @@ final class PermissionManager: PermissionManaging, Sendable {
     ///   - permission: The required media permission.
     ///   - errorCode: The SDK error code for unauthorized access.
     ///   - errorMessage: The error description for unauthorized access.
+    ///
     /// - Throws: The specified permission error if access is restricted, denied, or the request fails.
     private func ensurePermission(
         _ permission: MediaPermission,
@@ -68,13 +68,17 @@ final class PermissionManager: PermissionManaging, Sendable {
                 }
             } catch {
                 XmaxLogger.permission.error(
-                    message: "权限申请失败 (Permission Request Failed)\n└─ \(XmaxLogger.localized("原因：", "Reason: "))\((error as NSError).localizedDescription)"
+                    message:
+                        "权限申请失败 (Permission Request Failed)\n└─ \(XmaxLogger.localized("原因：", "Reason: "))\((error as NSError).localizedDescription)"
                 )
             }
         case .restricted, .denied:
             break
         }
 
-        throw XmaxError(code: errorCode, message: errorMessage)
+        throw XmaxError(
+            code: errorCode,
+            message: errorMessage
+        )
     }
 }

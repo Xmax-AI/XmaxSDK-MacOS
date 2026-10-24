@@ -1,10 +1,9 @@
 //
 //  VideoFrame.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,15 +13,19 @@ import Foundation
 /// A video frame retaining neutral pixel data and timing information.
 struct VideoFrame: Equatable, Sendable {
 
-    /// Buffer identity
+    /// The buffer reuse identifier used to cache converted pixels.
     let bufferReuseID: UUID?
 
-    /// Frame metadata
+    /// The frame dimensions and pixel format.
     let format: VideoFormat
+
+    /// The timestamp on the shared media timeline, in microseconds.
     let timestampUs: Int64
+
+    /// The rotation needed for display.
     let rotation: VideoRotation
 
-    /// Pixel data
+    /// The image's pixel planes.
     let planes: [VideoFramePlane]
 
     /// Creates a frame with pixel planes, timestamp, and display orientation.
@@ -33,6 +36,7 @@ struct VideoFrame: Equatable, Sendable {
     ///   - planes: The pixel planes, containing at least one element.
     ///   - rotation: The rotation applied for display.
     ///   - bufferReuseID: The identifier permitting underlying buffer reuse; `nil` disables cache identity.
+    ///
     /// - Throws: A configuration error for negative timestamps or empty pixel planes.
     init(
         format: VideoFormat,
@@ -66,7 +70,9 @@ struct VideoFrame: Equatable, Sendable {
     /// - Parameters:
     ///   - timestampUs: The new frame timestamp in microseconds.
     ///   - rotation: The new rotation; `nil` preserves the original.
+    ///
     /// - Returns: A new frame sharing the original pixel planes and reuse identifier.
+    ///
     /// - Throws: A configuration error if the new timestamp is invalid.
     func updating(
         timestampUs: Int64,

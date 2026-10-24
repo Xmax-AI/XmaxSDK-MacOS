@@ -1,10 +1,9 @@
 //
 //  CameraCaptureManaging.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,25 +13,28 @@ import Foundation
 /// Manages system cameras and raw video frame output.
 protocol CameraCaptureManaging: Sendable {
 
-    /// True when RTC captures and publishes directly; observed frames must not be pushed back to RTC.
+    /// Whether capture supplies RTC video directly instead of using the raw frame listener.
     var suppliesRTCVideo: Bool { get }
 
-    /// Native rendering reports readiness without sending raw pixels through the SDK.
-    func setNativePreviewReadyListener(_ listener: (@Sendable () -> Void)?)
+    /// Sets the callback for native capture readiness; decoded capture uses frame delivery instead.
+    func setNativePreviewReadyListener(
+        _ listener: (@Sendable () -> Void)?
+    )
 
     /// Lists currently available camera devices.
     ///
     /// - Returns: Devices with their identifiers, names, and default status.
     func listCameraDevices() -> [CameraDevice]
 
-    /// Starts the specified device and outputs NV12 frames at the target dimensions.
+    /// Starts the specified device using the configured dimensions and frame rate.
     ///
     /// - Parameters:
     ///   - videoFormat: The output pixel format and dimensions.
     ///   - frameRate: The target capture frame rate.
     ///   - deviceID: The capture device identifier.
-    ///   - frameListener: Receives video frames on the serial capture queue.
+    ///   - frameListener: Receives decoded frames on the capture queue when `suppliesRTCVideo` is false.
     ///   - errorListener: Receives capture runtime errors.
+    ///
     /// - Throws: An error on invalid devices or formats, or capture startup failure.
     func start(
         videoFormat: VideoFormat,
@@ -45,14 +47,23 @@ protocol CameraCaptureManaging: Sendable {
     /// Switches cameras while retaining output dimensions and frame rate.
     ///
     /// - Parameter deviceID: The target device identifier.
+    ///
     /// - Throws: An error if the device is unavailable or switching fails.
-    func switchCamera(to deviceID: String) async throws
+    func switchCamera(
+        to deviceID: String
+    ) async throws
 
-    /// Stops capture, waits for in-flight frames, and releases the device.
+    /// Stops capture and clears capture callbacks.
     func stop() async
 }
 
 extension CameraCaptureManaging {
+
+    /// Whether capture supplies RTC video directly instead of using the raw frame listener.
     var suppliesRTCVideo: Bool { false }
-    func setNativePreviewReadyListener(_ listener: (@Sendable () -> Void)?) {}
+
+    /// Sets the callback for native capture readiness; decoded capture uses frame delivery instead.
+    func setNativePreviewReadyListener(
+        _ listener: (@Sendable () -> Void)?
+    ) {}
 }

@@ -1,10 +1,9 @@
 //
 //  MediaFileMetadataManager.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -19,11 +18,16 @@ final class MediaFileMetadataManager: MediaFileMetadataManaging, Sendable {
     /// Reads original video dimensions, display rotation, duration, and audio track information.
     ///
     /// - Parameter fileURL: The readable local video file URL.
+    ///
     /// - Returns: The metadata used to prepare a local video stream.
+    ///
     /// - Throws: An error if the file is unreadable, lacks video tracks, or has invalid metadata.
-    func readMetadata(fileURL: URL) async throws -> MediaFileMetadata {
+    func readMetadata(
+        fileURL: URL
+    ) async throws -> MediaFileMetadata {
         guard fileURL.isFileURL,
-              FileManager.default.fileExists(atPath: fileURL.path) else {
+            FileManager.default.fileExists(atPath: fileURL.path)
+        else {
             throw Self.mediaError("Media file does not exist")
         }
 
@@ -51,10 +55,11 @@ final class MediaFileMetadataManager: MediaFileMetadataManaging, Sendable {
             let durationSeconds = resolvedDuration.seconds
 
             guard width > 0,
-                  height > 0,
-                  durationSeconds.isFinite,
-                  durationSeconds > 0,
-                  durationSeconds <= Double(Int64.max) / 1_000_000 else {
+                height > 0,
+                durationSeconds.isFinite,
+                durationSeconds > 0,
+                durationSeconds <= Double(Int64.max) / 1_000_000
+            else {
                 throw Self.mediaError("Media file metadata is invalid")
             }
 
@@ -69,17 +74,18 @@ final class MediaFileMetadataManager: MediaFileMetadataManaging, Sendable {
             throw error
         } catch {
             throw Self.mediaError(
-                "Failed to read media metadata: " +
-                    (error as NSError).localizedDescription
+                "Failed to read media metadata: " + (error as NSError).localizedDescription
             )
         }
     }
 }
 
 private extension MediaFileMetadataManager {
+
     /// Converts a media track transform to the nearest quarter-turn rotation.
     ///
     /// - Parameter transform: The video track's preferred display transform.
+    ///
     /// - Returns: The normalized rotation of 0, 90, 180, or 270 degrees.
     static func rotation(
         from transform: CGAffineTransform
@@ -93,8 +99,14 @@ private extension MediaFileMetadataManager {
     /// Creates a media read error.
     ///
     /// - Parameter message: A readable media error description.
+    ///
     /// - Returns: A media error with the specified description.
-    static func mediaError(_ message: String) -> XmaxError {
-        XmaxError(code: .mediaError, message: message)
+    static func mediaError(
+        _ message: String
+    ) -> XmaxError {
+        XmaxError(
+            code: .mediaError,
+            message: message
+        )
     }
 }

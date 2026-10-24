@@ -1,10 +1,9 @@
 //
 //  MediaController.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -13,23 +12,32 @@ import Foundation
 
 /// Coordinates local media ownership and the RTC engine lifecycle.
 actor MediaController: MediaControlling {
+
     /// An engine acquired before local-source creation belongs to the combined startup lifecycle.
     private var hasPreparedRTC = false
+
+    /// The shared task stopping local capture before full resource teardown.
     private var captureStopOperation: LocalMediaStopOperation?
 
-    /// Foundation components
+    /// The adapter for local input and media frame delivery.
     private let rtcManager: any RtcManaging
 
-    /// Local media components
+    /// The camera and preview controller.
     private let cameraController: any CameraControlling
+
+    /// The external video and preview controller.
     private let externalController: (any ExternalVideoControlling)?
+
+    /// The trajectory coordinate and delivery controller.
     private let interactionController: any InteractionControlling
 
-    /// Local media resources
+    /// The active media source and its validity.
     private var activeSource: ActiveLocalMediaSource?
 
-    /// Concurrency control
+    /// The pending media creation operation.
     private var mediaOperation: LocalMediaOperation?
+
+    /// The pending media stop operation.
     private var stopOperation: LocalMediaStopOperation?
 
     /// Creates and connects camera and media interaction controllers.
@@ -110,6 +118,7 @@ actor MediaController: MediaControlling {
         currentTrack?.videoFormat
     }
 
+    /// Whether the active local input is a caller-owned external source.
     var isExternalVideo: Bool {
         activeSource?.kind == .external
     }
@@ -127,11 +136,13 @@ actor MediaController: MediaControlling {
     /// Sets a one-time internal readiness handler for the current camera stream.
     ///
     /// - Parameter handler: Called after capture is ready and preview is bound; an empty value clears it.
-    func setCameraPreviewReadyHandler(_ handler: CameraPreviewReadyHandler?) {
+    func setCameraPreviewReadyHandler(
+        _ handler: CameraPreviewReadyHandler?
+    ) {
         cameraController.setPreviewReadyHandler(handler)
     }
 
-    /// Starts receiving touch trajectories for the current generation task.
+    /// Starts receiving pointer trajectories for the current generation task.
     ///
     /// - Parameters:
     ///   - taskID: The current generation task identifier.
@@ -151,10 +162,12 @@ actor MediaController: MediaControlling {
         await interactionController.stopInteraction()
     }
 
-    /// Submits a touch trajectory.
+    /// Submits a pointer trajectory.
     ///
     /// - Parameter frame: The trajectory and display dimensions captured from the current view.
-    func submitInteraction(_ frame: InteractionFrame) async {
+    func submitInteraction(
+        _ frame: InteractionFrame
+    ) async {
         await interactionController.submitInteraction(frame)
     }
 
@@ -163,8 +176,11 @@ actor MediaController: MediaControlling {
     /// - Parameters:
     ///   - videoFormat: The target camera capture video format.
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
-    ///   - useMicrophone: Whether to use the microphone; permission is checked at creation and capture starts on connection.
+    ///   - useMicrophone: Whether to use the microphone; permission is checked at creation and capture starts on
+    ///     connection.
+    ///
     /// - Returns: The media stream containing the local camera video track.
+    ///
     /// - Throws: An error on camera permission, RTC initialization, or capture startup failure;
     ///   also fails if a media source is already active.
     func initializeRTC() async throws {
@@ -172,13 +188,17 @@ actor MediaController: MediaControlling {
         hasPreparedRTC = true
     }
 
+    /// Creates a local camera stream, optionally retaining RTC resources when startup fails.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
         useMicrophone: Bool = false,
         retainRTCOnFailure: Bool = false
     ) async throws -> RealtimeMediaStream {
-        try await createSource(kind: .camera, releaseRTCOnFailure: !retainRTCOnFailure) {
+        try await createSource(
+            kind: .camera,
+            releaseRTCOnFailure: !retainRTCOnFailure
+        ) {
             try await self.cameraController.createLocalCameraStream(
                 videoFormat: videoFormat,
                 deviceID: deviceID,
@@ -193,10 +213,16 @@ actor MediaController: MediaControlling {
         videoFormat: RealtimeVideoFormat?
     ) async throws -> RealtimeMediaStream {
         guard let externalController else {
-            throw XmaxError(code: .invalidConfiguration, message: "External video input is unavailable")
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "External video input is unavailable"
+            )
         }
         return try await createSource(kind: .external) {
-            try await externalController.create(source: source, videoFormat: videoFormat)
+            try await externalController.create(
+                source: source,
+                videoFormat: videoFormat
+            )
         }
     }
 
@@ -234,7 +260,11 @@ actor MediaController: MediaControlling {
         let task = Task { [cameraController] in
             await cameraController.stopLocalCameraStream()
         }
-        captureStopOperation = LocalMediaStopOperation(id: UUID(), sourceID: activeSource.id, task: task)
+        captureStopOperation = LocalMediaStopOperation(
+            id: UUID(),
+            sourceID: activeSource.id,
+            task: task
+        )
         await task.value
     }
 
@@ -261,8 +291,11 @@ actor MediaController: MediaControlling {
     /// Switches to the specified camera device while retaining the current video track.
     ///
     /// - Returns: The local media stream with the updated camera position.
+    ///
     /// - Throws: An error if the current source is not a camera, another media operation exists, or switching fails.
-    func switchCamera(to deviceID: String) async throws -> RealtimeMediaStream {
+    func switchCamera(
+        to deviceID: String
+    ) async throws -> RealtimeMediaStream {
         guard activeSource?.kind == .camera else {
             throw XmaxError(
                 code: .rtcError,
@@ -276,9 +309,12 @@ actor MediaController: MediaControlling {
     /// Checks whether the active media source owns the specified stream.
     ///
     /// - Parameter stream: The media stream whose ownership is being validated.
+    ///
     /// - Returns: `true` if the active source owns the stream's video track;
     ///   otherwise returns `false`.
-    func owns(_ stream: RealtimeMediaStream) -> Bool {
+    func owns(
+        _ stream: RealtimeMediaStream
+    ) -> Bool {
         guard let videoTrack = stream.videoTrack else {
             return false
         }
@@ -287,25 +323,31 @@ actor MediaController: MediaControlling {
 }
 
 private extension MediaController {
+
     /// Distinguishes the owned local media source.
     enum LocalMediaKind: Sendable {
+
+        /// Live camera capture.
         case camera
+
+        /// Video frames supplied by your app.
         case external
     }
 
     /// Identifies the active media source and its kind.
     final class ActiveLocalMediaSource {
 
-        /// Source identity
+        /// The source identifier.
         let id: UUID
+
+        /// The active local media source.
         let kind: LocalMediaKind
 
         /// Records the current media source identity and kind.
-        ///
-        /// - Parameters:
-        ///   - id: The unique source identifier.
-        ///   - kind: The source kind.
-        init(id: UUID, kind: LocalMediaKind) {
+        init(
+            id: UUID,
+            kind: LocalMediaKind
+        ) {
             self.id = id
             self.kind = kind
         }
@@ -314,22 +356,26 @@ private extension MediaController {
     /// Associates a media creation task with its source.
     struct LocalMediaOperation {
 
-        /// Operation identity
+        /// The media creation operation identifier.
         let id: UUID
+
+        /// The media source revision for this operation.
         let sourceID: UUID
 
-        /// Creation task
+        /// The asynchronous local stream creation task.
         let task: Task<RealtimeMediaStream, any Error>
     }
 
     /// Associates a media stop task with its source.
     struct LocalMediaStopOperation {
 
-        /// Operation identity
+        /// The media stop operation identifier.
         let id: UUID
+
+        /// The media source being stopped.
         let sourceID: UUID
 
-        /// Stop task
+        /// The resource cleanup task.
         let task: Task<Void, Never>
     }
 
@@ -338,25 +384,30 @@ private extension MediaController {
     /// - Parameters:
     ///   - kind: The media source kind to create.
     ///   - body: The media creation operation executed after engine initialization.
+    ///
     /// - Returns: The successfully created and still-valid local media stream.
+    ///
     /// - Throws: An error on an existing source, engine initialization or media creation failure, or cancellation.
     func createSource(
         kind: LocalMediaKind,
         releaseRTCOnFailure: Bool = true,
-        operation body: @escaping @Sendable () async throws ->
+        operation body:
+            @escaping @Sendable () async throws ->
             RealtimeMediaStream
     ) async throws -> RealtimeMediaStream {
         guard activeSource == nil else {
             throw XmaxError(
                 code: .invalidConfiguration,
-                message: "Stop the current local media stream before " +
-                    "creating another one"
+                message: "Stop the current local media stream before " + "creating another one"
             )
         }
 
         let sourceID = UUID()
         captureStopOperation = nil
-        activeSource = ActiveLocalMediaSource(id: sourceID, kind: kind)
+        activeSource = ActiveLocalMediaSource(
+            id: sourceID,
+            kind: kind
+        )
         let needsRTCInitialization = !hasPreparedRTC
         let operation = makeMediaOperation(sourceID: sourceID) {
             if needsRTCInitialization {
@@ -381,7 +432,8 @@ private extension MediaController {
         } catch {
             clearMediaOperation(id: operation.id)
             if releaseRTCOnFailure, activeSource?.id == sourceID,
-               stopOperation?.sourceID != sourceID {
+                stopOperation?.sourceID != sourceID
+            {
                 await rtcManager.destroy()
                 hasPreparedRTC = false
                 activeSource = nil
@@ -393,7 +445,9 @@ private extension MediaController {
     /// Stops local media of the specified source kind.
     ///
     /// - Parameter kind: The media source kind to stop.
-    func stopSource(ifKindIs kind: LocalMediaKind) async {
+    func stopSource(
+        ifKindIs kind: LocalMediaKind
+    ) async {
         guard let activeSource, activeSource.kind == kind else {
             return
         }
@@ -431,16 +485,15 @@ private extension MediaController {
         operationID: UUID
     ) async {
         if let mediaOperation,
-           mediaOperation.sourceID == sourceID {
+            mediaOperation.sourceID == sourceID
+        {
             do {
                 _ = try await mediaOperation.task.value
             } catch {
                 if !Self.isCancelled(error) {
                     XmaxLogger.realtime.error(
-                        message: "等待本地媒体操作结束失败 " +
-                            "(Failed to Await Local Media Operation Completion)\n" +
-                            "└─ \(XmaxLogger.localized("原因：", "Reason: "))" +
-                            (error as NSError).localizedDescription
+                        message: "等待本地媒体操作结束失败 " + "(Failed to Await Local Media Operation Completion)\n"
+                            + "└─ \(XmaxLogger.localized("原因：", "Reason: "))" + (error as NSError).localizedDescription
                     )
                 }
             }
@@ -460,7 +513,9 @@ private extension MediaController {
     /// Stops local media of the specified source kind.
     ///
     /// - Parameter kind: The media source kind to stop.
-    func stopSource(kind: LocalMediaKind) async {
+    func stopSource(
+        kind: LocalMediaKind
+    ) async {
         switch kind {
         case .camera:
             await stopLocalCapture()
@@ -472,8 +527,11 @@ private extension MediaController {
     /// Gets the video track owned by the specified source kind.
     ///
     /// - Parameter kind: The local media source kind.
+    ///
     /// - Returns: The component's video track; `nil` before creation.
-    func currentTrack(for kind: LocalMediaKind) -> RealtimeVideoTrack? {
+    func currentTrack(
+        for kind: LocalMediaKind
+    ) -> RealtimeVideoTrack? {
         switch kind {
         case .camera:
             cameraController.currentTrack
@@ -487,6 +545,7 @@ private extension MediaController {
     /// - Parameters:
     ///   - sourceID: The operation's media source identifier.
     ///   - operation: The asynchronous local stream creation operation.
+    ///
     /// - Returns: The media operation containing a unique identifier and task.
     func makeMediaOperation(
         sourceID: UUID,
@@ -502,11 +561,15 @@ private extension MediaController {
     /// Validates that the creation result belongs to the active source.
     ///
     /// - Parameter sourceID: The source identifier for media creation.
+    ///
     /// - Throws: Cancellation if the source is invalid or stopping.
-    func ensureCreationActive(sourceID: UUID) throws {
+    func ensureCreationActive(
+        sourceID: UUID
+    ) throws {
         guard activeSource?.id == sourceID,
-              stopOperation?.sourceID != sourceID,
-              captureStopOperation?.sourceID != sourceID else {
+            stopOperation?.sourceID != sourceID,
+            captureStopOperation?.sourceID != sourceID
+        else {
             throw XmaxError(
                 code: .cancelled,
                 message: "Local media stream creation was cancelled"
@@ -520,7 +583,8 @@ private extension MediaController {
     func ensureNoOperationInProgress() throws {
         let captureIsStopping = activeSource.map { captureStopOperation?.sourceID == $0.id } ?? false
         guard mediaOperation == nil, stopOperation == nil,
-              !captureIsStopping else {
+            !captureIsStopping
+        else {
             throw XmaxError(
                 code: .invalidConfiguration,
                 message: "Another local media operation is already in progress"
@@ -531,7 +595,9 @@ private extension MediaController {
     /// Clears the matching media creation operation.
     ///
     /// - Parameter id: The operation identifier to clear.
-    func clearMediaOperation(id: UUID) {
+    func clearMediaOperation(
+        id: UUID
+    ) {
         if mediaOperation?.id == id {
             mediaOperation = nil
         }
@@ -540,8 +606,11 @@ private extension MediaController {
     /// Checks whether an error is an SDK operation cancellation.
     ///
     /// - Parameter error: The error to check.
+    ///
     /// - Returns: `true` if the SDK error code is cancellation.
-    static func isCancelled(_ error: any Error) -> Bool {
+    static func isCancelled(
+        _ error: any Error
+    ) -> Bool {
         (error as? XmaxError)?.code == .cancelled
     }
 }

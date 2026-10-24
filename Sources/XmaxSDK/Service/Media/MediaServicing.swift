@@ -1,10 +1,9 @@
 //
 //  MediaServicing.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -22,20 +21,32 @@ public protocol MediaServicing: Sendable {
     /// - Parameters:
     ///   - size: Requested camera dimensions or oriented integer-pixel image or video dimensions.
     ///   - source: The media source; only camera inputs must match configured resolution buckets.
-    /// - Returns: Dimensions aligned to four pixels within model minimum and maximum pixel areas, preferring exact aspect ratio.
+    ///
+    /// - Returns: Dimensions aligned to four pixels within model minimum and maximum pixel areas, preferring exact
+    ///   aspect ratio.
+    ///
     /// - Throws: An error on invalid dimensions, unmatched input resolution buckets, or no valid output dimensions.
-    func resolveMediaSize(_ size: CGSize, source: RealtimeMediaSource) throws -> CGSize
+    func resolveMediaSize(
+        _ size: CGSize,
+        source: RealtimeMediaSource
+    ) throws -> CGSize
 
     /// Resolves the generation canvas separately from local media dimensions.
-    func resolveGenerationSize(_ size: CGSize) throws -> CGSize
+    func resolveGenerationSize(
+        _ size: CGSize
+    ) throws -> CGSize
 
     /// Calculates final return dimensions from tier limits and optional interpolation constraints.
     ///
     /// - Parameters:
     ///   - sourceSize: The original integer-pixel media dimensions defining aspect ratio and no-upscaling bounds.
     ///   - maximumSize: The downstream tier dimension limits, potentially containing fractional pixels.
-    ///   - frameInterpolationEnabled: Whether to additionally limit total pixels to 900000; does not check device capabilities.
-    /// - Returns: Dimensions within limits and aligned to four pixels; prefers exact aspect ratio, otherwise rounds each side down.
+    ///   - frameInterpolationEnabled: Whether to additionally limit total pixels to 900000; does not check device
+    ///     capabilities.
+    ///
+    /// - Returns: Dimensions within limits and aligned to four pixels; prefers exact aspect ratio, otherwise rounds
+    ///   each side down.
+    ///
     /// - Throws: `XmaxError` for invalid dimensions or limits that cannot accommodate at least 4 × 4 pixels.
     func resolveTargetSize(
         _ sourceSize: CGSize,
@@ -46,6 +57,9 @@ public protocol MediaServicing: Sendable {
     /// Checks device interpolation support for the specified video resolution.
     ///
     /// - Parameter size: The received video resolution used for interpolation.
+    ///
     /// - Returns: `true` if the system, device, and video format all support interpolation.
-    func supportsFrameInterpolation(for size: CGSize) -> Bool
+    func supportsFrameInterpolation(
+        for size: CGSize
+    ) -> Bool
 }

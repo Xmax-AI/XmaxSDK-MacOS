@@ -1,10 +1,9 @@
 //
 //  XmaxRealtimeManaging.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -28,7 +27,6 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// The effective remote video interpolation state.
     var isFrameInterpolationEnabled: Bool { get async }
 
-
     /// The remote generated audio playback volume in `0...1`.
     /// Starts at 0 after camera stream creation; enable result audio when needed.
     var remoteAudioVolume: Float { get async }
@@ -43,7 +41,9 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// Sets the startup timing listener for camera startup, four generation stages, and total timing.
     ///
     /// - Parameter listener: The main-thread snapshot callback; `nil` clears the listener.
-    func setLaunchTimingListener(_ listener: RealtimeLaunchTimingListener?) async
+    func setLaunchTimingListener(
+        _ listener: RealtimeLaunchTimingListener?
+    ) async
 
     /// Sets the final remote video frame listener.
     ///
@@ -58,13 +58,19 @@ public protocol XmaxRealtimeManaging: Sendable {
 
     /// Sets the upstream video statistics listener.
     ///
-    /// - Parameter listener: The main-thread callback; receives nil before publication or after disconnect. Pass nil to clear it.
-    func setUplinkVideoStatisticsListener(_ listener: UplinkVideoStatisticsListener?) async
+    /// - Parameter listener: The main-thread callback; receives nil before publication or after disconnect. Pass nil to
+    ///   clear it.
+    func setUplinkVideoStatisticsListener(
+        _ listener: UplinkVideoStatisticsListener?
+    ) async
 
     /// Sets the downstream video statistics listener.
     ///
-    /// - Parameter listener: The main-thread callback; receives nil when the result stream is cleared. Pass nil to clear it.
-    func setDownlinkVideoStatisticsListener(_ listener: DownlinkVideoStatisticsListener?) async
+    /// - Parameter listener: The main-thread callback; receives nil when the result stream is cleared. Pass nil to
+    ///   clear it.
+    func setDownlinkVideoStatisticsListener(
+        _ listener: DownlinkVideoStatisticsListener?
+    ) async
 
     /// Sets the network quality listener.
     ///
@@ -86,6 +92,7 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// Call after creating the local stream to override the initial volume.
     ///
     /// - Parameter volume: The remote playback volume in `0...1`.
+    ///
     /// - Throws: An error if the volume is out of range or RTC volume configuration fails.
     func setRemoteAudioVolume(
         _ volume: Float
@@ -98,6 +105,7 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// Original frames remain visible during the dimension change.
     ///
     /// - Parameter enabled: Whether to enable remote video interpolation.
+    ///
     /// - Throws: An error on conflicting operations, unsupported devices or dimensions, or signal delivery failure.
     func setFrameInterpolationEnabled(
         _ enabled: Bool
@@ -105,24 +113,42 @@ public protocol XmaxRealtimeManaging: Sendable {
 
     /// Creates a local camera stream and starts preview.
     ///
-    /// Bind the returned track to a preview view; media becomes `ready` after native capture starts and the view is bound.
+    /// Bind the returned track to a preview view; media becomes `ready` after native capture starts and the view is
+    /// bound.
     ///
     /// - Parameters:
     ///   - videoFormat: The camera capture video format.
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
-    ///   - useMicrophone: Whether to use the microphone; requests permission at creation, starts capture on connection, and stops on disconnect.
+    ///   - useMicrophone: Whether to use the microphone; requests permission at creation, starts capture on connection,
+    ///     and stops on disconnect.
+    ///
     /// - Returns: The media stream containing the local camera video track.
-    /// - Throws: An error on invalid configuration, denied permissions, conflicting operations, or capture startup failure.
+    ///
+    /// - Throws: An error on invalid configuration, denied permissions, conflicting operations, or capture startup
+    ///   failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
         useMicrophone: Bool
     ) async throws -> RealtimeMediaStream
 
-    /// Acquires Agora, then prepares capture and the cloud connection concurrently before starting generation.
-    /// The local-stream callback runs on the main actor as soon as capture is usable; bind it to a preview if desired.
-    /// Preview attachment is not a prerequisite for joining or publishing. Failure or cancellation releases both branches.
-    /// Camera and RTC stage durations overlap and must not be summed to obtain total startup time.
+    /// Starts camera capture and generation with concurrent capture and session preparation.
+    ///
+    /// Acquires the RTC engine before preparing capture and joining concurrently. The local-stream callback runs
+    /// on the main actor as soon as capture is usable; preview attachment is not required for joining or publication.
+    /// Camera and RTC timings overlap, so their sum does not represent total startup duration.
+    ///
+    /// - Parameters:
+    ///   - videoFormat: A supported camera capture format.
+    ///   - deviceID: The camera identifier; `nil` or an empty value selects the system default.
+    ///   - useMicrophone: Whether to request microphone access and publish captured audio.
+    ///   - context: The initial generation conditions.
+    ///   - faceRestoration: Whether to restore the original face in generated output.
+    ///   - localStreamListener: The main-actor callback receiving the usable local stream for optional preview binding.
+    ///
+    /// - Returns: The remote stream after generation and its first displayable result are ready.
+    ///
+    /// - Throws: An error on invalid state or configuration, permission denial, startup failure, or cancellation.
     func startCameraGeneration(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
@@ -134,7 +160,8 @@ public protocol XmaxRealtimeManaging: Sendable {
 
     /// Stops the local camera stream and updates media readiness.
     ///
-    /// - Throws: An error if realtime is still connected, a conflicting operation exists, or this operation is cancelled.
+    /// - Throws: An error if realtime is still connected, a conflicting operation exists, or this operation is
+    ///   cancelled.
     func stopLocalCameraStream() async throws
 
     /// Binds a caller-owned video source and returns its local stream.
@@ -147,7 +174,9 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// - Parameters:
     ///   - source: The caller-owned video source.
     ///   - videoFormat: The desired input format; nil uses source dimensions and the model frame rate.
+    ///
     /// - Returns: The local stream used for connection, generation, and optional SDK-hosted preview.
+    ///
     /// - Throws: An error on conflicting media, invalid format, failed binding, or cancellation.
     func createExternalVideoStream(
         source: any RealtimeExternalVideoSource,
@@ -165,15 +194,22 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// The RTC connection is retained. Camera switching is unavailable while connection or generation starts.
     ///
     /// - Returns: The local stream retaining the original video track with its camera position updated.
-    /// - Throws: An error if no camera stream exists, realtime startup is in progress, or camera switching or generation recovery
+    ///
+    /// - Throws: An error if no camera stream exists, realtime startup is in progress, or camera switching or
+    ///   generation recovery
     ///   fails.
-    func switchCamera(to deviceID: String) async throws -> RealtimeMediaStream
+    func switchCamera(
+        to deviceID: String
+    ) async throws -> RealtimeMediaStream
 
     /// Establishes a realtime connection with the local stream created by this manager.
     ///
     /// - Parameter localStream: The local media stream created and owned by this manager.
+    ///
     /// - Returns: The connected remote media stream, which can be bound to a result preview view.
-    /// - Throws: An error on invalid local stream, existing connection, conflicting operation, cancellation, or connection failure.
+    ///
+    /// - Throws: An error on invalid local stream, existing connection, conflicting operation, cancellation, or
+    ///   connection failure.
     func connect(
         localStream: RealtimeMediaStream
     ) async throws -> RealtimeMediaStream
@@ -184,7 +220,9 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// Disconnects realtime for a business reason while retaining usable local media.
     ///
     /// - Parameter reason: The disconnect reason, such as a display orientation change.
-    func disconnect(reason: RealtimeReason) async
+    func disconnect(
+        reason: RealtimeReason
+    ) async
 
     /// Closes the realtime lifecycle and releases the connection, local media, and RTC engine.
     ///
@@ -197,8 +235,10 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// The replaced request ends with cancellation. Disconnect and close cancel pending requests.
     ///
     /// - Parameters:
-    ///   - context: The generation conditions; required initially. Later calls may pass `nil` to reuse cached conditions.
+    ///   - context: The generation conditions; required initially. Later calls may pass `nil` to reuse cached
+    ///     conditions.
     ///   - faceRestoration: Whether to restore the original face; each call sends this setting.
+    ///
     /// - Throws: An error if conditions are invalid or generation startup or update fails.
     func startGeneration(
         context: RealtimeContext?,
@@ -214,7 +254,9 @@ public protocol XmaxRealtimeManaging: Sendable {
     ///   - localStream: The local media stream created and owned by this manager.
     ///   - context: The generation conditions; required for initial generation.
     ///   - faceRestoration: Whether to restore the original face; each call sends this setting.
+    ///
     /// - Returns: The remote media stream for the current RTC connection.
+    ///
     /// - Throws: An error on invalid local stream, connection failure, or generation startup failure.
     func startGeneration(
         localStream: RealtimeMediaStream,

@@ -1,10 +1,9 @@
 //
 //  RoomEvent.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -13,6 +12,7 @@ import Foundation
 
 /// Creates structured event messages exchanged between the SDK and RTC room.
 enum RoomEvent {
+
     /// Encodes a generation start signal with runtime environment information.
     ///
     /// - Parameters:
@@ -23,7 +23,9 @@ enum RoomEvent {
     ///   - context: The current generation conditions.
     ///   - faceRestoration: Whether to restore the original face.
     ///   - paddingContain: Whether to preserve source aspect ratio and pad the generation canvas.
+    ///
     /// - Returns: The sendable JSON start signal.
+    ///
     /// - Throws: An error on invalid generation parameters, bitrate calculation failure, or JSON encoding failure.
     static func start(
         userID: String,
@@ -60,7 +62,9 @@ enum RoomEvent {
     ///   - context: The current generation conditions.
     ///   - faceRestoration: Whether to restore the original face.
     ///   - paddingContain: Whether to preserve source aspect ratio and pad the generation canvas.
+    ///
     /// - Returns: The sendable JSON condition update signal.
+    ///
     /// - Throws: An error on invalid generation parameters or JSON encoding failure.
     static func changeCondition(
         userID: String,
@@ -92,7 +96,9 @@ enum RoomEvent {
     ///   - userID: The local RTC user account.
     ///   - taskID: The generation task identifier to update.
     ///   - targetSize: The returned integer-pixel dimensions.
+    ///
     /// - Returns: The sendable JSON return dimension update signal.
+    ///
     /// - Throws: An error on invalid target dimensions, bitrate calculation failure, or JSON encoding failure.
     static func changeTargetSize(
         userID: String,
@@ -113,7 +119,9 @@ enum RoomEvent {
     /// - Parameters:
     ///   - userID: The local RTC user account.
     ///   - taskID: The generation task identifier to stop.
+    ///
     /// - Returns: The sendable JSON stop signal.
+    ///
     /// - Throws: An error if JSON encoding fails.
     static func stop(
         userID: String,
@@ -133,7 +141,9 @@ enum RoomEvent {
     ///   - userID: The local RTC user account.
     ///   - taskID: The generation task receiving the trajectory.
     ///   - points: Points in sample order, normalized to `[0, 1]` relative to processed media dimensions.
+    ///
     /// - Returns: The sendable JSON trajectory signal.
+    ///
     /// - Throws: An error on invalid coordinates or JSON encoding failure.
     static func tracks(
         userID: String,
@@ -152,50 +162,85 @@ enum RoomEvent {
     /// Encodes a room heartbeat signal.
     ///
     /// - Parameter userID: The local RTC user account.
+    ///
     /// - Returns: The sendable JSON heartbeat signal.
+    ///
     /// - Throws: An error if JSON encoding fails.
-    static func heartbeat(userID: String) throws -> String {
+    static func heartbeat(
+        userID: String
+    ) throws -> String {
         try encode(HeartbeatPayload(userID: userID))
     }
 }
 
 private extension RoomEvent {
+
     /// Validates return dimensions and calculates downstream bitrate budget.
     ///
     /// - Parameter size: The return video integer-pixel dimensions.
+    ///
     /// - Returns: The downstream minimum and maximum bitrate in kbps.
+    ///
     /// - Throws: An error on invalid dimensions or bitrate calculation failure.
-    static func downlinkBitrates(_ size: CGSize) throws -> (minimum: Int, maximum: Int) {
+    static func downlinkBitrates(
+        _ size: CGSize
+    ) throws -> (minimum: Int, maximum: Int) {
         guard size.width.isFinite, size.height.isFinite,
-              size.width >= 2, size.height >= 2,
-              size.width < CGFloat(Int.max), size.height < CGFloat(Int.max),
-              size.width.rounded(.down) == size.width,
-              size.height.rounded(.down) == size.height else {
-            throw XmaxError(code: .invalidConfiguration, message: "Invalid return video dimensions")
+            size.width >= 2, size.height >= 2,
+            size.width < CGFloat(Int.max), size.height < CGFloat(Int.max),
+            size.width.rounded(.down) == size.width,
+            size.height.rounded(.down) == size.height
+        else {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Invalid return video dimensions"
+            )
         }
-        let budget = try EncodingBitratePolicy.resolve(RealtimeVideoFormat(
-            width: Int(size.width), height: Int(size.height), fps: 24
-        ))
+        let budget = try EncodingBitratePolicy.resolve(
+            RealtimeVideoFormat(
+                width: Int(size.width),
+                height: Int(size.height),
+                fps: 24
+            )
+        )
         return (100, min(10000, budget.maximum))
     }
 
     /// Adds runtime environment and session task fields, then encodes the signal.
     ///
     /// - Parameter payload: The encodable business event payload.
+    ///
     /// - Returns: The UTF-8 JSON text with stable key ordering.
+    ///
     /// - Throws: An error on payload encoding, JSON conversion, or text conversion failure.
-    static func encode(_ payload: some Encodable) throws -> String {
+    static func encode(
+        _ payload: some Encodable
+    ) throws -> String {
         let payloadData = try JSONEncoder().encode(
-            Envelope(payload: payload, runtime: .current)
+            Envelope(
+                payload: payload,
+                runtime: .current
+            )
         )
         guard var object = try JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
-            throw XmaxError(code: .internalError, message: "Failed to encode RTC room event")
+            throw XmaxError(
+                code: .internalError,
+                message: "Failed to encode RTC room event"
+            )
         }
         if let taskID = object["uid"] {
             object["session_uid"] = taskID
         }
-        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-        guard let message = String(data: data, encoding: .utf8) else {
+        let data = try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.sortedKeys]
+        )
+        guard
+            let message = String(
+                data: data,
+                encoding: .utf8
+            )
+        else {
             throw XmaxError(
                 code: .internalError,
                 message: "Failed to encode RTC room event"
@@ -207,24 +252,32 @@ private extension RoomEvent {
     /// Adds runtime environment information to business signals.
     struct Envelope<Payload: Encodable>: Encodable {
 
-        /// Signal content
+        /// The business event payload.
         let payload: Payload
 
-        /// Runtime environment
+        /// The client runtime information sent with signaling.
         let runtime: RuntimeInfo
 
         /// Writes the business payload and runtime environment into one encoding container.
         ///
         /// - Parameter encoder: The encoder emitting the signal.
+        ///
         /// - Throws: An error if payload or runtime environment encoding fails.
-        func encode(to encoder: Encoder) throws {
+        func encode(
+            to encoder: Encoder
+        ) throws {
             try payload.encode(to: encoder)
             var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(runtime, forKey: .runtime)
+            try container.encode(
+                runtime,
+                forKey: .runtime
+            )
         }
 
         /// Maps field names defined by the server signaling protocol.
         enum CodingKeys: String, CodingKey {
+
+            /// The client runtime field.
             case runtime
         }
     }
@@ -232,22 +285,34 @@ private extension RoomEvent {
     /// Encodes generation dimensions, reference conditions, and output options.
     struct GenerationParameters: Encodable {
 
-        /// Generation model and dimensions
+        /// The signaling model placeholder; the session determines the actual model.
         let model = "default"
+
+        /// The generation canvas dimensions, in pixels.
         let size: [Int]
+
+        /// The returned output dimensions, in pixels.
         let targetSize: [Int]?
 
-        /// Generation conditions
+        /// The generation prompt.
         let prompt: String
+
+        /// The server-accessible reference image URL.
         let referencePath: String?
 
-        /// Video processing
+        /// Whether to mirror the input.
         let mirror: Bool?
+
+        /// Whether face restoration is enabled.
         let faceRestoration: Bool
+
+        /// The input-to-canvas padding policy.
         let padding: String?
 
-        /// Downstream bitrate
+        /// The server encoder minimum bitrate, in kbps.
         let minimumBitrate: Int?
+
+        /// The server encoder maximum bitrate, in kbps.
         let maximumBitrate: Int?
 
         /// Creates generation parameters, optionally including downstream bitrate configuration.
@@ -259,6 +324,7 @@ private extension RoomEvent {
         ///   - faceRestoration: Whether to restore the original face.
         ///   - paddingContain: Whether to fit content within the canvas using padding.
         ///   - mirror: The optional mirror setting; a non-nil value also adds downstream bitrate fields.
+        ///
         /// - Throws: An error on invalid dimensions or bitrate when downstream bitrate calculation is required.
         init(
             videoFormat: RealtimeVideoFormat,
@@ -287,15 +353,35 @@ private extension RoomEvent {
 
         /// Maps field names defined by the server signaling protocol.
         enum CodingKeys: String, CodingKey {
+
+            /// The generation model field.
             case model
+
+            /// The generation canvas field.
             case size
+
+            /// The returned dimensions field.
             case targetSize = "target_size"
+
+            /// The generation prompt field.
             case prompt
+
+            /// The reference image field.
             case referencePath = "ref_image_path"
+
+            /// The input mirroring field.
             case mirror
+
+            /// The face restoration field.
             case faceRestoration = "face_replace"
+
+            /// The canvas padding field.
             case padding
+
+            /// The minimum bitrate field.
             case minimumBitrate = "min_bitrate"
+
+            /// The maximum bitrate field.
             case maximumBitrate = "max_bitrate"
         }
     }
@@ -303,21 +389,31 @@ private extension RoomEvent {
     /// A room signal starting generation.
     struct StartPayload: Encodable {
 
-        /// Event type
+        /// The start event name.
         let event = "start"
 
-        /// Event parameters
+        /// The generation dimensions, conditions, and display settings.
         let params: GenerationParameters
 
-        /// User and task identifiers
+        /// The business user starting generation.
         let userID: String
+
+        /// The generation task identifier.
         let taskID: String
 
         /// Maps field names defined by the server signaling protocol.
         enum CodingKeys: String, CodingKey {
+
+            /// The event name field.
             case event
+
+            /// The event parameters field.
             case params
+
+            /// The business user field.
             case userID = "user_id"
+
+            /// The generation task field.
             case taskID = "uid"
         }
     }
@@ -325,21 +421,31 @@ private extension RoomEvent {
     /// A room signal updating generation conditions.
     struct ChangeConditionPayload: Encodable {
 
-        /// Event type
+        /// The condition update event name.
         let event = "change_condition"
 
-        /// Event parameters
+        /// The updated generation and display conditions.
         let params: GenerationParameters
 
-        /// User and task identifiers
+        /// The task's business user identifier.
         let userID: String
+
+        /// The generation task identifier.
         let taskID: String
 
         /// Maps field names defined by the server signaling protocol.
         enum CodingKeys: String, CodingKey {
+
+            /// The event name field.
             case event
+
+            /// The event parameters field.
             case params
+
+            /// The business user field.
             case userID = "user_id"
+
+            /// The generation task field.
             case taskID = "uid"
         }
     }
@@ -347,18 +453,23 @@ private extension RoomEvent {
     /// Encodes return dimensions and the associated downstream bitrate budget.
     struct TargetSizeParameters: Encodable {
 
-        /// Return dimensions
+        /// The returned output dimensions, in pixels.
         let targetSize: [Int]
 
-        /// Downstream bitrate
+        /// The server encoder minimum bitrate, in kbps.
         let minimumBitrate: Int
+
+        /// The server encoder maximum bitrate, in kbps.
         let maximumBitrate: Int
 
         /// Validates and creates return dimension and bitrate parameters.
         ///
         /// - Parameter size: The target return dimensions in integer pixels.
+        ///
         /// - Throws: An error on dimension validation or downstream bitrate calculation failure.
-        init(size: CGSize) throws {
+        init(
+            size: CGSize
+        ) throws {
             let budget = try RoomEvent.downlinkBitrates(size)
             targetSize = [Int(size.width), Int(size.height)]
             minimumBitrate = budget.minimum
@@ -367,8 +478,14 @@ private extension RoomEvent {
 
         /// Maps field names defined by the server signaling protocol.
         enum CodingKeys: String, CodingKey {
+
+            /// The returned dimensions field.
             case targetSize = "target_size"
+
+            /// The minimum bitrate field.
             case minimumBitrate = "min_bitrate"
+
+            /// The maximum bitrate field.
             case maximumBitrate = "max_bitrate"
         }
     }
@@ -376,21 +493,31 @@ private extension RoomEvent {
     /// A room signal dynamically adjusting return dimensions.
     struct ChangeTargetSizePayload: Encodable {
 
-        /// Event type
+        /// The target-size event name.
         let event = "change_target_size"
 
-        /// Event parameters
+        /// The new output dimensions and bitrate bounds.
         let params: TargetSizeParameters
 
-        /// User and task identifiers
+        /// The task's business user identifier.
         let userID: String
+
+        /// The generation task identifier.
         let taskID: String
 
         /// Maps field names defined by the server signaling protocol.
         enum CodingKeys: String, CodingKey {
+
+            /// The event name field.
             case event
+
+            /// The event parameters field.
             case params
+
+            /// The business user field.
             case userID = "user_id"
+
+            /// The generation task field.
             case taskID = "uid"
         }
     }
@@ -398,17 +525,25 @@ private extension RoomEvent {
     /// A room signal stopping generation.
     struct StopPayload: Encodable {
 
-        /// Event type
+        /// The stop event name.
         let event = "stop"
 
-        /// User and task identifiers
+        /// The task's business user identifier.
         let userID: String
+
+        /// The generation task identifier.
         let taskID: String
 
         /// Maps field names defined by the server signaling protocol.
         enum CodingKeys: String, CodingKey {
+
+            /// The event name field.
             case event
+
+            /// The business user field.
             case userID = "user_id"
+
+            /// The generation task field.
             case taskID = "uid"
         }
     }
@@ -416,21 +551,31 @@ private extension RoomEvent {
     /// A room signal carrying a generation task's media-normalized trajectory.
     struct TracksPayload: Encodable {
 
-        /// Event type
+        /// The trajectory event name.
         let event = "tracks"
 
-        /// Trajectory data
+        /// The normalized points relative to complete resolved media dimensions, each as `[x, y]`.
         let tracks: [[Double]]
 
-        /// User and task identifiers
+        /// The business user sending the trajectory.
         let userID: String
+
+        /// The trajectory's generation task identifier.
         let taskID: String
 
         /// Maps field names defined by the server signaling protocol.
         enum CodingKeys: String, CodingKey {
+
+            /// The event name field.
             case event
+
+            /// The normalized trajectory field.
             case tracks
+
+            /// The business user field.
             case userID = "user_id"
+
+            /// The generation task field.
             case taskID = "uid"
         }
     }
@@ -438,15 +583,19 @@ private extension RoomEvent {
     /// A heartbeat signal keeping the room active.
     struct HeartbeatPayload: Encodable {
 
-        /// Event type
+        /// The room heartbeat event name.
         let event = "heartbeat"
 
-        /// User and task identifiers
+        /// The business user sending the heartbeat.
         let userID: String
 
         /// Maps field names defined by the server signaling protocol.
         enum CodingKeys: String, CodingKey {
+
+            /// The event name field.
             case event
+
+            /// The business user field.
             case userID = "user_id"
         }
     }

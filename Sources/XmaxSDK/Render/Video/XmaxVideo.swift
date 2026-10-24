@@ -1,10 +1,9 @@
 //
 //  XmaxVideo.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -20,21 +19,17 @@ public struct XmaxVideo: NSViewRepresentable {
 
     /// The video content display mode in its container.
     public let videoContentMode: VideoContentMode
+
     /// Whether a ready remote track accepts pointer trajectories.
     public let isInteractionEnabled: Bool
+
     /// Whether to mirror video; interaction coordinates remain in displayed orientation.
     public let isMirrored: Bool
+
     /// Custom trajectory visuals; nil uses the built-in green glow.
     public let trajectoryRenderer: (any TrajectoryEffectRendering)?
 
     /// Creates a SwiftUI video rendering component.
-    ///
-    /// - Parameters:
-    ///   - track: The video track to display; nil shows an empty container.
-    ///   - videoContentMode: The video content display mode.
-    ///   - isInteractionEnabled: Whether to accept pointer trajectories on a ready result.
-    ///   - isMirrored: Whether to mirror video without reversing interaction coordinates.
-    ///   - trajectoryRenderer: Custom visuals; nil uses the built-in effect.
     public init(
         track: RealtimeVideoTrack?,
         videoContentMode: VideoContentMode = .fill,
@@ -52,8 +47,11 @@ public struct XmaxVideo: NSViewRepresentable {
     /// Creates an AppKit view hosting SwiftUI video content.
     ///
     /// - Parameter context: The SwiftUI view creation context.
+    ///
     /// - Returns: The SDK video view configured for the current track.
-    public func makeNSView(context: Context) -> XmaxVideoView {
+    public func makeNSView(
+        context: Context
+    ) -> XmaxVideoView {
         let view = XmaxVideoView(
             track: track,
             videoContentMode: videoContentMode

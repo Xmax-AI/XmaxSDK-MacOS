@@ -1,10 +1,9 @@
 //
 //  RealtimeLaunchTiming.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -12,7 +11,8 @@
 /// Realtime startup timing in milliseconds: camera startup and the four generation stages.
 ///
 /// Stages that have not completed are `nil`. Total timing begins when generation enters the business flow
-/// and ends after the first frame is ready and generation state is committed. The combined camera API includes camera preparation.
+/// and ends after the first frame is ready and generation state is committed. The combined camera API includes camera
+/// preparation.
 /// Camera startup may overlap cloud connection. Total timing is measured directly, not by adding stage durations.
 public struct RealtimeLaunchTiming: Equatable, Sendable {
 
@@ -36,14 +36,6 @@ public struct RealtimeLaunchTiming: Equatable, Sendable {
     public let totalMs: Double?
 
     /// Creates a startup timing snapshot with incomplete stages set to `nil`.
-    ///
-    /// - Parameters:
-    ///   - cameraMs: Camera startup time in milliseconds.
-    ///   - sessionMs: Session creation time in milliseconds.
-    ///   - rtcJoinMs: RTC join time in milliseconds.
-    ///   - publishMs: Local stream publication time in milliseconds.
-    ///   - firstFrameMs: Time from generation signal to the first frame, in milliseconds.
-    ///   - totalMs: Total startup time in milliseconds.
     public init(
         cameraMs: Double? = nil,
         sessionMs: Double? = nil,
@@ -61,5 +53,6 @@ public struct RealtimeLaunchTiming: Equatable, Sendable {
     }
 }
 
-/// Main-thread startup timing callback; resets generation stages for each startup and retains timing for an existing camera.
+/// Main-thread startup timing callback; resets generation stages for each startup and retains timing for an existing
+/// camera.
 public typealias RealtimeLaunchTimingListener = @MainActor @Sendable (RealtimeLaunchTiming) -> Void

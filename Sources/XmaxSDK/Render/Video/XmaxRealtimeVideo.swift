@@ -1,10 +1,9 @@
 //
 //  XmaxRealtimeVideo.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -23,22 +22,17 @@ public struct XmaxRealtimeVideo: NSViewRepresentable {
 
     /// The video content display mode in its container.
     public let videoContentMode: VideoContentMode
+
     /// Whether a ready remote track accepts pointer trajectories.
     public let isInteractionEnabled: Bool
+
     /// Whether to mirror video; interaction coordinates remain in displayed orientation.
     public let isMirrored: Bool
+
     /// Custom trajectory visuals; nil uses the built-in green glow.
     public let trajectoryRenderer: (any TrajectoryEffectRendering)?
 
     /// Creates a SwiftUI realtime video component.
-    ///
-    /// - Parameters:
-    ///   - localTrack: The local video track to preview continuously.
-    ///   - remoteTrack: The remote generated track to display as an overlay.
-    ///   - videoContentMode: The content display mode for local and remote video.
-    ///   - isInteractionEnabled: Whether to accept pointer trajectories on a ready result.
-    ///   - isMirrored: Whether to mirror video without reversing interaction coordinates.
-    ///   - trajectoryRenderer: Custom visuals; nil uses the built-in effect.
     public init(
         localTrack: RealtimeVideoTrack?,
         remoteTrack: RealtimeVideoTrack?,
@@ -58,8 +52,11 @@ public struct XmaxRealtimeVideo: NSViewRepresentable {
     /// Creates an AppKit view hosting SwiftUI video content.
     ///
     /// - Parameter context: The SwiftUI view creation context.
+    ///
     /// - Returns: The SDK realtime video view configured with local and remote tracks.
-    public func makeNSView(context: Context) -> XmaxRealtimeVideoView {
+    public func makeNSView(
+        context: Context
+    ) -> XmaxRealtimeVideoView {
         let view = XmaxRealtimeVideoView(
             localTrack: localTrack,
             remoteTrack: remoteTrack,

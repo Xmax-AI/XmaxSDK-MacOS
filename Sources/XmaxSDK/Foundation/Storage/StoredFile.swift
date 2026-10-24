@@ -1,10 +1,9 @@
 //
 //  StoredFile.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,8 +13,12 @@ import Foundation
 /// The neutral result of an object storage upload.
 struct StoredFile: Equatable, Sendable {
 
-    /// Remote file information
+    /// The uploaded object's remote URL.
     let url: URL
+
+    /// The object key within the bucket.
     let objectKey: String
+
+    /// The ETag returned by object storage.
     let etag: String?
 }

@@ -1,10 +1,9 @@
 //
 //  StorageManager.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -15,13 +14,13 @@ import Foundation
 /// Wraps third-party object storage uploads and HTTP file downloads.
 final class StorageManager: StorageManaging, Sendable {
 
-    /// Platform resources
+    /// The URL session for downloads.
     private let session: URLSession
 
     /// Creates a storage manager.
-    ///
-    /// - Parameter session: The URL session used for HTTP downloads.
-    init(session: URLSession = .shared) {
+    init(
+        session: URLSession = .shared
+    ) {
         self.session = session
     }
 
@@ -33,7 +32,9 @@ final class StorageManager: StorageManaging, Sendable {
     ///   - contentType: The upload content MIME type.
     ///   - configuration: The storage endpoint, bucket, and temporary credentials.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The upload result with access URL, object path, and ETag when available.
+    ///
     /// - Throws: An error on invalid input or credentials, upload failure, or cancellation.
     func upload(
         source: StorageUploadSource,
@@ -79,7 +80,9 @@ final class StorageManager: StorageManaging, Sendable {
     ///   - remoteURL: The remote file URL to download.
     ///   - destinationURL: The local destination file URL.
     ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
+    ///
     /// - Returns: The completed local file URL and byte count.
+    ///
     /// - Throws: An error on invalid URLs, download or file write failure, or cancellation.
     func download(
         remoteURL: URL,
@@ -105,7 +108,8 @@ final class StorageManager: StorageManaging, Sendable {
             try Task.checkCancellation()
 
             guard let httpResponse = response as? HTTPURLResponse,
-                  (200..<300).contains(httpResponse.statusCode) else {
+                (200..<300).contains(httpResponse.statusCode)
+            else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode
                 throw XmaxError(
                     code: .downloadError,
@@ -116,9 +120,15 @@ final class StorageManager: StorageManaging, Sendable {
                 )
             }
 
-            try data.write(to: destinationURL, options: .atomic)
+            try data.write(
+                to: destinationURL,
+                options: .atomic
+            )
             let byteCount = Int64(data.count)
-            progress?(byteCount, byteCount)
+            progress?(
+                byteCount,
+                byteCount
+            )
 
             return DownloadedFile(
                 fileURL: destinationURL,
@@ -131,7 +141,8 @@ final class StorageManager: StorageManaging, Sendable {
         } catch {
             let platformError = error as NSError
             if platformError.domain == NSURLErrorDomain,
-               platformError.code == NSURLErrorCancelled {
+                platformError.code == NSURLErrorCancelled
+            {
                 throw Self.cancelledError(operation: "Storage download")
             }
 
@@ -148,17 +159,21 @@ final class StorageManager: StorageManaging, Sendable {
     ///   - candidate: The candidate access URL from the upload response.
     ///   - configuration: The bucket, region, and endpoint configuration.
     ///   - objectKey: The uploaded object's key within the bucket.
+    ///
     /// - Returns: The HTTP or HTTPS object URL.
+    ///
     /// - Throws: An error on invalid endpoint, object key encoding failure, or URL construction failure.
     static func resolveObjectURL(
         candidate: String?,
         configuration: StorageConfiguration,
         objectKey: String
     ) throws -> URL {
-        let location = candidate?
+        let location =
+            candidate?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if location.hasPrefix("//"),
-           let url = URL(string: "https:\(location)") {
+            let url = URL(string: "https:\(location)")
+        {
             return url
         }
         if let url = URL(string: location) {
@@ -198,6 +213,7 @@ final class StorageManager: StorageManaging, Sendable {
     ///   - objectKey: The destination object key.
     ///   - contentType: The upload content MIME type.
     ///   - configuration: The destination storage location and temporary credentials.
+    ///
     /// - Throws: An error if upload configuration is invalid or the source file unavailable.
     private static func validateUpload(
         source: StorageUploadSource,
@@ -224,19 +240,21 @@ final class StorageManager: StorageManaging, Sendable {
             throw uploadError(message: "Storage content type cannot be empty")
         }
         guard !credential.accessKeyID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !credential.secretAccessKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !credential.sessionToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            !credential.secretAccessKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !credential.sessionToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
             throw uploadError(message: "Storage temporary credential is incomplete")
         }
 
         if case let .file(url) = source {
             var isDirectory = ObjCBool(false)
             guard url.isFileURL,
-                  FileManager.default.fileExists(
-                      atPath: url.path,
-                      isDirectory: &isDirectory
-                  ),
-                  !isDirectory.boolValue else {
+                FileManager.default.fileExists(
+                    atPath: url.path,
+                    isDirectory: &isDirectory
+                ),
+                !isDirectory.boolValue
+            else {
                 throw uploadError(message: "Storage upload file is unavailable")
             }
         }
@@ -245,7 +263,9 @@ final class StorageManager: StorageManaging, Sendable {
     /// Creates a COS service from endpoint configuration.
     ///
     /// - Parameter configuration: The storage region and endpoint.
+    ///
     /// - Returns: The COS service for this upload.
+    ///
     /// - Throws: An error if the endpoint is invalid or a platform endpoint cannot be created.
     private static func makeStorageService(
         configuration: StorageConfiguration
@@ -285,7 +305,9 @@ final class StorageManager: StorageManaging, Sendable {
     ///   - objectKey: The destination object key.
     ///   - contentType: The upload content MIME type.
     ///   - configuration: The destination storage location and credentials.
+    ///
     /// - Returns: The prepared object upload request.
+    ///
     /// - Throws: An error if temporary credentials are invalid.
     private static func makeUploadRequest(
         source: StorageUploadSource,
@@ -313,7 +335,9 @@ final class StorageManager: StorageManaging, Sendable {
     /// Converts temporary access configuration to COS signing credentials.
     ///
     /// - Parameter configuration: The temporary keys and session token.
+    ///
     /// - Returns: The credentials signing the current upload request.
+    ///
     /// - Throws: An error if platform credential validation fails.
     private static func makeCredential(
         _ configuration: StorageCredential
@@ -338,7 +362,9 @@ final class StorageManager: StorageManaging, Sendable {
     ///   - endpoint: The original endpoint text.
     ///   - bucket: The destination bucket name.
     ///   - preservePath: Whether to preserve endpoint paths and additional URL information.
+    ///
     /// - Returns: The normalized HTTP or HTTPS endpoint.
+    ///
     /// - Throws: An error if the endpoint scheme, host, or URL is invalid.
     private static func normalizedEndpoint(
         _ endpoint: String,
@@ -348,9 +374,10 @@ final class StorageManager: StorageManaging, Sendable {
         let value = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = value.contains("://") ? value : "https://\(value)"
         guard var components = URLComponents(string: normalized),
-              let scheme = components.scheme?.lowercased(),
-              scheme == "https" || scheme == "http",
-              let host = components.host, !host.isEmpty else {
+            let scheme = components.scheme?.lowercased(),
+            scheme == "https" || scheme == "http",
+            let host = components.host, !host.isEmpty
+        else {
             throw uploadError(message: "Storage endpoint is invalid")
         }
 
@@ -372,13 +399,21 @@ final class StorageManager: StorageManaging, Sendable {
     /// URL-encodes individual object key path segments.
     ///
     /// - Parameter objectKey: The original object key.
+    ///
     /// - Returns: The encoded object key with path separators preserved.
+    ///
     /// - Throws: An error if any path segment cannot be encoded.
-    private static func encodeObjectKey(_ objectKey: String) throws -> String {
+    private static func encodeObjectKey(
+        _ objectKey: String
+    ) throws -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#")
-        let encodedParts = objectKey
-            .split(separator: "/", omittingEmptySubsequences: false)
+        let encodedParts =
+            objectKey
+            .split(
+                separator: "/",
+                omittingEmptySubsequences: false
+            )
             .map { String($0).addingPercentEncoding(withAllowedCharacters: allowed) }
 
         guard encodedParts.allSatisfy({ $0 != nil }) else {
@@ -390,19 +425,26 @@ final class StorageManager: StorageManaging, Sendable {
     /// Validates allowed characters in bucket or region identifiers.
     ///
     /// - Parameter value: The identifier to validate.
+    ///
     /// - Returns: `true` for nonempty identifiers containing only letters, digits, dots, and hyphens.
-    private static func matchesIdentifier(_ value: String) -> Bool {
-        !value.isEmpty && value.range(
-            of: #"^[A-Za-z0-9.-]+$"#,
-            options: .regularExpression
-        ) != nil
+    private static func matchesIdentifier(
+        _ value: String
+    ) -> Bool {
+        !value.isEmpty
+            && value.range(
+                of: #"^[A-Za-z0-9.-]+$"#,
+                options: .regularExpression
+            ) != nil
     }
 
     /// Converts platform errors to upload errors.
     ///
     /// - Parameter error: The underlying platform error.
+    ///
     /// - Returns: An upload error retaining the localized description.
-    private static func uploadError(_ error: any Error) -> XmaxError {
+    private static func uploadError(
+        _ error: any Error
+    ) -> XmaxError {
         let platformError = error as NSError
         return uploadError(message: platformError.localizedDescription)
     }
@@ -410,16 +452,25 @@ final class StorageManager: StorageManaging, Sendable {
     /// Creates an upload error.
     ///
     /// - Parameter message: The error description.
+    ///
     /// - Returns: An upload error with the specified description.
-    private static func uploadError(message: String) -> XmaxError {
-        XmaxError(code: .uploadError, message: message)
+    private static func uploadError(
+        message: String
+    ) -> XmaxError {
+        XmaxError(
+            code: .uploadError,
+            message: message
+        )
     }
 
     /// Creates a storage operation cancellation error.
     ///
     /// - Parameter operation: The cancelled operation name.
+    ///
     /// - Returns: A cancellation error including the operation name.
-    private static func cancelledError(operation: String) -> XmaxError {
+    private static func cancelledError(
+        operation: String
+    ) -> XmaxError {
         XmaxError(
             code: .cancelled,
             message: "\(operation) was cancelled"
@@ -430,35 +481,40 @@ final class StorageManager: StorageManaging, Sendable {
 /// Retains one third-party upload request and resumes it exactly once on success, failure, or cancellation.
 private final class StorageUploadOperation: @unchecked Sendable {
 
-    /// Upload resources
+    /// The COS service performing the request.
     private let service: QCloudCOSXMLService
+
+    /// The upload request.
     private let request: QCloudPutObjectRequest<AnyObject>
 
-    /// Upload configuration
+    /// The uploaded object key.
     private let objectKey: String
+
+    /// The destination and authentication configuration.
     private let configuration: StorageConfiguration
+
+    /// The upload byte progress handler.
     private let progress: StorageProgressListener?
 
-    /// Runtime metrics
+    /// The upload start time.
     private let startedAt = Date()
 
-    /// Concurrency control
+    /// The lock protecting completion and its waiter.
     private let lock = NSLock()
 
-    /// Runtime state
+    /// The continuation awaiting upload completion.
     private var continuation: CheckedContinuation<StoredFile, Error>?
+
+    /// The result retained until a waiter is registered.
     private var pendingResult: Result<StoredFile, Error>?
+
+    /// Whether the upload request has started.
     private var started = false
+
+    /// Whether the upload has completed.
     private var completed = false
 
     /// Creates an asynchronous operation retaining one COS upload request.
-    ///
-    /// - Parameters:
-    ///   - service: The COS service executing the request.
-    ///   - request: The upload request to submit.
-    ///   - objectKey: The uploaded object key.
-    ///   - configuration: The storage configuration used to resolve the result URL.
-    ///   - progress: The upload progress callback; `nil` disables reporting.
     init(
         service: QCloudCOSXMLService,
         request: QCloudPutObjectRequest<AnyObject>,
@@ -476,6 +532,7 @@ private final class StorageUploadOperation: @unchecked Sendable {
     /// Submits the upload request and awaits its single completion result.
     ///
     /// - Returns: The successfully uploaded object information.
+    ///
     /// - Throws: An error on upload failure, result parsing failure, or cancellation.
     func value() async throws -> StoredFile {
         configureCallbacks()
@@ -493,7 +550,10 @@ private final class StorageUploadOperation: @unchecked Sendable {
     /// Installs progress and completion callbacks and converts upload results consistently.
     private func configureCallbacks() {
         request.sendProcessBlock = { [progress] _, totalBytes, expectedBytes in
-            progress?(totalBytes, max(expectedBytes, 0))
+            progress?(
+                totalBytes,
+                max(expectedBytes, 0)
+            )
         }
         request.finishBlock = { [weak self] result, error in
             guard let self else {
@@ -503,16 +563,20 @@ private final class StorageUploadOperation: @unchecked Sendable {
             if let error {
                 let platformError = error as NSError
                 XmaxLogger.storage.error(
-                    message: "上传失败 (Upload Failed)\n" +
-                        "├─ \(XmaxLogger.localized("错误域：", "Error Domain: "))\(platformError.domain)\n" +
-                        "├─ \(XmaxLogger.localized("错误码：", "Error Code: "))\(platformError.code)\n" +
-                        "├─ \(XmaxLogger.localized("错误信息：", "Error Message: "))\(platformError.localizedDescription)\n" +
-                        "└─ \(XmaxLogger.localized("耗时：", "Duration: "))\(formatDuration())"
+                    message: "上传失败 (Upload Failed)\n"
+                        + "├─ \(XmaxLogger.localized("错误域：", "Error Domain: "))\(platformError.domain)\n"
+                        + "├─ \(XmaxLogger.localized("错误码：", "Error Code: "))\(platformError.code)\n"
+                        + "├─ \(XmaxLogger.localized("错误信息：", "Error Message: "))\(platformError.localizedDescription)\n"
+                        + "└─ \(XmaxLogger.localized("耗时：", "Duration: "))\(formatDuration())"
                 )
-                finish(.failure(XmaxError(
-                    code: .uploadError,
-                    message: platformError.localizedDescription
-                )))
+                finish(
+                    .failure(
+                        XmaxError(
+                            code: .uploadError,
+                            message: platformError.localizedDescription
+                        )
+                    )
+                )
                 return
             }
 
@@ -527,15 +591,20 @@ private final class StorageUploadOperation: @unchecked Sendable {
                     configuration: configuration,
                     objectKey: objectKey
                 )
-                let etag = Self.headerValue(
-                    keys: ["Etag", "ETag", "etag"],
-                    headers: headers
-                )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                finish(.success(StoredFile(
-                    url: url,
-                    objectKey: objectKey,
-                    etag: etag.isEmpty ? nil : etag
-                )))
+                let etag =
+                    Self.headerValue(
+                        keys: ["Etag", "ETag", "etag"],
+                        headers: headers
+                    )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                finish(
+                    .success(
+                        StoredFile(
+                            url: url,
+                            objectKey: objectKey,
+                            etag: etag.isEmpty ? nil : etag
+                        )
+                    )
+                )
             } catch {
                 finish(.failure(error))
             }
@@ -576,17 +645,23 @@ private final class StorageUploadOperation: @unchecked Sendable {
 
     /// Ends asynchronous waiting and cancels the underlying upload request.
     private func cancel() {
-        finish(.failure(XmaxError(
-            code: .cancelled,
-            message: "Storage upload was cancelled"
-        )))
+        finish(
+            .failure(
+                XmaxError(
+                    code: .cancelled,
+                    message: "Storage upload was cancelled"
+                )
+            )
+        )
         request.cancel()
     }
 
     /// Records the first completion result and resumes the waiter.
     ///
     /// - Parameter result: The upload success information or failure error.
-    private func finish(_ result: Result<StoredFile, Error>) {
+    private func finish(
+        _ result: Result<StoredFile, Error>
+    ) {
         lock.lock()
         guard !completed else {
             lock.unlock()
@@ -611,7 +686,10 @@ private final class StorageUploadOperation: @unchecked Sendable {
         if milliseconds < 1_000 {
             return "\(milliseconds) ms"
         }
-        return String(format: "%.2f s", Double(milliseconds) / 1_000)
+        return String(
+            format: "%.2f s",
+            Double(milliseconds) / 1_000
+        )
     }
 
     /// Reads string response headers in priority order.
@@ -619,6 +697,7 @@ private final class StorageUploadOperation: @unchecked Sendable {
     /// - Parameters:
     ///   - keys: The acceptable response header names.
     ///   - headers: The platform response headers; `nil` when unavailable.
+    ///
     /// - Returns: The first matching string value, or `nil` if none is found.
     private static func headerValue(
         keys: [String],

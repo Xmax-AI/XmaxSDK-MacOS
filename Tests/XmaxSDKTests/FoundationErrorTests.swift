@@ -1,7 +1,7 @@
 //
 //  FoundationErrorTests.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
+//  Repo: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
 //  GitHub: https://github.com/WengYuehTing
@@ -56,7 +56,7 @@ final class FoundationErrorTests: XCTestCase {
 
     @MainActor
     func testReportingOperationErrorsDoesNotInvokeBackgroundFailureHandler() async {
-        let handler = RealtimeErrorHandler()
+        let handler = XmaxRealtimeErrorManager()
         let callback = expectation(description: "Operation errors are log-only")
         callback.isInverted = true
         handler.setFailureHandler { _, _, _ in callback.fulfill() }

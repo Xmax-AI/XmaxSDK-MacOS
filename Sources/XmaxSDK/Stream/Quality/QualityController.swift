@@ -1,10 +1,9 @@
 //
 //  QualityController.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -13,28 +12,49 @@ import Foundation
 
 /// Converts RTC quality events for realtime generation listeners.
 final class QualityController: QualityControlling, RtcQualityListener,
-    @unchecked Sendable {
+    @unchecked Sendable
+{
 
-    /// Concurrency control
+    /// The lock protecting quality listeners and statistics validity.
     private let listenerLock = NSLock()
 
-    /// Event listeners
+    /// The uplink and downlink quality listener.
     private var networkQualityListener: RealtimeNetworkQualityListener?
+
+    /// The local encoding performance alarm listener.
     private var performanceAlarmListener: RealtimePerformanceAlarmListener?
+
+    /// The uplink video statistics listener.
     private var uplinkStatisticsListener: UplinkVideoStatisticsListener?
+
+    /// The downlink video statistics listener.
     private var downlinkStatisticsListener: DownlinkVideoStatisticsListener?
 
-    /// Statistics lifecycle
+    /// Whether uplink statistics are delivered.
     private var uplinkStatisticsEnabled = false
+
+    /// The remote user for downlink statistics.
     private var downlinkStatisticsUser: String?
+
+    /// The revision rejecting stale uplink callbacks.
     private var uplinkStatisticsVersion = 0
+
+    /// The revision rejecting stale downlink callbacks.
     private var downlinkStatisticsVersion = 0
 
-    /// Automatic quality adjustment
+    /// The uplink sampling and adaptation policy.
     private var uplinkQuality: QualityDirection?
+
+    /// The downlink sampling and adaptation policy.
     private var downlinkQuality: QualityDirection?
+
+    /// The current model's quality history.
     private var history: QualityHistory?
+
+    /// The network sample and timestamp handler.
     private var adaptiveListener: (@Sendable (RealtimeNetworkQuality, TimeInterval) -> Void)?
+
+    /// The preferences storing quality history.
     private let historyDefaults: UserDefaults
 
     /// Creates a quality controller and registers RTC quality callbacks.
@@ -42,12 +62,15 @@ final class QualityController: QualityControlling, RtcQualityListener,
     /// - Parameters:
     ///   - rtcManager: The RTC manager providing network and media quality statistics.
     ///   - historyDefaults: The preference store retaining model-specific tier history.
-    init(rtcManager: any RtcManaging, historyDefaults: UserDefaults = .standard) {
+    init(
+        rtcManager: any RtcManaging,
+        historyDefaults: UserDefaults = .standard
+    ) {
         self.historyDefaults = historyDefaults
         rtcManager.setQualityListener(self)
     }
 
-    /// Quality configuration
+    /// The current media baseline and quality levels.
     var qualityConfiguration: QualityConfiguration? {
         listenerLock.withLock { configuration() }
     }
@@ -57,14 +80,30 @@ final class QualityController: QualityControlling, RtcQualityListener,
     /// - Parameters:
     ///   - baseline: The original local media output format, unchanged by tier adjustments.
     ///   - model: The model identifier isolating tier history.
+    ///
     /// - Returns: The initial upstream and downstream configuration for this connection.
-    func prepareQuality(baseline: RealtimeVideoFormat, model: String) -> QualityConfiguration {
+    func prepareQuality(
+        baseline: RealtimeVideoFormat,
+        model: String
+    ) -> QualityConfiguration {
         listenerLock.withLock {
-            let history = QualityHistory(model: model, defaults: historyDefaults)
+            let history = QualityHistory(
+                model: model,
+                defaults: historyDefaults
+            )
             self.history = history
             let minimumInputPixels = RealtimeModel(rawValue: model)?.minimumInputPixels ?? 0
-            uplinkQuality = QualityDirection(baseline: baseline, level: history.read(downlink: false), downlink: false, minimumInputPixels: minimumInputPixels)
-            downlinkQuality = QualityDirection(baseline: baseline, level: history.read(downlink: true), downlink: true)
+            uplinkQuality = QualityDirection(
+                baseline: baseline,
+                level: history.read(downlink: false),
+                downlink: false,
+                minimumInputPixels: minimumInputPixels
+            )
+            downlinkQuality = QualityDirection(
+                baseline: baseline,
+                level: history.read(downlink: true),
+                downlink: true
+            )
             return configuration()!
         }
     }
@@ -72,7 +111,9 @@ final class QualityController: QualityControlling, RtcQualityListener,
     /// Sets the internal adaptive sample listener without replacing the caller's network listener.
     ///
     /// - Parameter listener: Receives network quality and monotonic sample time; nil removes it.
-    func setAdaptiveQualityListener(_ listener: (@Sendable (RealtimeNetworkQuality, TimeInterval) -> Void)?) {
+    func setAdaptiveQualityListener(
+        _ listener: (@Sendable (RealtimeNetworkQuality, TimeInterval) -> Void)?
+    ) {
         listenerLock.withLock { adaptiveListener = listener }
     }
 
@@ -81,13 +122,25 @@ final class QualityController: QualityControlling, RtcQualityListener,
     /// - Parameters:
     ///   - quality: The current upstream and downstream network quality.
     ///   - sampledAt: The monotonic sample time in seconds.
+    ///
     /// - Returns: The candidate tiers meeting consecutive sample and cooldown requirements.
-    func proposeQuality(_ quality: RealtimeNetworkQuality, sampledAt: TimeInterval) -> QualityChange {
+    func proposeQuality(
+        _ quality: RealtimeNetworkQuality,
+        sampledAt: TimeInterval
+    ) -> QualityChange {
         listenerLock.withLock {
             let now = ProcessInfo.processInfo.systemUptime
             return QualityChange(
-                uplink: uplinkQuality?.observe(quality.uplink, sampledAt: sampledAt, now: now),
-                downlink: downlinkQuality?.observe(quality.downlink, sampledAt: sampledAt, now: now)
+                uplink: uplinkQuality?.observe(
+                    quality.uplink,
+                    sampledAt: sampledAt,
+                    now: now
+                ),
+                downlink: downlinkQuality?.observe(
+                    quality.downlink,
+                    sampledAt: sampledAt,
+                    now: now
+                )
             )
         }
     }
@@ -98,15 +151,32 @@ final class QualityController: QualityControlling, RtcQualityListener,
     ///   - downlink: true indicates downstream; false indicates upstream.
     ///   - level: The attempted tier in 1...5.
     ///   - success: Whether configuration applied successfully.
-    func completeQuality(downlink: Bool, level: Int, success: Bool) {
+    func completeQuality(
+        downlink: Bool,
+        level: Int,
+        success: Bool
+    ) {
         listenerLock.withLock {
             let now = ProcessInfo.processInfo.systemUptime
             if downlink {
-                downlinkQuality?.complete(level: level, success: success, now: now)
+                downlinkQuality?.complete(
+                    level: level,
+                    success: success,
+                    now: now
+                )
             } else {
-                uplinkQuality?.complete(level: level, success: success, now: now)
+                uplinkQuality?.complete(
+                    level: level,
+                    success: success,
+                    now: now
+                )
             }
-            if success { history?.write(level: level, downlink: downlink) }
+            if success {
+                history?.write(
+                    level: level,
+                    downlink: downlink
+                )
+            }
         }
     }
 
@@ -133,13 +203,21 @@ final class QualityController: QualityControlling, RtcQualityListener,
     /// - Returns: The baseline and tiers, or `nil` before preparation completes.
     private func configuration() -> QualityConfiguration? {
         guard let uplinkQuality, let downlinkQuality else { return nil }
-        return QualityConfiguration(baseline: uplinkQuality.baseline, uplinkLevel: uplinkQuality.level, downlinkLevel: downlinkQuality.level, minimumInputPixels: uplinkQuality.minimumInputPixels)
+        return QualityConfiguration(
+            baseline: uplinkQuality.baseline,
+            uplinkLevel: uplinkQuality.level,
+            downlinkLevel: downlinkQuality.level,
+            minimumInputPixels: uplinkQuality.minimumInputPixels
+        )
     }
 
     /// Sets the upstream video statistics listener.
     ///
-    /// - Parameter listener: The main-thread callback; receives nil before publication or after disconnect. Pass nil to clear it.
-    func setUplinkVideoStatisticsListener(_ listener: UplinkVideoStatisticsListener?) {
+    /// - Parameter listener: The main-thread callback; receives nil before publication or after disconnect. Pass nil to
+    ///   clear it.
+    func setUplinkVideoStatisticsListener(
+        _ listener: UplinkVideoStatisticsListener?
+    ) {
         listenerLock.withLock {
             uplinkStatisticsVersion &+= 1
             uplinkStatisticsListener = listener
@@ -148,8 +226,11 @@ final class QualityController: QualityControlling, RtcQualityListener,
 
     /// Sets the downstream video statistics listener.
     ///
-    /// - Parameter listener: The main-thread callback; receives nil when the result stream is cleared. Pass nil to clear it.
-    func setDownlinkVideoStatisticsListener(_ listener: DownlinkVideoStatisticsListener?) {
+    /// - Parameter listener: The main-thread callback; receives nil when the result stream is cleared. Pass nil to
+    ///   clear it.
+    func setDownlinkVideoStatisticsListener(
+        _ listener: DownlinkVideoStatisticsListener?
+    ) {
         listenerLock.withLock {
             downlinkStatisticsVersion &+= 1
             downlinkStatisticsListener = listener
@@ -159,7 +240,9 @@ final class QualityController: QualityControlling, RtcQualityListener,
     /// Sets upstream statistics reception and notifies listeners to clear old metrics.
     ///
     /// - Parameter enabled: Whether local video is published.
-    func setUplinkVideoStatisticsEnabled(_ enabled: Bool) {
+    func setUplinkVideoStatisticsEnabled(
+        _ enabled: Bool
+    ) {
         let version = listenerLock.withLock {
             uplinkStatisticsVersion &+= 1
             uplinkStatisticsEnabled = enabled
@@ -178,7 +261,9 @@ final class QualityController: QualityControlling, RtcQualityListener,
     /// Sets the downstream target user and notifies listeners to clear old metrics.
     ///
     /// - Parameter userID: The result stream user identifier; nil stops reception.
-    func setDownlinkVideoStatisticsUser(_ userID: String?) {
+    func setDownlinkVideoStatisticsUser(
+        _ userID: String?
+    ) {
         let version = listenerLock.withLock {
             downlinkStatisticsVersion &+= 1
             downlinkStatisticsUser = userID
@@ -198,7 +283,9 @@ final class QualityController: QualityControlling, RtcQualityListener,
     ///
     /// - Parameter statistics: The upstream metrics for this reporting interval.
     @MainActor
-    func onUplinkVideoStatistics(_ statistics: UplinkVideoStatistics) {
+    func onUplinkVideoStatistics(
+        _ statistics: UplinkVideoStatistics
+    ) {
         let listener = listenerLock.withLock {
             uplinkStatisticsEnabled ? uplinkStatisticsListener : nil
         }
@@ -209,7 +296,9 @@ final class QualityController: QualityControlling, RtcQualityListener,
     ///
     /// - Parameter statistics: The downstream metrics for this reporting interval.
     @MainActor
-    func onDownlinkVideoStatistics(_ statistics: DownlinkVideoStatistics) {
+    func onDownlinkVideoStatistics(
+        _ statistics: DownlinkVideoStatistics
+    ) {
         let listener = listenerLock.withLock {
             statistics.userID == downlinkStatisticsUser ? downlinkStatisticsListener : nil
         }
@@ -254,7 +343,10 @@ final class QualityController: QualityControlling, RtcQualityListener,
             downlink: Self.networkQualityLevel(downlink)
         )
         let adaptive = listenerLock.withLock { adaptiveListener }
-        adaptive?(quality, ProcessInfo.processInfo.systemUptime)
+        adaptive?(
+            quality,
+            ProcessInfo.processInfo.systemUptime
+        )
         listener?(quality)
     }
 
@@ -287,9 +379,11 @@ final class QualityController: QualityControlling, RtcQualityListener,
 }
 
 private extension QualityController {
+
     /// Maps RTC quality levels to public network quality levels.
     ///
     /// - Parameter level: The underlying RTC network quality level.
+    ///
     /// - Returns: The corresponding public network quality level.
     static func networkQualityLevel(
         _ level: RtcQualityLevel
@@ -318,6 +412,7 @@ private extension QualityController {
     ///   - width: The suggested pixel width.
     ///   - height: The suggested pixel height.
     ///   - frameRate: The suggested frame rate in fps.
+    ///
     /// - Returns: The suggested format if all values are positive; otherwise `nil`.
     static func suggestedVideoFormat(
         width: Int,

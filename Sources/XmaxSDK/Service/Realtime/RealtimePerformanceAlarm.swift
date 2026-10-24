@@ -1,10 +1,9 @@
 //
 //  RealtimePerformanceAlarm.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -29,10 +28,6 @@ public struct RealtimePerformanceAlarm: Equatable, Sendable {
     public let suggestedVideoFormat: RealtimeVideoFormat?
 
     /// Creates realtime performance alarm information.
-    ///
-    /// - Parameters:
-    ///   - status: The current device performance limitation state.
-    ///   - suggestedVideoFormat: The suggested video format; `nil` without a valid recommendation.
     public init(
         status: RealtimePerformanceStatus,
         suggestedVideoFormat: RealtimeVideoFormat?
@@ -43,6 +38,7 @@ public struct RealtimePerformanceAlarm: Equatable, Sendable {
 }
 
 /// The realtime performance alarm listener.
-public typealias RealtimePerformanceAlarmListener = @MainActor @Sendable (
-    RealtimePerformanceAlarm
-) -> Void
+public typealias RealtimePerformanceAlarmListener =
+    @MainActor @Sendable (
+        RealtimePerformanceAlarm
+    ) -> Void

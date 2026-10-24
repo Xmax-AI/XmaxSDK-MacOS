@@ -1,10 +1,9 @@
 //
 //  RealtimeConfiguration.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -19,10 +18,6 @@ public struct RealtimeConfiguration: Equatable, Sendable {
     public let isFrameInterpolationEnabled: Bool
 
     /// Creates realtime business configuration.
-    ///
-    /// - Parameters:
-    ///   - model: The model used for realtime generation.
-    ///   - isFrameInterpolationEnabled: Whether interpolation of generated remote video is enabled by default.
     public init(
         model: RealtimeModel,
         isFrameInterpolationEnabled: Bool = false

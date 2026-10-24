@@ -1,10 +1,9 @@
 //
 //  NV12VideoFrameConverter.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -15,6 +14,7 @@ import Foundation
 
 /// Crops, scales, and rotates system NV12 pixel buffers into contiguous frame data at target display dimensions.
 enum NV12VideoFrameConverter {
+
     /// Center-crops, scales, and rotates an NV12 buffer to the specified display dimensions.
     ///
     /// - Parameters:
@@ -23,7 +23,9 @@ enum NV12VideoFrameConverter {
     ///   - outputHeight: The output height in pixels; must be positive and even.
     ///   - rotation: The display rotation applied after scaling.
     ///   - timestampUs: The output frame timestamp in microseconds.
+    ///
     /// - Returns: An NV12 frame with rotation applied to pixels and a zero rotation flag.
+    ///
     /// - Throws: An error on invalid pixel format, plane layout, or dimensions, or buffer conversion failure.
     static func convert(
         pixelBuffer: CVPixelBuffer,
@@ -33,52 +35,80 @@ enum NV12VideoFrameConverter {
         timestampUs: Int64
     ) throws -> VideoFrame {
         let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
-        let isNV12 = pixelFormat
+        let isNV12 =
+            pixelFormat
             == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
             || pixelFormat
-            == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+                == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         guard isNV12,
-              CVPixelBufferGetPlaneCount(pixelBuffer) == 2 else {
+            CVPixelBufferGetPlaneCount(pixelBuffer) == 2
+        else {
             throw mediaError("Video decoder returned a non-NV12 frame")
         }
 
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
         guard width > 0,
-              height > 0,
-              width.isMultiple(of: 2),
-              height.isMultiple(of: 2),
-              outputWidth > 0,
-              outputHeight > 0,
-              outputWidth.isMultiple(of: 2),
-              outputHeight.isMultiple(of: 2),
-              CVPixelBufferGetWidthOfPlane(pixelBuffer, 0) >= width,
-              CVPixelBufferGetHeightOfPlane(pixelBuffer, 0) >= height,
-              CVPixelBufferGetWidthOfPlane(pixelBuffer, 1) >= width / 2,
-              CVPixelBufferGetHeightOfPlane(pixelBuffer, 1) >= height / 2 else {
+            height > 0,
+            width.isMultiple(of: 2),
+            height.isMultiple(of: 2),
+            outputWidth > 0,
+            outputHeight > 0,
+            outputWidth.isMultiple(of: 2),
+            outputHeight.isMultiple(of: 2),
+            CVPixelBufferGetWidthOfPlane(
+                pixelBuffer,
+                0
+            ) >= width,
+            CVPixelBufferGetHeightOfPlane(
+                pixelBuffer,
+                0
+            ) >= height,
+            CVPixelBufferGetWidthOfPlane(
+                pixelBuffer,
+                1
+            ) >= width / 2,
+            CVPixelBufferGetHeightOfPlane(
+                pixelBuffer,
+                1
+            ) >= height / 2
+        else {
             throw mediaError("Decoded NV12 video dimensions are invalid")
         }
 
-        let lockStatus = CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        let lockStatus = CVPixelBufferLockBaseAddress(
+            pixelBuffer,
+            .readOnly
+        )
         guard lockStatus == kCVReturnSuccess else {
             throw mediaError("Failed to lock decoded NV12 video data")
         }
         defer {
-            CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
+            CVPixelBufferUnlockBaseAddress(
+                pixelBuffer,
+                .readOnly
+            )
         }
 
-        let lumaStride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
-        let chromaStride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 1)
+        let lumaStride = CVPixelBufferGetBytesPerRowOfPlane(
+            pixelBuffer,
+            0
+        )
+        let chromaStride = CVPixelBufferGetBytesPerRowOfPlane(
+            pixelBuffer,
+            1
+        )
         guard lumaStride >= width,
-              chromaStride >= width,
-              let lumaBaseAddress = CVPixelBufferGetBaseAddressOfPlane(
-                  pixelBuffer,
-                  0
-              ),
-              let chromaBaseAddress = CVPixelBufferGetBaseAddressOfPlane(
-                  pixelBuffer,
-                  1
-              ) else {
+            chromaStride >= width,
+            let lumaBaseAddress = CVPixelBufferGetBaseAddressOfPlane(
+                pixelBuffer,
+                0
+            ),
+            let chromaBaseAddress = CVPixelBufferGetBaseAddressOfPlane(
+                pixelBuffer,
+                1
+            )
+        else {
             throw mediaError("Decoded NV12 video plane layout is invalid")
         }
 
@@ -144,7 +174,9 @@ enum NV12VideoFrameConverter {
     ///   - crop: The even-aligned crop rectangle in the source image.
     ///   - outputWidth: The scaled width in pixels.
     ///   - outputHeight: The scaled height in pixels.
+    ///
     /// - Returns: NV12 data with contiguous luma and chroma planes.
+    ///
     /// - Throws: An error on memory allocation or plane scaling failure.
     private static func scale(
         lumaBaseAddress: UnsafeMutableRawPointer,
@@ -166,10 +198,18 @@ enum NV12VideoFrameConverter {
                 let luma = lumaBaseAddress.advanced(by: crop.y * lumaStride + crop.x)
                 let chroma = chromaBaseAddress.advanced(by: crop.y / 2 * chromaStride + crop.x)
                 for row in 0..<outputHeight {
-                    memcpy(destination.advanced(by: row * outputWidth), luma.advanced(by: row * lumaStride), outputWidth)
+                    memcpy(
+                        destination.advanced(by: row * outputWidth),
+                        luma.advanced(by: row * lumaStride),
+                        outputWidth
+                    )
                 }
                 for row in 0..<(outputHeight / 2) {
-                    memcpy(destination.advanced(by: lumaLength + row * outputWidth), chroma.advanced(by: row * chromaStride), outputWidth)
+                    memcpy(
+                        destination.advanced(by: lumaLength + row * outputWidth),
+                        chroma.advanced(by: row * chromaStride),
+                        outputWidth
+                    )
                 }
                 return
             }
@@ -189,12 +229,14 @@ enum NV12VideoFrameConverter {
                 rowBytes: outputWidth
             )
             let flags = vImage_Flags(kvImageHighQualityResampling)
-            guard vImageScale_Planar8(
-                &sourceLuma,
-                &targetLuma,
-                nil,
-                flags
-            ) == kvImageNoError else {
+            guard
+                vImageScale_Planar8(
+                    &sourceLuma,
+                    &targetLuma,
+                    nil,
+                    flags
+                ) == kvImageNoError
+            else {
                 throw mediaError("Failed to scale decoded NV12 luma data")
             }
 
@@ -212,12 +254,14 @@ enum NV12VideoFrameConverter {
                 width: vImagePixelCount(outputWidth / 2),
                 rowBytes: outputWidth
             )
-            guard vImageScale_CbCr8(
-                &sourceChroma,
-                &targetChroma,
-                nil,
-                flags
-            ) == kvImageNoError else {
+            guard
+                vImageScale_CbCr8(
+                    &sourceChroma,
+                    &targetChroma,
+                    nil,
+                    flags
+                ) == kvImageNoError
+            else {
                 throw mediaError("Failed to scale decoded NV12 chroma data")
             }
         }
@@ -231,7 +275,9 @@ enum NV12VideoFrameConverter {
     ///   - sourceWidth: The source image width in pixels.
     ///   - sourceHeight: The source image height in pixels.
     ///   - rotation: The rotation angle to apply.
+    ///
     /// - Returns: NV12 data rotated by the specified angle; returns the original data for zero rotation.
+    ///
     /// - Throws: An error on output buffer allocation or plane rotation failure.
     private static func rotate(
         _ data: Data,
@@ -243,7 +289,8 @@ enum NV12VideoFrameConverter {
             return data
         }
 
-        let swapsDimensions = rotation == .rotation90
+        let swapsDimensions =
+            rotation == .rotation90
             || rotation == .rotation270
         let outputWidth = swapsDimensions ? sourceHeight : sourceWidth
         let outputHeight = swapsDimensions ? sourceWidth : sourceHeight
@@ -254,7 +301,8 @@ enum NV12VideoFrameConverter {
         try data.withUnsafeBytes { sourceBytes in
             try output.withUnsafeMutableBytes { outputBytes in
                 guard let source = sourceBytes.baseAddress,
-                      let destination = outputBytes.baseAddress else {
+                    let destination = outputBytes.baseAddress
+                else {
                     throw mediaError(
                         "Failed to allocate rotated NV12 video data"
                     )
@@ -273,13 +321,15 @@ enum NV12VideoFrameConverter {
                     width: vImagePixelCount(outputWidth),
                     rowBytes: outputWidth
                 )
-                guard vImageRotate90_Planar8(
-                    &sourceLuma,
-                    &targetLuma,
-                    rotationConstant,
-                    0,
-                    vImage_Flags(kvImageNoFlags)
-                ) == kvImageNoError else {
+                guard
+                    vImageRotate90_Planar8(
+                        &sourceLuma,
+                        &targetLuma,
+                        rotationConstant,
+                        0,
+                        vImage_Flags(kvImageNoFlags)
+                    ) == kvImageNoError
+                else {
                     throw mediaError("Failed to rotate decoded NV12 luma data")
                 }
 
@@ -297,13 +347,15 @@ enum NV12VideoFrameConverter {
                     width: vImagePixelCount(outputWidth / 2),
                     rowBytes: outputWidth
                 )
-                guard vImageRotate90_Planar16U(
-                    &sourceChroma,
-                    &targetChroma,
-                    rotationConstant,
-                    0,
-                    vImage_Flags(kvImageNoFlags)
-                ) == kvImageNoError else {
+                guard
+                    vImageRotate90_Planar16U(
+                        &sourceChroma,
+                        &targetChroma,
+                        rotationConstant,
+                        0,
+                        vImage_Flags(kvImageNoFlags)
+                    ) == kvImageNoError
+                else {
                     throw mediaError(
                         "Failed to rotate decoded NV12 chroma data"
                     )
@@ -319,6 +371,7 @@ enum NV12VideoFrameConverter {
     ///   - outputWidth: The final display width.
     ///   - outputHeight: The final display height.
     ///   - rotation: The rotation angle applied after scaling.
+    ///
     /// - Returns: The required width and height before rotation.
     private static func scaledDimensions(
         outputWidth: Int,
@@ -336,6 +389,7 @@ enum NV12VideoFrameConverter {
     /// Converts display rotation to the vImage quarter-turn count.
     ///
     /// - Parameter rotation: The video display rotation.
+    ///
     /// - Returns: The vImage rotation constant.
     private static func rotationConstant(
         for rotation: VideoRotation
@@ -359,6 +413,7 @@ enum NV12VideoFrameConverter {
     ///   - sourceHeight: The source image height.
     ///   - targetWidth: The target image width.
     ///   - targetHeight: The target image height.
+    ///
     /// - Returns: A crop rectangle with even-aligned position and dimensions for NV12.
     private static func centerCrop(
         sourceWidth: Int,
@@ -392,24 +447,36 @@ enum NV12VideoFrameConverter {
     /// Rounds a dimension down to an even value of at least two pixels.
     ///
     /// - Parameter value: The dimension to align.
+    ///
     /// - Returns: An even dimension of at least 2.
-    private static func evenFloor(_ value: Double) -> Int {
+    private static func evenFloor(
+        _ value: Double
+    ) -> Int {
         max(Int(floor(value)) / 2 * 2, 2)
     }
 
     /// Rounds an offset down to a nonnegative even value.
     ///
     /// - Parameter value: The offset to align.
+    ///
     /// - Returns: A nonnegative even offset.
-    private static func evenOffset(_ value: Double) -> Int {
+    private static func evenOffset(
+        _ value: Double
+    ) -> Int {
         max(Int(floor(value)) / 2 * 2, 0)
     }
 
     /// Creates a video frame conversion error.
     ///
     /// - Parameter message: The error description.
+    ///
     /// - Returns: A media error with the specified description.
-    private static func mediaError(_ message: String) -> XmaxError {
-        XmaxError(code: .mediaError, message: message)
+    private static func mediaError(
+        _ message: String
+    ) -> XmaxError {
+        XmaxError(
+            code: .mediaError,
+            message: message
+        )
     }
 }

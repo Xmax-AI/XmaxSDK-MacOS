@@ -15,7 +15,7 @@ In Xcode, add the repository through **File → Add Package Dependencies** and s
 a branch or published version containing the SDK:
 
 ```text
-https://github.com/XingMai/XmaxSDK-MacOS.git
+https://github.com/Xmax-AI/XmaxSDK-MacOS.git
 ```
 
 Add only the **XmaxSDK** product to your application target. For a local checkout,
@@ -27,14 +27,14 @@ use `.package(path: "/path/to/XmaxSDK")`.
   the `RtcBasic` product.
 - COS `6.5.7` is packaged as Xmax-built dynamic XCFrameworks for
   `QCloudCore/WithoutMTA` and `QCloudCOSXML/Transfer`, downloaded from the
-  [COS dependency release](https://github.com/XingMai/XmaxSDK-MacOS/releases/tag/cos-6.5.7-spm.1).
+  [COS dependency release](https://github.com/Xmax-AI/XmaxSDK-MacOS/releases/tag/cos-6.5.7-spm.1).
   `Package.swift` pins each archive URL and SHA-256 checksum. These are macOS
   binaries, separate from the iOS frameworks.
 - Both COS frameworks contain native macOS `arm64` and `x86_64` slices. Xcode
   handles linking, embedding, and signing the dynamic dependencies.
 - Keep the bundled licenses, notices, resources, and privacy manifests when
   redistributing the frameworks. See the
-  [redistribution notices](https://github.com/XingMai/XmaxSDK-MacOS/releases/download/cos-6.5.7-spm.1/COS-6.5.7-NOTICES.txt).
+  [redistribution notices](https://github.com/Xmax-AI/XmaxSDK-MacOS/releases/download/cos-6.5.7-spm.1/COS-6.5.7-NOTICES.txt).
 
 The frameworks are built from Tencent's [unmodified 6.5.7 source](https://github.com/tencentyun/qcloud-sdk-ios/tree/6.5.7),
 without optional analytics components. This is Xmax's binary packaging, not an
@@ -74,7 +74,7 @@ Use these pinned macOS dependencies:
   `AgoraSoundTouch.xcframework`, and `video_dec.xcframework`.
 - [Agora Infrastructure 1.3.5](https://download.agora.io/sdk/release/AgoraInfra_macOS-1.3.5.zip):
   `aosl.xcframework`.
-- [COS macOS 6.5.7](https://github.com/XingMai/XmaxSDK-MacOS/releases/tag/cos-6.5.7-spm.1):
+- [COS macOS 6.5.7](https://github.com/Xmax-AI/XmaxSDK-MacOS/releases/tag/cos-6.5.7-spm.1):
   `QCloudCore-6.5.7.xcframework.zip` and `QCloudCOSXML-6.5.7.xcframework.zip`.
   Extract both archives and keep the framework resources and redistribution notices.
 

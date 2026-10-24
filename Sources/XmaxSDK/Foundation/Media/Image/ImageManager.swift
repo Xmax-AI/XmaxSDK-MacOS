@@ -1,10 +1,9 @@
 //
 //  ImageManager.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,28 +13,38 @@ import ImageIO
 
 /// Provides internal image decoding through ImageIO.
 final class ImageManager: ImageManaging, Sendable {
+
     /// Decodes image data, applies orientation, and returns reusable pixel data.
     ///
     /// - Parameter data: Encoded image data in JPEG, PNG, or another supported format.
+    ///
     /// - Returns: The decoded image with source orientation applied.
+    ///
     /// - Throws: An error on empty data, unsupported formats, or image decoding failure.
-    func decode(_ data: Data) throws -> any DecodedImage {
+    func decode(
+        _ data: Data
+    ) throws -> any DecodedImage {
         guard !data.isEmpty,
-              let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            let source = CGImageSourceCreateWithData(
+                data as CFData,
+                nil
+            )
+        else {
             throw Self.processingError("Failed to create image source from data")
         }
         guard CGImageSourceGetCount(source) > 0,
-              let properties = CGImageSourceCopyPropertiesAtIndex(
-                  source,
-                  0,
-                  nil
-              ) as? [CFString: Any],
-              let rawWidth = properties[
-                  kCGImagePropertyPixelWidth
-              ] as? NSNumber,
-              let rawHeight = properties[
-                  kCGImagePropertyPixelHeight
-              ] as? NSNumber else {
+            let properties = CGImageSourceCopyPropertiesAtIndex(
+                source,
+                0,
+                nil
+            ) as? [CFString: Any],
+            let rawWidth = properties[
+                kCGImagePropertyPixelWidth
+            ] as? NSNumber,
+            let rawHeight = properties[
+                kCGImagePropertyPixelHeight
+            ] as? NSNumber
+        else {
             throw Self.processingError("Failed to read image metadata")
         }
 
@@ -47,11 +56,12 @@ final class ImageManager: ImageManaging, Sendable {
             kCGImageSourceShouldCacheImmediately: true
         ]
         guard maximumPixelSize > 0,
-              let image = CGImageSourceCreateThumbnailAtIndex(
-                  source,
-                  0,
-                  options as CFDictionary
-              ) else {
+            let image = CGImageSourceCreateThumbnailAtIndex(
+                source,
+                0,
+                options as CFDictionary
+            )
+        else {
             throw Self.processingError("Failed to decode image")
         }
         return CoreGraphicsDecodedImage(image: image)
@@ -60,8 +70,14 @@ final class ImageManager: ImageManaging, Sendable {
     /// Creates an image processing error.
     ///
     /// - Parameter message: A readable image processing failure description.
+    ///
     /// - Returns: An SDK error with the media error code.
-    private static func processingError(_ message: String) -> XmaxError {
-        XmaxError(code: .mediaError, message: message)
+    private static func processingError(
+        _ message: String
+    ) -> XmaxError {
+        XmaxError(
+            code: .mediaError,
+            message: message
+        )
     }
 }

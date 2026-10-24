@@ -1,10 +1,9 @@
 //
 //  RtcEngineManager.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,50 +13,51 @@ import Foundation
 /// An exclusive lease on the process-wide RTC engine.
 final class RtcEngineLease: @unchecked Sendable {
 
-    /// RTC resources
+    /// The leased platform engine.
     let engine: any RtcPlatform
 
-    /// Runtime identity
+    /// The unique lease identifier.
     let id = UUID()
 
     /// Creates an exclusive lease retaining the specified engine.
-    ///
-    /// - Parameter engine: The platform engine retained by the lease.
-    fileprivate init(engine: any RtcPlatform) {
+    fileprivate init(
+        engine: any RtcPlatform
+    ) {
         self.engine = engine
     }
 }
 
 /// Manages exclusive process-wide RTC engine creation, queued leasing, and destruction.
 actor RtcEngineManager {
+
     /// Creates a platform engine from an RTC application identifier; nil on failure.
     typealias EngineFactory = @Sendable (String) -> (any RtcPlatform)?
+
     /// Destroys the current process-wide RTC platform engine.
     typealias EngineDestructor = @Sendable () -> Void
 
-    /// Shared instance
+    /// The shared engine lease manager.
     static let shared = RtcEngineManager()
 
-    /// RTC configuration
+    /// The default RTC application identifier.
     static let defaultAppID = "5588dfe2e7874bd08ea28f4968ec2d40"
 
-    /// Dependencies
+    /// The RTC application identifier.
     private let appID: String
+
+    /// The factory invoked after exclusive access is obtained.
     private let makeEngine: EngineFactory
+
+    /// The destructor invoked when a lease is released.
     private let destroyEngine: EngineDestructor
 
-    /// RTC resources
+    /// The active exclusive lease.
     private var activeLease: RtcEngineLease?
 
-    /// Runtime state
+    /// The pending lease requests in acquisition order.
     private var requests: [Request] = []
 
     /// Configures engine creation, destruction, and queued lease management.
-    ///
-    /// - Parameters:
-    ///   - appID: The RTC application identifier.
-    ///   - makeEngine: The engine factory accepting an application identifier.
-    ///   - destroyEngine: The operation destroying the current platform engine.
     init(
         appID: String = RtcEngineManager.defaultAppID,
         makeEngine: @escaping EngineFactory = AgoraRtcPlatform.create,
@@ -71,6 +71,7 @@ actor RtcEngineManager {
     /// Waits for and acquires an exclusive RTC engine lease.
     ///
     /// - Returns: The exclusive lease held by this caller.
+    ///
     /// - Throws: An error on cancelled waiting, invalid application identifier, or engine creation failure.
     func acquire() async throws -> RtcEngineLease {
         try Task.checkCancellation()
@@ -109,7 +110,9 @@ actor RtcEngineManager {
     /// Releases a valid lease and transfers engine ownership to the next waiter.
     ///
     /// - Parameter lease: The lease to return; invalid leases do not affect the active engine.
-    func release(_ lease: RtcEngineLease) {
+    func release(
+        _ lease: RtcEngineLease
+    ) {
         guard activeLease?.id == lease.id else {
             return
         }
@@ -120,6 +123,7 @@ actor RtcEngineManager {
     /// Creates a platform engine wrapped in an exclusive lease.
     ///
     /// - Returns: The newly created engine lease.
+    ///
     /// - Throws: An error on an empty application identifier or engine creation failure.
     private func createLease() throws -> RtcEngineLease {
         let normalizedAppID = appID.trimmingCharacters(
@@ -131,7 +135,12 @@ actor RtcEngineManager {
                 message: "RTC App ID cannot be empty"
             )
         }
-        guard let engine = LocalMediaPreparationTiming.measure(.engineCreate, { makeEngine(normalizedAppID) }) else {
+        guard
+            let engine = LocalMediaPreparationTiming.measure(
+                .engineCreate,
+                { makeEngine(normalizedAppID) }
+            )
+        else {
             throw XmaxError(
                 code: .rtcError,
                 message: "Failed to create RTC Engine"
@@ -144,7 +153,9 @@ actor RtcEngineManager {
     /// Destroys the engine for a valid lease and resumes queued requests.
     ///
     /// - Parameter lease: The lease to release.
-    private func releaseActiveLease(_ lease: RtcEngineLease) {
+    private func releaseActiveLease(
+        _ lease: RtcEngineLease
+    ) {
         guard activeLease == nil || activeLease?.id == lease.id else {
             return
         }
@@ -172,9 +183,13 @@ actor RtcEngineManager {
     /// Enqueues a lease request.
     ///
     /// - Parameter id: The unique request identifier used for lookup and cancellation.
+    ///
     /// - Returns: The exclusive engine lease delivered later.
+    ///
     /// - Throws: An error on request cancellation or engine creation failure.
-    private func enqueueRequest(id: UUID) async throws -> RtcEngineLease {
+    private func enqueueRequest(
+        id: UUID
+    ) async throws -> RtcEngineLease {
         try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<RtcEngineLease, any Error>) in
             if Task.isCancelled {
@@ -194,7 +209,9 @@ actor RtcEngineManager {
     /// Cancels a queued lease request.
     ///
     /// - Parameter id: The request identifier to cancel.
-    private func cancelRequest(id: UUID) {
+    private func cancelRequest(
+        id: UUID
+    ) {
         guard let index = requests.firstIndex(where: { $0.id == id }) else {
             return
         }
@@ -210,10 +227,10 @@ private extension RtcEngineManager {
     /// Stores a request awaiting exclusive RTC engine access.
     struct Request {
 
-        /// Request identity
+        /// The lease request identifier.
         let id: UUID
 
-        /// Lease delivery
+        /// The continuation awaiting engine ownership.
         let continuation: CheckedContinuation<RtcEngineLease, any Error>
     }
 }

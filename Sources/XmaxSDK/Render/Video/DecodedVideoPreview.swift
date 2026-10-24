@@ -1,10 +1,9 @@
 //
 //  DecodedVideoPreview.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -15,9 +14,13 @@ import Foundation
 @MainActor
 final class DecodedVideoPreviewPresenter {
 
-    /// Preview resources
+    /// The local preview video view.
     private weak var view: XmaxVideoView?
+
+    /// The local video content mode.
     private var contentMode = VideoContentMode.fill
+
+    /// Whether local preview is horizontally mirrored.
     private var mirrored = false
 
     /// Binds the video view and applies preview scaling and mirroring.
@@ -38,7 +41,9 @@ final class DecodedVideoPreviewPresenter {
     /// Clears decoded preview from the specified view and removes the binding.
     ///
     /// - Parameter view: The view whose preview should be removed.
-    func detach(from view: XmaxVideoView) {
+    func detach(
+        from view: XmaxVideoView
+    ) {
         view.clearDecodedVideoPreview()
         if self.view === view {
             self.view = nil
@@ -48,14 +53,21 @@ final class DecodedVideoPreviewPresenter {
     /// Submits decoded frames to the bound view.
     ///
     /// - Parameter frame: The neutral video frame to display.
-    func display(_ frame: VideoFrame) {
-        view?.displayDecodedVideoFrame(frame, contentMode: contentMode)
+    func display(
+        _ frame: VideoFrame
+    ) {
+        view?.displayDecodedVideoFrame(
+            frame,
+            contentMode: contentMode
+        )
     }
 
     /// Updates preview mirroring and applies it to the current view.
     ///
     /// - Parameter mirrored: Whether to mirror video horizontally.
-    func setMirrored(_ mirrored: Bool) {
+    func setMirrored(
+        _ mirrored: Bool
+    ) {
         self.mirrored = mirrored
         view?.setDecodedVideoPreviewMirrored(mirrored)
     }
@@ -70,25 +82,31 @@ final class DecodedVideoPreviewPresenter {
 /// Coalesces preview frames that the main thread cannot display in time, retaining only the latest.
 final class DecodedVideoPreviewDispatcher: @unchecked Sendable {
 
-    /// Render components
+    /// The video preview presenter.
     private let presenter: DecodedVideoPreviewPresenter
 
-    /// Concurrent state
+    /// The lock protecting pending frames and main-actor delivery.
     private let lock = NSLock()
+
+    /// The latest frame awaiting main-actor delivery.
     private var pendingFrame: VideoFrame?
+
+    /// Whether a main-actor delivery is pending.
     private var isDeliveryScheduled = false
 
     /// Creates a dispatcher coalescing preview frames onto the main thread.
-    ///
-    /// - Parameter presenter: The component presenting frames in the video view.
-    init(presenter: DecodedVideoPreviewPresenter) {
+    init(
+        presenter: DecodedVideoPreviewPresenter
+    ) {
         self.presenter = presenter
     }
 
     /// Updates the pending frame and schedules main-thread delivery when needed.
     ///
     /// - Parameter frame: The latest displayable video frame.
-    func enqueue(_ frame: VideoFrame) {
+    func enqueue(
+        _ frame: VideoFrame
+    ) {
         let shouldSchedule = lock.withLock { () -> Bool in
             pendingFrame = frame
             guard !isDeliveryScheduled else { return false }

@@ -1,10 +1,9 @@
 //
 //  XmaxClient.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -15,17 +14,24 @@ public final class XmaxClient: Sendable {
     /// The client's global configuration.
     public let configuration: XmaxConfiguration
 
-    /// Service components
+    /// The service used to request storage credentials and perform media safety checks.
     private let apiService: any ApiServicing
+
+    /// The injected API service shared with realtime managers in dependency-controlled construction.
     private let realtimeApiOverride: (any ApiServicing)?
 
     /// Creates an SDK client.
     ///
     /// - Parameter configuration: Global SDK configuration.
-    public init(configuration: XmaxConfiguration) {
+    public init(
+        configuration: XmaxConfiguration
+    ) {
         self.configuration = configuration
         realtimeApiOverride = nil
-        XmaxLogger.configure(options: configuration.loggerOptions, environment: configuration.environment)
+        XmaxLogger.configure(
+            options: configuration.loggerOptions,
+            environment: configuration.environment
+        )
         apiService = ApiService(
             apiKey: configuration.apiKey,
             baseURL: configuration.environment.apiBaseURL
@@ -42,7 +48,10 @@ public final class XmaxClient: Sendable {
         apiService: any ApiServicing
     ) {
         self.configuration = configuration
-        XmaxLogger.configure(options: configuration.loggerOptions, environment: configuration.environment)
+        XmaxLogger.configure(
+            options: configuration.loggerOptions,
+            environment: configuration.environment
+        )
         self.apiService = apiService
         realtimeApiOverride = apiService
     }
@@ -52,6 +61,7 @@ public final class XmaxClient: Sendable {
     /// Component creation and local preview do not validate the API key; server access validates credentials.
     ///
     /// - Parameter options: Business configuration including the realtime generation model.
+    ///
     /// - Returns: The component managing camera, image, and video input and realtime generation.
     @MainActor
     public func createRealtimeManager(
@@ -59,16 +69,18 @@ public final class XmaxClient: Sendable {
     ) -> any XmaxRealtimeManaging {
         XmaxRealtimeManager(
             options: options,
-            apiService: realtimeApiOverride ?? ApiService(
-                apiKey: configuration.apiKey,
-                baseURL: options.model.apiBaseURL
-            )
+            apiService: realtimeApiOverride
+                ?? ApiService(
+                    apiKey: configuration.apiKey,
+                    baseURL: options.model.apiBaseURL
+                )
         )
     }
 
     /// Creates a file storage manager.
     ///
     /// - Returns: The storage manager for uploading and downloading media files.
+    ///
     /// - Throws: `XmaxError` if the global SDK configuration is invalid.
     public func createStorageManager() throws -> any XmaxStorageManaging {
         try configuration.validate()
@@ -78,8 +90,11 @@ public final class XmaxClient: Sendable {
     /// Creates a media processing and capability query service.
     ///
     /// - Parameter model: The model defining media input rules; defaults to `x2.1.1-preview-cn`.
+    ///
     /// - Returns: The service calculating model input dimensions and querying platform media capabilities.
-    public func createMediaService(model: RealtimeModel = .x2_1_1_preview_cn) -> any MediaServicing {
+    public func createMediaService(
+        model: RealtimeModel = .x2_1_1_preview_cn
+    ) -> any MediaServicing {
         MediaService(model: model)
     }
 }

@@ -1,10 +1,9 @@
 //
 //  RtcPlatform.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -20,8 +19,11 @@ protocol RtcPlatform: AnyObject, RtcCameraCapturing {
     /// Applies upstream video encoding configuration.
     ///
     /// - Parameter configuration: Dimensions, frame rate, bitrate, and encoding preferences.
+    ///
     /// - Throws: An error if the vendor engine rejects configuration.
-    func configureVideoEncoding(_ configuration: VideoEncodingConfiguration) throws
+    func configureVideoEncoding(
+        _ configuration: VideoEncodingConfiguration
+    ) throws
 
     /// Enables external video input.
     ///
@@ -51,19 +53,29 @@ protocol RtcPlatform: AnyObject, RtcCameraCapturing {
     /// Pushes an external video frame.
     ///
     /// - Parameter frame: The SDK's neutral video frame.
+    ///
     /// - Throws: An error if frame format or data is invalid.
-    func pushExternalVideoFrame(_ frame: VideoFrame) throws
+    func pushExternalVideoFrame(
+        _ frame: VideoFrame
+    ) throws
 
     /// Pushes an external audio frame.
     ///
     /// - Parameter frame: Timestamped 10 ms PCM data.
+    ///
     /// - Throws: An error if frame format or data is invalid.
-    func pushExternalAudioFrame(_ frame: AudioFrame) throws
+    func pushExternalAudioFrame(
+        _ frame: AudioFrame
+    ) throws
 
     /// Creates an independent room adapter without initiating connection.
     ///
     /// - Parameter roomID: The server-assigned RTC room identifier.
+    ///
     /// - Returns: The room before joining.
+    ///
     /// - Throws: An error if an unreleased room already exists.
-    func createRoom(roomID: String) throws -> any RtcRoom
+    func createRoom(
+        roomID: String
+    ) throws -> any RtcRoom
 }

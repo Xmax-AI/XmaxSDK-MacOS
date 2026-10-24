@@ -1,10 +1,9 @@
 //
 //  XmaxLogger.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -19,9 +18,9 @@ public struct XmaxLoggerOption: OptionSet, Sendable {
     public let rawValue: UInt
 
     /// Creates logging options with the specified bitmask.
-    ///
-    /// - Parameter rawValue: The log type bitmask.
-    public init(rawValue: UInt) {
+    public init(
+        rawValue: UInt
+    ) {
         self.rawValue = rawValue
     }
 
@@ -40,34 +39,52 @@ public struct XmaxLoggerOption: OptionSet, Sendable {
 /// Callers must not include API keys, tokens, secrets, Authorization, or complete sensitive responses.
 struct XmaxLogger: Sendable {
 
-    /// Category loggers
+    /// Realtime lifecycle logs.
     static let realtime = Self(category: "Realtime")
+
+    /// RTC transport logs.
     static let rtc = Self(category: "RTC")
+
+    /// Media capture and processing logs.
     static let media = Self(category: "Media")
+
+    /// HTTP API logs.
     static let api = Self(category: "API")
+
+    /// Object storage logs.
     static let storage = Self(category: "Storage")
+
+    /// Room signaling and heartbeat logs.
     static let room = Self(category: "Room")
+
+    /// Stream publishing, subscription, and quality logs.
     static let stream = Self(category: "Stream")
+
+    /// Video rendering logs.
     static let render = Self(category: "Render")
+
+    /// Trajectory interaction logs.
     static let interaction = Self(category: "Interaction")
+
+    /// System permission logs.
     static let permission = Self(category: "Permission")
 
-    /// Log category
+    /// The domain name in the log prefix.
     private let category: String
 
-    /// Logging configuration
+    /// The shared log options and language.
     private static let state = XmaxLoggerState()
 
-    /// Platform resources
+    /// The system log writer.
     private static let logger = Logger(
         subsystem: "ai.xmax.XmaxSDK",
         category: "XmaxSDK"
     )
 
     /// Creates a logger with the specified category prefix.
-    ///
-    /// - Parameter category: The business category name in the log prefix.
-    private init(category: String) {
+    private init(
+        category: String
+    ) {
         self.category = category
     }
 
@@ -80,7 +97,10 @@ struct XmaxLogger: Sendable {
         options: XmaxLoggerOption,
         environment: XmaxEnvironment = .china
     ) {
-        state.update(options, environment: environment)
+        state.update(
+            options,
+            environment: environment
+        )
     }
 
     /// Selects log detail language for the current environment.
@@ -88,16 +108,23 @@ struct XmaxLogger: Sendable {
     /// - Parameters:
     ///   - chinese: The Chinese text for the domestic environment.
     ///   - english: The English text for the overseas environment.
+    ///
     /// - Returns: The text for the current environment.
-    static func localized(_ chinese: String, _ english: String) -> String {
+    static func localized(
+        _ chinese: String,
+        _ english: String
+    ) -> String {
         state.environment == .china ? chinese : english
     }
 
     /// Checks whether all specified log types are enabled.
     ///
     /// - Parameter option: The log options to check; empty options are disabled.
+    ///
     /// - Returns: `true` if configuration includes every specified option.
-    static func isEnabled(_ option: XmaxLoggerOption) -> Bool {
+    static func isEnabled(
+        _ option: XmaxLoggerOption
+    ) -> Bool {
         state.isEnabled(option)
     }
 
@@ -168,11 +195,15 @@ struct XmaxLogger: Sendable {
     /// Prefixes every log line with the SDK name and business category.
     ///
     /// - Parameter message: The unprefixed log message.
+    ///
     /// - Returns: The log text with a consistent category prefix on every line.
-    func formattedMessage(message: String) -> String {
+    func formattedMessage(
+        message: String
+    ) -> String {
         let prefix = "[Xmax][\(category)]"
 
-        return message
+        return
+            message
             .components(separatedBy: "\n")
             .map { "\(prefix) \($0)" }
             .joined(separator: "\n")
@@ -210,9 +241,17 @@ struct XmaxLogger: Sendable {
 
     /// Distinguishes system log severity levels.
     private enum Level {
+
+        /// Detailed diagnostic information.
         case debug
+
+        /// Normal operation information.
         case info
+
+        /// A recoverable issue or usage warning.
         case warning
+
+        /// An operation failure.
         case error
     }
 }
@@ -220,14 +259,16 @@ struct XmaxLogger: Sendable {
 /// Stores global SDK log configuration in a thread-safe manner.
 final class XmaxLoggerState: @unchecked Sendable {
 
-    /// Concurrency control
+    /// The lock protecting logging configuration.
     private let lock = NSLock()
 
-    /// Logging configuration
+    /// The enabled log option bitmask.
     private var options: XmaxLoggerOption = []
+
+    /// The environment selecting the log detail language under the state lock.
     private var storedEnvironment: XmaxEnvironment = .china
 
-    /// Current language environment
+    /// The synchronized environment selecting the log detail language.
     var environment: XmaxEnvironment {
         lock.withLock { storedEnvironment }
     }
@@ -250,8 +291,11 @@ final class XmaxLoggerState: @unchecked Sendable {
     /// Checks whether all specified log types are enabled.
     ///
     /// - Parameter option: The log options to check; empty options are disabled.
+    ///
     /// - Returns: `true` if configuration includes every specified option.
-    func isEnabled(_ option: XmaxLoggerOption) -> Bool {
+    func isEnabled(
+        _ option: XmaxLoggerOption
+    ) -> Bool {
         guard !option.isEmpty else {
             return false
         }

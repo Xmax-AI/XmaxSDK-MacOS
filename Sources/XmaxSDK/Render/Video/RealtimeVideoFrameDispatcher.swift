@@ -1,10 +1,9 @@
 //
 //  RealtimeVideoFrameDispatcher.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -17,16 +16,20 @@ final class RealtimeVideoFrameDispatcher: @unchecked Sendable {
     /// Stores the frame listener and validity version for pending frames.
     private struct State {
 
-        /// Listener and validity
+        /// The current final remote video frame receiver.
         var listener: RealtimeVideoFrameListener?
+
+        /// The revision rejecting queued delivery to a replaced listener.
         var version = 0
     }
 
-    /// Listener state
+    /// The lock protecting listener state and its revision.
     private let stateLock = NSLock()
+
+    /// The listener state protected by the state lock.
     private var state = State()
 
-    /// Dispatch resources
+    /// The serial background queue delivering final remote video frames.
     private let deliveryQueue = DispatchQueue(
         label: "ai.xmax.sdk.remote-video-frame",
         qos: .userInitiated
@@ -35,7 +38,9 @@ final class RealtimeVideoFrameDispatcher: @unchecked Sendable {
     /// Sets the final video frame listener and invalidates queued frames for the previous listener.
     ///
     /// - Parameter listener: The final frame callback; `nil` stops callbacks.
-    func setListener(_ listener: RealtimeVideoFrameListener?) {
+    func setListener(
+        _ listener: RealtimeVideoFrameListener?
+    ) {
         stateLock.withLock {
             state.version += 1
             state.listener = listener
@@ -52,7 +57,9 @@ final class RealtimeVideoFrameDispatcher: @unchecked Sendable {
     /// Delivers final video frames in arrival order on a separate serial queue.
     ///
     /// - Parameter frame: The remote video frame after interpolation and other processing.
-    func dispatch(_ frame: RealtimeVideoFrame) {
+    func dispatch(
+        _ frame: RealtimeVideoFrame
+    ) {
         let version = stateLock.withLock { () -> Int? in
             guard state.listener != nil else { return nil }
             return state.version
@@ -70,6 +77,7 @@ final class RealtimeVideoFrameDispatcher: @unchecked Sendable {
     /// Reads the current listener matching the delivery version.
     ///
     /// - Parameter version: The listener version recorded when enqueueing.
+    ///
     /// - Returns: The valid listener, or `nil` if the version expired or the listener was cleared.
     private func listener(
         for version: Int

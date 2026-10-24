@@ -1,7 +1,7 @@
 //
 //  XmaxRealtimeGenerationManagerTests.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
+//  Repo: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
 //  GitHub: https://github.com/WengYuehTing
@@ -14,6 +14,65 @@ import XCTest
 
 @MainActor
 final class XmaxRealtimeGenerationManagerTests: XCTestCase {
+    func testStartWaitsForProcessedFrameBeforeActivatingResultAudio() async throws {
+        let components = try await makeComponents(automaticallyDeliversFrame: false)
+        var completed = false
+        let generation = Task {
+            let id = try await components.manager.start(
+                videoFormat: videoFormat,
+                context: RealtimeContext(prompt: "first frame"),
+                ensureCurrent: {}
+            )
+            completed = true
+            return id
+        }
+        await waitForEvent("start", rtcManager: components.rtcManager)
+        components.rtcManager.emitRemoteVideoAvailable(stream: remoteStream)
+        for _ in 0..<1000 {
+            if components.rtcManager.calls.contains(.setRemoteVideoFrameListener(remoteStream, enabled: true)) { break }
+            await Task.yield()
+        }
+        XCTAssertFalse(completed)
+        XCTAssertFalse(components.rtcManager.calls.contains(.subscribeRemoteAudio(userID: "bot-user", subscribe: true)))
+        try components.rtcManager.emitRemoteVideoFrame(width: 4, height: 4)
+        let taskID = try await generation.value
+        XCTAssertTrue(completed)
+        XCTAssertTrue(components.rtcManager.calls.contains(.subscribeRemoteAudio(userID: "bot-user", subscribe: true)))
+        try await components.manager.stop(taskID: taskID)
+        await components.roomController.leave()
+    }
+
+    func testCancellationBeforeFirstFrameStopsThePendingGeneration() async throws {
+        let components = try await makeComponents(automaticallyDeliversFrame: false)
+        let generation = Task {
+            try await components.manager.start(
+                videoFormat: videoFormat,
+                context: RealtimeContext(prompt: "cancel before frame"),
+                ensureCurrent: {
+                    guard !Task.isCancelled else {
+                        throw XmaxError(code: .cancelled, message: "Generation operation was cancelled")
+                    }
+                }
+            )
+        }
+        await waitForEvent("start", rtcManager: components.rtcManager)
+        components.rtcManager.emitRemoteVideoAvailable(stream: remoteStream)
+        for _ in 0..<1000 {
+            if components.rtcManager.calls.contains(.setRemoteVideoFrameListener(remoteStream, enabled: true)) { break }
+            await Task.yield()
+        }
+        generation.cancel()
+        do {
+            _ = try await generation.value
+            XCTFail("Expected cancelled first-frame confirmation")
+        } catch {
+            XCTAssertEqual((error as? XmaxError)?.code, .cancelled)
+        }
+        XCTAssertTrue(decodedEvents(components.rtcManager).contains { $0["event"] as? String == "stop" })
+        XCTAssertFalse(components.rtcManager.calls.contains(.subscribeRemoteAudio(userID: "bot-user", subscribe: true)))
+        await components.roomController.leave()
+    }
+
     func testAllMediaSourcesKeepTrajectoryBasisAcrossReturnSizeAndConditionChanges() async throws {
         for source in RealtimeMediaSource.allCases {
             let components = try await makeComponents()
@@ -401,6 +460,8 @@ private extension XmaxRealtimeGenerationManagerTests {
         let roomController: RoomController
         let rtcManager: RtcManagingStub
         let remoteStreams: RemoteStreamRecorder
+        let renderController: RenderController
+        let timing: RealtimeTiming
     }
 
     var videoFormat: RealtimeVideoFormat {
@@ -414,7 +475,8 @@ private extension XmaxRealtimeGenerationManagerTests {
     func makeComponents(
         timing: StreamGenerationTiming = StreamGenerationTiming(
             timeoutNanoseconds: 1_000_000_000
-        )
+        ),
+        automaticallyDeliversFrame: Bool = true
     ) async throws -> Components {
         let rtcManager = RtcManagingStub()
         let roomController = RoomController(rtcManager: rtcManager)
@@ -428,6 +490,9 @@ private extension XmaxRealtimeGenerationManagerTests {
             ensureActive: {}
         )
         let remoteStreams = RemoteStreamRecorder()
+        let renderController = RenderController(rtcManager: rtcManager)
+        let startupTiming = RealtimeTiming()
+        startupTiming.begin()
         let streamController = StreamController(
             rtcManager: rtcManager,
             roomController: roomController,
@@ -435,6 +500,10 @@ private extension XmaxRealtimeGenerationManagerTests {
             qualityController: QualityController(rtcManager: rtcManager),
             remoteStreamListener: { stream in
                 remoteStreams.append(stream)
+                try renderController.setRemoteStream(stream)
+                if stream != nil, automaticallyDeliversFrame {
+                    try rtcManager.emitRemoteVideoFrame(width: 4, height: 4)
+                }
             },
             generationTiming: timing
         )
@@ -454,13 +523,16 @@ private extension XmaxRealtimeGenerationManagerTests {
             manager: XmaxRealtimeGenerationManager(
                 interactionController: interactionController,
                 streamController: streamController,
-                renderController: RenderController(rtcManager: rtcManager),
+                renderController: renderController,
+                timing: startupTiming,
                 taskIDGenerator: { "task-fixed" }
             ),
             interactionController: interactionController,
             roomController: roomController,
             rtcManager: rtcManager,
-            remoteStreams: remoteStreams
+            remoteStreams: remoteStreams,
+            renderController: renderController,
+            timing: startupTiming
         )
     }
 

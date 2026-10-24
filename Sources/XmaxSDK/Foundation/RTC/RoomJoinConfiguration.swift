@@ -1,10 +1,9 @@
 //
 //  RoomJoinConfiguration.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -12,8 +11,12 @@
 /// RTC room join parameters.
 struct RoomJoinConfiguration: Equatable, Sendable {
 
-    /// Room connection parameters
+    /// The RTC room identifier to join.
     let roomID: String
+
+    /// The local RTC user identifier.
     let userID: String
+
+    /// The room authentication token.
     let token: String
 }

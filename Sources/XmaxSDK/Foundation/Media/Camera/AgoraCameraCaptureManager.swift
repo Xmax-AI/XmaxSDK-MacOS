@@ -1,14 +1,40 @@
+//
+//  AgoraCameraCaptureManager.swift
+//  XmaxSDK
+//
+//  Author: 翁跃庭 (Yueting Weng)
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
+//
+//  Copyright (c) 2026 XMAX.AI PTE. LTD.
+//
+
 import Foundation
 
-/// Runs camera control on a serial queue; Agora delivers preview frames without acquiring control locks.
+/// A camera capture adapter that serializes native control and observes readiness without raw pixel delivery.
 final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendable {
+
+    /// The RTC manager owning native camera capture.
     private let rtcManager: any RtcManaging
+
+    /// The device discovery operation, independent of capture startup.
     private let listDevices: @Sendable () -> [CameraDevice]
+
+    /// The maximum wait for native capture readiness.
     private let startupTimeout: Duration
-    private let queue = DispatchQueue(label: "ai.xmax.sdk.agora-camera", qos: .userInitiated)
+
+    /// The serial queue for native camera control operations.
+    private let queue = DispatchQueue(
+        label: "ai.xmax.sdk.agora-camera",
+        qos: .userInitiated
+    )
+
+    /// The lock protecting the readiness callback.
     private let stateLock = NSLock()
+
+    /// The listener notified when native capture is usable.
     private var previewReadyListener: (@Sendable () -> Void)?
 
+    /// Creates a native camera controller with device discovery and a readiness timeout.
     init(
         rtcManager: any RtcManaging,
         listDevices: @escaping @Sendable () -> [CameraDevice] = CameraCaptureManager.availableCameraDevices,
@@ -19,16 +45,26 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
         self.startupTimeout = startupTimeout
     }
 
+    /// Whether capture feeds RTC directly without decoded frame submission.
     var suppliesRTCVideo: Bool { true }
 
+    /// Lists camera devices without starting capture.
     func listCameraDevices() -> [CameraDevice] { listDevices() }
 
-    func setNativePreviewReadyListener(_ listener: (@Sendable () -> Void)?) {
+    /// Replaces the callback for native capture readiness.
+    func setNativePreviewReadyListener(
+        _ listener: (@Sendable () -> Void)?
+    ) {
         stateLock.withLock { previewReadyListener = listener }
     }
 
+    /// Starts native capture and waits for readiness, cancellation, or timeout.
+    ///
+    /// Agora owns local rendering and RTC video delivery; this implementation does not invoke the raw frame listener.
     func start(
-        videoFormat: VideoFormat, frameRate: Int, deviceID: String,
+        videoFormat: VideoFormat,
+        frameRate: Int,
+        deviceID: String,
         frameListener: @escaping @Sendable (VideoFrame) throws -> Void,
         errorListener: @escaping XmaxErrorListener
     ) async throws {
@@ -43,7 +79,10 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
                 do {
                     try rtcManager.startCameraCapture(
                         configuration: RtcCameraConfiguration(
-                            deviceID: deviceID, width: videoFormat.width, height: videoFormat.height, frameRate: frameRate
+                            deviceID: deviceID,
+                            width: videoFormat.width,
+                            height: videoFormat.height,
+                            frameRate: frameRate
                         ),
                         previewReadyListener: {
                             readyListener?()
@@ -64,12 +103,18 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
                 var iterator = events.makeAsyncIterator()
                 guard try await iterator.next() != nil else {
                     try Task.checkCancellation()
-                    throw XmaxError(code: .cancelled, message: "Native camera startup was cancelled")
+                    throw XmaxError(
+                        code: .cancelled,
+                        message: "Native camera startup was cancelled"
+                    )
                 }
             }
             group.addTask { [startupTimeout] in
                 try await Task.sleep(for: startupTimeout)
-                throw XmaxError(code: .timeout, message: "Native camera capture did not become ready")
+                throw XmaxError(
+                    code: .timeout,
+                    message: "Native camera capture did not become ready"
+                )
             }
             defer { group.cancelAll() }
             _ = try await group.next()
@@ -77,7 +122,10 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
         try Task.checkCancellation()
     }
 
-    func switchCamera(to deviceID: String) async throws {
+    /// Switches the native capture device on the camera control queue.
+    func switchCamera(
+        to deviceID: String
+    ) async throws {
         try Task.checkCancellation()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             queue.async { [rtcManager] in
@@ -89,12 +137,14 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
         }
     }
 
+    /// Clears readiness observation and stops native capture on the control queue.
     func stop() async {
         setNativePreviewReadyListener(nil)
         await withCheckedContinuation { continuation in
             queue.async { [rtcManager] in
-                do { try rtcManager.stopCameraCapture() }
-                catch { XmaxLogger.media.error(message: "Failed to stop RTC camera capture: \(error.localizedDescription)") }
+                do { try rtcManager.stopCameraCapture() } catch {
+                    XmaxLogger.media.error(message: "Failed to stop RTC camera capture: \(error.localizedDescription)")
+                }
                 continuation.resume()
             }
         }

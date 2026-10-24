@@ -1,10 +1,9 @@
 //
 //  VideoFramePlane.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,12 +13,16 @@ import Foundation
 /// A pixel data plane in a video frame.
 struct VideoFramePlane: Equatable, Sendable {
 
-    /// Pixel storage
+    /// The bytes containing this plane.
     let data: Data
 
-    /// Plane layout
+    /// The byte stride between pixel rows.
     let stride: Int
+
+    /// The plane's byte offset within the data.
     let byteOffset: Int
+
+    /// The plane's byte count.
     let byteLength: Int
 
     /// Creates a video pixel plane referencing a valid byte range.
@@ -29,6 +32,7 @@ struct VideoFramePlane: Equatable, Sendable {
     ///   - stride: The row byte stride; must be positive.
     ///   - byteOffset: The plane's starting byte offset in the buffer.
     ///   - byteLength: The valid plane byte count; `nil` uses all data after the offset.
+    ///
     /// - Throws: A configuration error for empty data, out-of-bounds ranges, or invalid row stride.
     init(
         data: Data,
@@ -37,14 +41,16 @@ struct VideoFramePlane: Equatable, Sendable {
         byteLength: Int? = nil
     ) throws {
         guard !data.isEmpty,
-              byteOffset >= 0,
-              byteOffset < data.count else {
+            byteOffset >= 0,
+            byteOffset < data.count
+        else {
             throw Self.invalidRangeError
         }
 
         let resolvedByteLength = byteLength ?? data.count - byteOffset
         guard resolvedByteLength > 0,
-              resolvedByteLength <= data.count - byteOffset else {
+            resolvedByteLength <= data.count - byteOffset
+        else {
             throw Self.invalidRangeError
         }
         guard stride > 0 else {
@@ -60,7 +66,7 @@ struct VideoFramePlane: Equatable, Sendable {
         self.byteLength = resolvedByteLength
     }
 
-    /// Range validation errors
+    /// The error for an invalid plane byte range.
     private static var invalidRangeError: XmaxError {
         XmaxError(
             code: .invalidConfiguration,

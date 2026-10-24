@@ -1,22 +1,35 @@
 //
 //  RtcQualityListener.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
 /// Neutral RTC network quality levels.
 enum RtcQualityLevel: Int, CaseIterable, Sendable {
+
+    /// No quality rating is available.
     case unknown
+
+    /// Excellent network quality.
     case excellent
+
+    /// Good network quality.
     case good
+
+    /// Fair network quality.
     case poor
+
+    /// Poor network quality.
     case bad
+
+    /// Very poor network quality.
     case veryBad
+
+    /// The network connection is unavailable.
     case down
 }
 
@@ -27,13 +40,17 @@ protocol RtcQualityListener: AnyObject {
     ///
     /// - Parameter statistics: The upstream metrics for this reporting interval.
     @MainActor
-    func onUplinkVideoStatistics(_ statistics: UplinkVideoStatistics)
+    func onUplinkVideoStatistics(
+        _ statistics: UplinkVideoStatistics
+    )
 
     /// Receives remote downstream video statistics.
     ///
     /// - Parameter statistics: The downstream metrics for this reporting interval.
     @MainActor
-    func onDownlinkVideoStatistics(_ statistics: DownlinkVideoStatistics)
+    func onDownlinkVideoStatistics(
+        _ statistics: DownlinkVideoStatistics
+    )
 
     /// Receives realtime upstream and downstream network quality.
     ///

@@ -1,10 +1,9 @@
 //
 //  XmaxRealtimeVideoView.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -54,8 +53,10 @@ public final class XmaxRealtimeVideoView: NSView {
         set { remoteVideoView.trajectoryRenderer = newValue }
     }
 
-    /// Video views
+    /// The video view retaining local preview beneath the result.
     private let localVideoView = XmaxVideoView()
+
+    /// The video view displaying the generated result.
     private let remoteVideoView = XmaxVideoView()
 
     /// Creates a realtime video container.
@@ -79,7 +80,9 @@ public final class XmaxRealtimeVideoView: NSView {
     /// Creates a realtime video container with the specified frame.
     ///
     /// - Parameter frame: The initial view frame.
-    public override init(frame: CGRect) {
+    public override init(
+        frame: CGRect
+    ) {
         super.init(frame: frame)
         configureView()
     }
@@ -87,7 +90,9 @@ public final class XmaxRealtimeVideoView: NSView {
     /// Restores a realtime video container from an Interface Builder archive.
     ///
     /// - Parameter coder: The view archive decoder.
-    public required init?(coder: NSCoder) {
+    public required init?(
+        coder: NSCoder
+    ) {
         super.init(coder: coder)
         configureView()
     }

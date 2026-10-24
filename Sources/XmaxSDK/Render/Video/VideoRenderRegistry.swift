@@ -1,10 +1,9 @@
 //
 //  VideoRenderRegistry.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -15,7 +14,7 @@ import Foundation
 @MainActor
 enum VideoRenderRegistry {
 
-    /// Render bindings
+    /// The bindings keyed by track identifier.
     private static var bindings: [ObjectIdentifier: VideoRenderBinding] = [:]
 
     /// Registers the render binding for a video track.
@@ -33,13 +32,16 @@ enum VideoRenderRegistry {
     /// Removes a track's render binding record.
     ///
     /// - Parameter track: The video track to remove.
-    static func unregister(_ track: RealtimeVideoTrack) {
+    static func unregister(
+        _ track: RealtimeVideoTrack
+    ) {
         bindings.removeValue(forKey: ObjectIdentifier(track))
     }
 
     /// Looks up a video track's render binding.
     ///
     /// - Parameter track: The video track to look up.
+    ///
     /// - Returns: The registered binding, or `nil` if absent.
     static func binding(
         for track: RealtimeVideoTrack

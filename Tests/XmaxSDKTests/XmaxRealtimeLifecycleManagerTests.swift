@@ -1,7 +1,7 @@
 //
-//  RealtimeCoordinatorTests.swift
+//  XmaxRealtimeLifecycleManagerTests.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
+//  Repo: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
 //  GitHub: https://github.com/WengYuehTing
@@ -13,13 +13,13 @@ import XCTest
 @testable import XmaxSDK
 
 @MainActor
-final class RealtimeCoordinatorTests: XCTestCase {
+final class XmaxRealtimeLifecycleManagerTests: XCTestCase {
     func testReplacementWaitsForStartupAndRetainsTheEstablishedConnection() async throws {
         let gate = LifecycleFailureGate()
-        let events = RealtimeCoordinatorEventRecorder()
-        let probe = RealtimeCoordinatorProbe()
-        let lifecycle = RealtimeCoordinator(
-            errorHandler: RealtimeErrorHandler(),
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
+        let lifecycle = XmaxRealtimeLifecycleManager(
+            errorManager: XmaxRealtimeErrorManager(),
             cleanup: { scope, _ in
                 await probe.recordCleanup(scope)
                 return .init(sessionID: "session", hasLocalMedia: true)
@@ -63,9 +63,9 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
     func testLatestGenerationSkipsIntermediateRequestWhileRollbackIsPending() async throws {
         let cleanupGate = LifecycleFailureGate()
-        let events = RealtimeCoordinatorEventRecorder()
-        let lifecycle = RealtimeCoordinator(
-            errorHandler: RealtimeErrorHandler(),
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
+        let lifecycle = XmaxRealtimeLifecycleManager(
+            errorManager: XmaxRealtimeErrorManager(),
             cleanup: { _, _ in
                 await cleanupGate.wait()
                 return .init(sessionID: "session", hasLocalMedia: true)
@@ -98,8 +98,8 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testReplacementDuringConnectionSetupReleasesTheIncompleteConnection() async throws {
-        let events = RealtimeCoordinatorEventRecorder()
-        let probe = RealtimeCoordinatorProbe()
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let lifecycle = makeCoordinator(probe: probe)
         let first = Task {
             try await lifecycle.run(kind: .generation, failureScope: .connection) { token in
@@ -119,8 +119,8 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
     func testOverlappingConditionUpdatesPreserveTheRunningGeneration() async throws {
         let gate = LifecycleFailureGate()
-        let events = RealtimeCoordinatorEventRecorder()
-        let probe = RealtimeCoordinatorProbe()
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let lifecycle = makeCoordinator(probe: probe)
         try await lifecycle.run(kind: .generation) { token in
             try await lifecycle.complete(RealtimeState(connectionState: .generating, taskID: "original"), token: token)
@@ -153,10 +153,10 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testDisconnectAndCloseCancelTheLatestWaitingRequestWithoutRestarting() async throws {
-        for target in [RealtimeCoordinator.TerminationScope.connection, .all] {
+        for target in [XmaxRealtimeLifecycleManager.TerminationScope.connection, .all] {
             let gate = LifecycleFailureGate()
-            let events = RealtimeCoordinatorEventRecorder()
-            let probe = RealtimeCoordinatorProbe()
+            let events = XmaxRealtimeLifecycleManagerEventRecorder()
+            let probe = XmaxRealtimeLifecycleManagerProbe()
             let lifecycle = makeCoordinator(probe: probe)
             let first = Task {
                 try await lifecycle.run(kind: .generation, failureScope: .connection) { token in
@@ -188,10 +188,10 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
     func testConnectionFailureDuringGenerationRollbackCancelsReplacement() async throws {
         let cleanupGate = LifecycleFailureGate()
-        let events = RealtimeCoordinatorEventRecorder()
-        let probe = RealtimeCoordinatorProbe()
-        let lifecycle = RealtimeCoordinator(
-            errorHandler: RealtimeErrorHandler(),
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
+        let lifecycle = XmaxRealtimeLifecycleManager(
+            errorManager: XmaxRealtimeErrorManager(),
             cleanup: { scope, _ in
                 await probe.recordCleanup(scope)
                 if scope == .generation {
@@ -228,7 +228,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testCompletionListenerCanSubmitAnotherGenerationRequest() async throws {
-        let lifecycle = makeCoordinator(probe: RealtimeCoordinatorProbe())
+        let lifecycle = makeCoordinator(probe: XmaxRealtimeLifecycleManagerProbe())
         var followup: Task<Void, any Error>?
         await lifecycle.setStateListener { state in
             guard state.taskID == "first" else { return }
@@ -247,7 +247,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testRejectedMediaOperationPreservesTheExistingPreparation() async throws {
-        let lifecycle = makeCoordinator(probe: RealtimeCoordinatorProbe())
+        let lifecycle = makeCoordinator(probe: XmaxRealtimeLifecycleManagerProbe())
         try await lifecycle.run(kind: .media) { token in
             try await lifecycle.commit(RealtimeState(connectionState: .preparing), token: token)
         }
@@ -263,7 +263,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
     func testCompletionListenerCanImmediatelySubmitTheNextOperation() async throws {
         for state in [RealtimeConnectionState.ready, .connected, .generating] {
-            let lifecycle = makeCoordinator(probe: RealtimeCoordinatorProbe())
+            let lifecycle = makeCoordinator(probe: XmaxRealtimeLifecycleManagerProbe())
             var followup: Task<Void, any Error>?
             await lifecycle.setStateListener { snapshot in
                 guard snapshot.connectionState == state else { return }
@@ -281,7 +281,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testCompletionWaitsForTheOperationBodyToFinish() async throws {
-        let lifecycle = makeCoordinator(probe: RealtimeCoordinatorProbe())
+        let lifecycle = makeCoordinator(probe: XmaxRealtimeLifecycleManagerProbe())
         let gate = LifecycleFailureGate()
         let operation = Task {
             try await lifecycle.run(kind: .generation) { token in
@@ -299,7 +299,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testFailureDiscardsAStagedCompletion() async {
-        let lifecycle = makeCoordinator(probe: RealtimeCoordinatorProbe())
+        let lifecycle = makeCoordinator(probe: XmaxRealtimeLifecycleManagerProbe())
         var states: [RealtimeConnectionState] = []
         await lifecycle.setStateListener { states.append($0.connectionState) }
         do {
@@ -317,9 +317,9 @@ final class RealtimeCoordinatorTests: XCTestCase {
     func testCloseStopsCaptureBeforeAnOperationThatIgnoresCancellationReturns() async throws {
         let gate = LifecycleFailureGate()
         let stopped = expectation(description: "Capture stopped before operation returns")
-        let events = RealtimeCoordinatorEventRecorder()
-        let coordinator = RealtimeCoordinator(
-            errorHandler: RealtimeErrorHandler(),
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
+        let coordinator = XmaxRealtimeLifecycleManager(
+            errorManager: XmaxRealtimeErrorManager(),
             cleanup: { _, _ in events.append("cleanup"); return .init() },
             stopLocalCapture: { events.append("capture"); stopped.fulfill() }
         )
@@ -342,9 +342,9 @@ final class RealtimeCoordinatorTests: XCTestCase {
     func testCloseDuringBlockedDisconnectStopsCaptureAndCoalescesConcurrentCloses() async {
         let gate = LifecycleFailureGate()
         let stopped = expectation(description: "Capture stopped during remote cleanup")
-        let events = RealtimeCoordinatorEventRecorder()
-        let coordinator = RealtimeCoordinator(
-            errorHandler: RealtimeErrorHandler(),
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
+        let coordinator = XmaxRealtimeLifecycleManager(
+            errorManager: XmaxRealtimeErrorManager(),
             cleanup: { scope, _ in
                 if scope == .connection { await gate.wait() }
                 return .init()
@@ -367,8 +367,8 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
     func testForegroundWaitsForAdaptiveCommitWithoutConflict() async throws {
         let gate = LifecycleFailureGate()
-        let events = RealtimeCoordinatorEventRecorder()
-        let coordinator = makeCoordinator(probe: RealtimeCoordinatorProbe())
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
+        let coordinator = makeCoordinator(probe: XmaxRealtimeLifecycleManagerProbe())
         try await coordinator.run(kind: .generation) { token in
             try await coordinator.commit(RealtimeState(connectionState: .generating, taskID: "task"), token: token)
         }
@@ -399,7 +399,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
     func testDisconnectInvalidatesAdaptiveTaskBeforeNextGeneration() async throws {
         let gate = LifecycleFailureGate()
-        let coordinator = makeCoordinator(probe: RealtimeCoordinatorProbe())
+        let coordinator = makeCoordinator(probe: XmaxRealtimeLifecycleManagerProbe())
         try await coordinator.run(kind: .generation) { token in
             try await coordinator.commit(RealtimeState(connectionState: .generating), token: token)
         }
@@ -425,9 +425,9 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
     func testBeginDisconnectAllowsLocalAdjustmentWhileCleanupIsWaiting() async throws {
         let gate = LifecycleFailureGate()
-        let events = RealtimeCoordinatorEventRecorder()
-        let coordinator = RealtimeCoordinator(
-            errorHandler: RealtimeErrorHandler(),
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
+        let coordinator = XmaxRealtimeLifecycleManager(
+            errorManager: XmaxRealtimeErrorManager(),
             cleanup: { _, _ in
                 await gate.wait()
                 return .init(hasLocalMedia: true)
@@ -458,9 +458,9 @@ final class RealtimeCoordinatorTests: XCTestCase {
         for initialState in [
             RealtimeConnectionState.connecting, .connected, .generating
         ] {
-            let probe = RealtimeCoordinatorProbe()
-            let coordinator = RealtimeCoordinator(
-                errorHandler: RealtimeErrorHandler(),
+            let probe = XmaxRealtimeLifecycleManagerProbe()
+            let coordinator = XmaxRealtimeLifecycleManager(
+                errorManager: XmaxRealtimeErrorManager(),
                 cleanup: { scope, _ in
                     await probe.recordCleanup(scope)
                     return .init(hasLocalMedia: true)
@@ -486,7 +486,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
         for initialState in [
             RealtimeConnectionState.idle, .preparing, .ready
         ] {
-            let probe = RealtimeCoordinatorProbe()
+            let probe = XmaxRealtimeLifecycleManagerProbe()
             let coordinator = makeCoordinator(probe: probe)
             try await coordinator.run(kind: .media) { token in
                 try await coordinator.commit(
@@ -505,7 +505,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testPreviewReadyOnlyAdvancesCurrentPreparation() async throws {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         try await coordinator.run(kind: .media) { token in
             try await coordinator.commit(RealtimeState(connectionState: .preparing), token: token)
@@ -534,9 +534,9 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
     func testNewGenerationWaitsForCancelledDisconnectTaskToFinishCleanup() async throws {
         let gate = LifecycleFailureGate()
-        let events = RealtimeCoordinatorEventRecorder()
-        let coordinator = RealtimeCoordinator(
-            errorHandler: RealtimeErrorHandler(),
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
+        let coordinator = XmaxRealtimeLifecycleManager(
+            errorManager: XmaxRealtimeErrorManager(),
             cleanup: { _, _ in
                 await gate.wait()
                 events.append("cleanup-finished")
@@ -570,7 +570,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testMediaPreparationFailureReturnsToIdleWithoutFailureReason() async {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         var states: [RealtimeState] = []
         await coordinator.setStateListener { states.append($0) }
@@ -593,7 +593,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
     func testMediaPreparationCancellationAndCloseReturnToIdle() async {
         for closes in [false, true] {
-            let probe = RealtimeCoordinatorProbe()
+            let probe = XmaxRealtimeLifecycleManagerProbe()
             let coordinator = makeCoordinator(probe: probe)
             let preparing = Task {
                 try await coordinator.run(kind: .media) { token in
@@ -626,11 +626,11 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testConnectionCleanupKeepsQueuedMediaFailureValidButCloseInvalidatesIt() async {
-        for target: RealtimeCoordinator.TerminationScope in [.connection, .all] {
-            let handler = RealtimeErrorHandler()
+        for target: XmaxRealtimeLifecycleManager.TerminationScope in [.connection, .all] {
+            let handler = XmaxRealtimeErrorManager()
             let gate = LifecycleFailureGate()
             let delivered = expectation(description: "Queued failure processed")
-            let result = RealtimeCoordinatorEventRecorder()
+            let result = XmaxRealtimeLifecycleManagerEventRecorder()
             handler.setFailureHandler { _, _, isCurrent in
                 await gate.wait()
                 result.append(isCurrent() ? "valid" : "stale")
@@ -647,7 +647,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
 
     func testPreflightFailureDoesNotChangeReadyStateOrCleanUp() async throws {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         try await coordinator.run(kind: .media) { token in
             try await coordinator.commit(RealtimeState(connectionState: .ready), token: token)
@@ -667,9 +667,9 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testStartupFailureClosesConnectionAndPreservesReadyMedia() async throws {
-        let probe = RealtimeCoordinatorProbe()
-        let coordinator = RealtimeCoordinator(
-            errorHandler: RealtimeErrorHandler(),
+        let probe = XmaxRealtimeLifecycleManagerProbe()
+        let coordinator = XmaxRealtimeLifecycleManager(
+            errorManager: XmaxRealtimeErrorManager(),
             cleanup: { scope, _ in
                 await probe.recordCleanup(scope)
                 return .init(sessionID: "session", hasLocalMedia: true)
@@ -695,7 +695,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testMediaTerminationWithoutConnectionReportsIdleFailure() async {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         let failure = XmaxError(code: .mediaError, message: "Decoder stopped")
         await coordinator.terminate(with: failure, target: .all)
@@ -707,7 +707,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testConfigurationFailurePreservesGeneratingAfterRtcError() async throws {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         let original = RealtimeState(connectionState: .generating, sessionID: "session", taskID: "task")
         try await coordinator.run(kind: .generation) { token in
@@ -727,7 +727,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testStaleBackgroundFailureDoesNotCloseCurrentConnection() async throws {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         let original = RealtimeState(connectionState: .connected, sessionID: "new")
         try await coordinator.run(kind: .connection) { token in
@@ -745,8 +745,8 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testOrientationDisconnectReturnsReadyAndNextConnectClearsReason() async throws {
-        let coordinator = RealtimeCoordinator(
-            errorHandler: RealtimeErrorHandler(), cleanup: { _, _ in .init(hasLocalMedia: true) }
+        let coordinator = XmaxRealtimeLifecycleManager(
+            errorManager: XmaxRealtimeErrorManager(), cleanup: { _, _ in .init(hasLocalMedia: true) }
         )
         try await coordinator.run(kind: .connection) { token in
             try await coordinator.commit(RealtimeState(connectionState: .connected), token: token)
@@ -763,8 +763,8 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testNormalTerminationReportsReasonAndReconnectClearsIt() async throws {
-        for scope: RealtimeCoordinator.TerminationScope in [.connection, .all] {
-            let coordinator = makeCoordinator(probe: RealtimeCoordinatorProbe())
+        for scope: XmaxRealtimeLifecycleManager.TerminationScope in [.connection, .all] {
+            let coordinator = makeCoordinator(probe: XmaxRealtimeLifecycleManagerProbe())
             var states: [RealtimeState] = []
             await coordinator.setStateListener { states.append($0) }
             try await coordinator.run(kind: .connection, failureScope: .connection) { token in
@@ -793,7 +793,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testConnectionFailureDoesNotReportNormalDisconnection() async {
-        let coordinator = makeCoordinator(probe: RealtimeCoordinatorProbe())
+        let coordinator = makeCoordinator(probe: XmaxRealtimeLifecycleManagerProbe())
         var states: [RealtimeState] = []
         await coordinator.setStateListener { states.append($0) }
         do {
@@ -809,15 +809,15 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testCancellingConfigurationDoesNotStopGeneration() async throws {
-        for kind: RealtimeCoordinator.OperationKind in [.configuration, .generation] {
+        for kind: XmaxRealtimeLifecycleManager.OperationKind in [.configuration, .generation] {
             try await assertCancellingUpdatePreservesGeneration(kind: kind)
         }
     }
 
     private func assertCancellingUpdatePreservesGeneration(
-        kind: RealtimeCoordinator.OperationKind
+        kind: XmaxRealtimeLifecycleManager.OperationKind
     ) async throws {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         let state = RealtimeState(connectionState: .generating, sessionID: "session", taskID: "task")
         try await coordinator.run(kind: .generation, failureScope: .connection) { token in
@@ -845,9 +845,9 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testDisconnectWaitsForConfigurationBeforeCleaningConnection() async throws {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
-        let events = RealtimeCoordinatorEventRecorder()
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
         let changing = Task {
             try await coordinator.run(kind: .configuration, failureScope: .connection) { _ in
                 await probe.markOperationStarted()
@@ -868,7 +868,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testTerminationUnregistersOperationBeforeDisconnectedNotification() async throws {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         let running = Task {
             try await coordinator.run(kind: .generation, failureScope: .connection) { _ in
@@ -902,8 +902,8 @@ final class RealtimeCoordinatorTests: XCTestCase {
     func testDisconnectCancelsOperationBeforeConnectingStateIsCommitted()
         async throws {
         for initialState: RealtimeConnectionState in [.idle, .ready] {
-            for kind: RealtimeCoordinator.OperationKind in [.connection, .generation] {
-                let probe = RealtimeCoordinatorProbe()
+            for kind: XmaxRealtimeLifecycleManager.OperationKind in [.connection, .generation] {
+                let probe = XmaxRealtimeLifecycleManagerProbe()
                 let coordinator = makeCoordinator(probe: probe)
                 if initialState == .ready {
                     try await coordinator.run(kind: .media) { token in
@@ -948,7 +948,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testDisconnectWithoutConnectionDoesNotCleanUpAgain() async {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
 
         await coordinator.disconnect()
@@ -966,7 +966,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testDisconnectDoesNotCancelLocalMediaPreparation() async throws {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         try await coordinator.run(kind: .media, failureScope: .all) { token in
             try await coordinator.commit(RealtimeState(connectionState: .preparing), token: token)
@@ -984,7 +984,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
 
     func testCloseDuringDisconnectedNotificationCompletesFullCleanup()
         async throws {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         try await coordinator.run(kind: .connection, failureScope: .connection) { token in
             try await coordinator.commit(
@@ -1034,7 +1034,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testRejectsOverlappingOperations() async throws {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         let runningTask = Task {
             try await coordinator.run(
@@ -1083,7 +1083,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testTerminationInvalidatesPendingStateCommit() async throws {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
         let runningTask = Task {
             try await coordinator.run(
@@ -1118,13 +1118,13 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testFatalErrorIsReportedAfterCleanup() async {
-        let events = RealtimeCoordinatorEventRecorder()
-        let errorHandler = RealtimeErrorHandler()
-        let coordinator = RealtimeCoordinator(
-            errorHandler: errorHandler,
+        let events = XmaxRealtimeLifecycleManagerEventRecorder()
+        let errorManager = XmaxRealtimeErrorManager()
+        let coordinator = XmaxRealtimeLifecycleManager(
+            errorManager: errorManager,
             cleanup: { scope, _ in
                 events.append("cleanup:\(scope.rawValue)")
-                return RealtimeCoordinator.CleanupResult()
+                return XmaxRealtimeLifecycleManager.CleanupResult()
             }
         )
 
@@ -1158,7 +1158,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testOperationCanArmFailureCleanupScope() async {
-        let probe = RealtimeCoordinatorProbe()
+        let probe = XmaxRealtimeLifecycleManagerProbe()
         let coordinator = makeCoordinator(probe: probe)
 
         do {
@@ -1181,14 +1181,14 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 
     func testBackgroundFatalErrorInterruptsActiveOperation() async {
-        let probe = RealtimeCoordinatorProbe()
-        let receivedError = RealtimeCoordinatorErrorRecorder()
-        let errorHandler = RealtimeErrorHandler()
-        let coordinator = RealtimeCoordinator(
-            errorHandler: errorHandler,
+        let probe = XmaxRealtimeLifecycleManagerProbe()
+        let receivedError = XmaxRealtimeLifecycleManagerErrorRecorder()
+        let errorManager = XmaxRealtimeErrorManager()
+        let coordinator = XmaxRealtimeLifecycleManager(
+            errorManager: errorManager,
             cleanup: { scope, _ in
                 await probe.recordCleanup(scope)
-                return RealtimeCoordinator.CleanupResult()
+                return XmaxRealtimeLifecycleManager.CleanupResult()
             }
         )
         await coordinator.setStateListener { state in
@@ -1226,15 +1226,15 @@ final class RealtimeCoordinatorTests: XCTestCase {
     }
 }
 
-private extension RealtimeCoordinatorTests {
+private extension XmaxRealtimeLifecycleManagerTests {
     func makeCoordinator(
-        probe: RealtimeCoordinatorProbe
-    ) -> RealtimeCoordinator {
-        RealtimeCoordinator(
-            errorHandler: RealtimeErrorHandler(),
+        probe: XmaxRealtimeLifecycleManagerProbe
+    ) -> XmaxRealtimeLifecycleManager {
+        XmaxRealtimeLifecycleManager(
+            errorManager: XmaxRealtimeErrorManager(),
             cleanup: { scope, _ in
                 await probe.recordCleanup(scope)
-                return RealtimeCoordinator.CleanupResult()
+                return XmaxRealtimeLifecycleManager.CleanupResult()
             }
         )
     }
@@ -1252,14 +1252,14 @@ private extension RealtimeCoordinatorTests {
     }
 }
 
-private actor RealtimeCoordinatorProbe {
+private actor XmaxRealtimeLifecycleManagerProbe {
 
     /// Operation state
     private(set) var operationStarted = false
 
     /// Cleanup records
     private(set) var cleanupScopes: [
-        RealtimeCoordinator.TerminationScope
+        XmaxRealtimeLifecycleManager.TerminationScope
     ] = []
 
     func markOperationStarted() {
@@ -1267,13 +1267,13 @@ private actor RealtimeCoordinatorProbe {
     }
 
     func recordCleanup(
-        _ scope: RealtimeCoordinator.TerminationScope
+        _ scope: XmaxRealtimeLifecycleManager.TerminationScope
     ) {
         cleanupScopes.append(scope)
     }
 }
 
-private final class RealtimeCoordinatorEventRecorder: @unchecked Sendable {
+private final class XmaxRealtimeLifecycleManagerEventRecorder: @unchecked Sendable {
 
     /// Concurrent state
     private let lock = NSLock()
@@ -1290,7 +1290,7 @@ private final class RealtimeCoordinatorEventRecorder: @unchecked Sendable {
     }
 }
 
-private final class RealtimeCoordinatorErrorRecorder: @unchecked Sendable {
+private final class XmaxRealtimeLifecycleManagerErrorRecorder: @unchecked Sendable {
 
     /// Concurrent state
     private let lock = NSLock()

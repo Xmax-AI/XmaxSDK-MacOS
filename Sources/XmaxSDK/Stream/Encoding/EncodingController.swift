@@ -1,10 +1,9 @@
 //
 //  EncodingController.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -12,21 +11,27 @@
 /// Configures RTC encoding from the realtime video format.
 final class EncodingController: EncodingControlling, Sendable {
 
-    /// Foundation components
+    /// The RTC encoder configuration target.
     private let rtcManager: any RtcManaging
 
     /// Creates a controller applying RTC video encoding configuration.
-    ///
-    /// - Parameter rtcManager: The RTC manager receiving encoding configuration.
-    init(rtcManager: any RtcManaging) {
+    init(
+        rtcManager: any RtcManaging
+    ) {
         self.rtcManager = rtcManager
     }
 
-    /// Validates video format and applies resolved RTC encoding parameters.
+    /// Validates four-pixel-aligned dimensions and applies RTC encoding parameters.
     ///
-    /// - Parameter videoFormat: The format containing dimensions, frame rate, optional bitrate, and encoding preferences.
+    /// An unspecified encoder minimum uses 500 kbps, capped by the resolved maximum.
+    ///
+    /// - Parameter videoFormat: The format containing dimensions, frame rate, optional bitrate, and encoding
+    ///   preferences.
+    ///
     /// - Throws: An error on invalid format, default bitrate resolution failure, or RTC configuration failure.
-    func configure(_ videoFormat: RealtimeVideoFormat) throws {
+    func configure(
+        _ videoFormat: RealtimeVideoFormat
+    ) throws {
         try videoFormat.validate()
 
         guard videoFormat.width.isMultiple(of: 4), videoFormat.height.isMultiple(of: 4) else {
@@ -39,11 +44,12 @@ final class EncodingController: EncodingControlling, Sendable {
         let maximum = budget.maximum
         let minimum = videoFormat.minimumBitrate ?? min(500, maximum)
 
-        let encoderPreference: VideoEncodingConfiguration.EncoderPreference = switch videoFormat.encoderPreference {
+        let encoderPreference: VideoEncodingConfiguration.EncoderPreference =
+            switch videoFormat.encoderPreference {
             case .auto: .auto
             case .maintainFramerate: .maintainFramerate
             case .maintainQuality: .maintainQuality
-        }
+            }
 
         try rtcManager.configureVideoEncoding(
             VideoEncodingConfiguration(

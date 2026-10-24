@@ -1,10 +1,9 @@
 //
 //  RealtimeSession.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -12,14 +11,18 @@
 /// An Xmax realtime generation session.
 struct RealtimeSession: Equatable, Sendable {
 
-    /// Session information
+    /// The server session identifier.
     let id: String
+
+    /// The session's server user identifier.
     let userID: String?
+
+    /// The server-reported session state.
     let status: String?
 
-    /// RTC connection
+    /// The session's RTC connection information.
     let connection: RealtimeSessionConnection?
 
-    /// Close reason
+    /// The server-reported session closure reason.
     let closeReason: String?
 }

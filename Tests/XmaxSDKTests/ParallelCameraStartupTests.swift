@@ -157,7 +157,7 @@ final class ParallelCameraStartupTests: XCTestCase {
                             sessionError: (any Error)? = nil)
     -> (manager: XmaxRealtimeManager, media: MediaController, rtc: RtcManagingStub,
         capture: CameraCaptureManagingStub, session: RealtimeSessionServicingStub) {
-        let errors = RealtimeErrorHandler(), timing = RealtimeTiming()
+        let errors = XmaxRealtimeErrorManager(), timing = RealtimeTiming()
         let service = MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4))
         let render = RenderController(rtcManager: rtc, errorListener: { errors.forward($0, target: .connection) })
         let stream = StreamController(rtcManager: rtc, errorListener: { errors.forward($0, target: .connection) },
@@ -169,11 +169,11 @@ final class ParallelCameraStartupTests: XCTestCase {
             connection: RealtimeSessionConnection(roomID: "room", userID: "user", token: "token", botName: "bot"), closeReason: nil
         ), createError: sessionError)
         let connection = XmaxRealtimeConnectionManager(sessionService: session, interactionController: media,
-                                                       renderController: render, streamController: stream, timing: timing)
-        let generation = XmaxRealtimeGenerationManager(interactionController: media, streamController: stream, renderController: render)
+                                                       renderController: render, streamController: stream, timing: timing, mediaService: service, errorManager: errors)
+        let generation = XmaxRealtimeGenerationManager(interactionController: media, streamController: stream, renderController: render, timing: timing)
         return (XmaxRealtimeManager(options: RealtimeConfiguration(model: .x2_1_1_preview_cn), streamController: stream,
                                     mediaController: media, renderController: render, mediaService: service,
-                                    connectionManager: connection, errorHandler: errors, generationManager: generation, timing: timing),
+                                    connectionManager: connection, errorManager: errors, generationManager: generation, timing: timing),
                 media, rtc, capture, session)
     }
 

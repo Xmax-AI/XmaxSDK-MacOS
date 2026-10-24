@@ -1,10 +1,9 @@
 //
 //  RoomHeartbeat.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,22 +13,22 @@ import Foundation
 /// Sends periodic RTC room heartbeats while isolating stopped cycles.
 final class RoomHeartbeat: @unchecked Sendable {
 
-    /// Foundation components
+    /// The room signaling RTC manager.
     private let rtcManager: any RtcManaging
+
+    /// The room heartbeat interval provider.
     private let sleeper: RoomHeartbeatSleeper
 
-    /// Concurrency control
+    /// The revision separating heartbeat cycles.
     private let cycle = RoomHeartbeatCycle()
+
+    /// The lock protecting heartbeat task replacement.
     private let taskLock = NSLock()
 
-    /// Runtime state
+    /// The current room heartbeat task.
     private var heartbeatTask: Task<Void, Never>?
 
     /// Creates a room heartbeat component with the specified wait strategy.
-    ///
-    /// - Parameters:
-    ///   - rtcManager: The RTC manager submitting room signals.
-    ///   - sleeper: The wait strategy controlling heartbeat intervals.
     init(
         rtcManager: any RtcManaging,
         sleeper: RoomHeartbeatSleeper = .live
@@ -47,7 +46,9 @@ final class RoomHeartbeat: @unchecked Sendable {
     /// Replaces the previous cycle and starts room heartbeats for the specified user.
     ///
     /// - Parameter userID: The local user account sending heartbeats.
-    func start(userID: String) {
+    func start(
+        userID: String
+    ) {
         taskLock.withLock {
             let version = cycle.advance()
             heartbeatTask?.cancel()
@@ -75,25 +76,32 @@ final class RoomHeartbeat: @unchecked Sendable {
 }
 
 private extension RoomHeartbeat {
+
     /// Stores send dependencies and validity for one heartbeat cycle.
     struct Context: Sendable {
 
-        /// Send dependencies
+        /// The RTC room heartbeat sender.
         let rtcManager: any RtcManaging
+
+        /// The wait for the next room heartbeat.
         let sleeper: RoomHeartbeatSleeper
 
-        /// Cycle validity
+        /// The room heartbeat validity check.
         let cycle: RoomHeartbeatCycle
+
+        /// The heartbeat loop revision.
         let version: UInt64
 
-        /// Sender identity
+        /// The business user sending room heartbeats.
         let userID: String
     }
 
     /// Sends heartbeats using the wait strategy, ignoring late results from stopped cycles.
     ///
     /// - Parameter context: The current cycle's dependencies and identity.
-    static func run(_ context: Context) async {
+    static func run(
+        _ context: Context
+    ) async {
         while context.cycle.isCurrent(context.version) {
             do {
                 try await context.sleeper.sleep()
@@ -111,8 +119,9 @@ private extension RoomHeartbeat {
                     return
                 }
                 XmaxLogger.room.error(
-                    message: "发送 RTC 房间心跳失败 (Failed to Send RTC Room Heartbeat)\n└─ \(XmaxLogger.localized("原因：", "Reason: "))" +
-                        (error as NSError).localizedDescription
+                    message:
+                        "发送 RTC 房间心跳失败 (Failed to Send RTC Room Heartbeat)\n└─ \(XmaxLogger.localized("原因：", "Reason: "))"
+                        + (error as NSError).localizedDescription
                 )
             }
         }
@@ -122,10 +131,10 @@ private extension RoomHeartbeat {
 /// Provides replaceable room heartbeat waiting behavior.
 struct RoomHeartbeatSleeper: Sendable {
 
-    /// Wait strategy
+    /// The cancellable wait for a room heartbeat.
     let sleep: @Sendable () async throws -> Void
 
-    /// Default configuration
+    /// A room heartbeat wait using a 10-second interval.
     static let live = RoomHeartbeatSleeper {
         try await Task.sleep(nanoseconds: 10_000_000_000)
     }
@@ -134,8 +143,10 @@ struct RoomHeartbeatSleeper: Sendable {
 /// Uses versions to isolate old room heartbeat tasks after stop or restart.
 private final class RoomHeartbeatCycle: @unchecked Sendable {
 
-    /// Concurrent state
+    /// The lock protecting room heartbeat revisions.
     private let lock = NSLock()
+
+    /// The current room heartbeat revision.
     private var value: UInt64 = 0
 
     /// Advances heartbeat validity, invalidating earlier cycles.
@@ -152,8 +163,11 @@ private final class RoomHeartbeatCycle: @unchecked Sendable {
     /// Checks whether a heartbeat version is the current cycle.
     ///
     /// - Parameter version: The cycle version to check.
+    ///
     /// - Returns: `true` if the version remains valid.
-    func isCurrent(_ version: UInt64) -> Bool {
+    func isCurrent(
+        _ version: UInt64
+    ) -> Bool {
         lock.withLock { value == version }
     }
 }

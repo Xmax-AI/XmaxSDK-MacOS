@@ -1,10 +1,9 @@
 //
 //  DownloadedFile.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -14,7 +13,9 @@ import Foundation
 /// The neutral result of a completed remote file download.
 struct DownloadedFile: Equatable, Sendable {
 
-    /// Local file information
+    /// The downloaded local file URL.
     let fileURL: URL
+
+    /// The downloaded byte count.
     let byteCount: Int64
 }

@@ -1,10 +1,9 @@
 //
 //  RtcStatsLogger.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -13,18 +12,27 @@ import Foundation
 
 /// Writes Agora RTC runtime statistics to consistent Xmax debug logs.
 enum RtcStatsLogger {
+
     /// Logs upstream video metrics when performance logging is enabled.
     ///
     /// - Parameter video: The current upstream video statistics.
-    static func logUplinkVideoStatistics(_ video: UplinkVideoStatistics) {
-        XmaxLogger.rtc.debug(message: uplinkVideoStatisticsMessage(video), option: .performance)
+    static func logUplinkVideoStatistics(
+        _ video: UplinkVideoStatistics
+    ) {
+        XmaxLogger.rtc.debug(
+            message: uplinkVideoStatisticsMessage(video),
+            option: .performance
+        )
     }
 
     /// Formats upstream statistics logs.
     ///
     /// - Parameter video: The current upstream video statistics.
+    ///
     /// - Returns: The upstream log body with localized field names.
-    static func uplinkVideoStatisticsMessage(_ video: UplinkVideoStatistics) -> String {
+    static func uplinkVideoStatisticsMessage(
+        _ video: UplinkVideoStatistics
+    ) -> String {
         """
         视频上行统计 (Video Uplink Statistics)
         ├─ \(XmaxLogger.localized("分辨率：", "Resolution: "))\(resolution(video.width, video.height))
@@ -39,15 +47,23 @@ enum RtcStatsLogger {
     /// Logs downstream video metrics when performance logging is enabled.
     ///
     /// - Parameter video: The current downstream video statistics.
-    static func logDownlinkVideoStatistics(_ video: DownlinkVideoStatistics) {
-        XmaxLogger.rtc.debug(message: downlinkVideoStatisticsMessage(video), option: .performance)
+    static func logDownlinkVideoStatistics(
+        _ video: DownlinkVideoStatistics
+    ) {
+        XmaxLogger.rtc.debug(
+            message: downlinkVideoStatisticsMessage(video),
+            option: .performance
+        )
     }
 
     /// Formats downstream statistics logs.
     ///
     /// - Parameter video: The current downstream video statistics.
+    ///
     /// - Returns: The downstream log body with localized field names.
-    static func downlinkVideoStatisticsMessage(_ video: DownlinkVideoStatistics) -> String {
+    static func downlinkVideoStatisticsMessage(
+        _ video: DownlinkVideoStatistics
+    ) -> String {
         """
         视频下行统计 (Video Downlink Statistics)
         ├─ \(XmaxLogger.localized("分辨率：", "Resolution: "))\(resolution(video.width, video.height))
@@ -64,8 +80,12 @@ enum RtcStatsLogger {
     /// - Parameters:
     ///   - width: The pixel width; `nil` when unavailable.
     ///   - height: The pixel height; `nil` when unavailable.
+    ///
     /// - Returns: The width and height text, or a placeholder if either value is unavailable.
-    private static func resolution(_ width: Int?, _ height: Int?) -> String {
+    private static func resolution(
+        _ width: Int?,
+        _ height: Int?
+    ) -> String {
         guard let width, let height else { return "—" }
         return "\(width) × \(height)"
     }
@@ -75,8 +95,12 @@ enum RtcStatsLogger {
     /// - Parameters:
     ///   - number: The metric value; `nil` when unavailable.
     ///   - unit: The metric unit.
+    ///
     /// - Returns: The value with its unit, or an unavailable placeholder.
-    private static func value(_ number: Int?, unit: String) -> String {
+    private static func value(
+        _ number: Int?,
+        unit: String
+    ) -> String {
         number.map { "\($0) \(unit)" } ?? "—"
     }
 }

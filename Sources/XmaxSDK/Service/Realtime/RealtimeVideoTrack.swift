@@ -1,10 +1,9 @@
 //
 //  RealtimeVideoTrack.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -17,8 +16,10 @@ public final class RealtimeVideoTrack: @unchecked Sendable {
     /// The video track identifier.
     public let id: String
 
-    /// Dynamic metadata
+    /// The lock protecting mutable track metadata.
     private let metadataLock = NSLock()
+
+    /// The synchronized media format and camera position.
     private var metadata: Metadata
 
     /// Creates a video track with the specified identity and initial metadata.
@@ -59,7 +60,9 @@ public final class RealtimeVideoTrack: @unchecked Sendable {
     /// Updates device metadata while retaining video track identity.
     ///
     /// - Parameter device: The camera device after switching completes.
-    func updateDevice(_ device: CameraDevice) {
+    func updateDevice(
+        _ device: CameraDevice
+    ) {
         metadataLock.withLock {
             metadata.device = device
             metadata.position = device.position
@@ -69,7 +72,9 @@ public final class RealtimeVideoTrack: @unchecked Sendable {
     /// Updates the video track's current format.
     ///
     /// - Parameter videoFormat: The new dimensions, frame rate, and encoding configuration.
-    func updateVideoFormat(_ videoFormat: RealtimeVideoFormat) {
+    func updateVideoFormat(
+        _ videoFormat: RealtimeVideoFormat
+    ) {
         metadataLock.withLock {
             metadata.videoFormat = videoFormat
         }
@@ -78,7 +83,9 @@ public final class RealtimeVideoTrack: @unchecked Sendable {
     /// Updates the local camera track position.
     ///
     /// - Parameter position: The camera position currently used for capture.
-    func updatePosition(_ position: CameraPosition) {
+    func updatePosition(
+        _ position: CameraPosition
+    ) {
         metadataLock.withLock {
             metadata.position = position
         }
@@ -86,12 +93,17 @@ public final class RealtimeVideoTrack: @unchecked Sendable {
 }
 
 private extension RealtimeVideoTrack {
+
     /// Stores video format and camera position metadata updated during capture and rendering.
     struct Metadata {
 
-        /// Current media format
+        /// The resolved media dimensions, frame rate, and encoding settings.
         var videoFormat: RealtimeVideoFormat?
+
+        /// The camera position, if this is a camera track.
         var position: CameraPosition?
+
+        /// The selected macOS camera metadata for the local track.
         var device: CameraDevice?
     }
 }

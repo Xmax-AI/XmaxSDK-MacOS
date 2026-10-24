@@ -1,10 +1,9 @@
 //
 //  DecodedImage.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -23,7 +22,9 @@ protocol DecodedImage: Sendable {
     /// - Parameters:
     ///   - width: The target frame width in pixels.
     ///   - height: The target frame height in pixels.
+    ///
     /// - Returns: A BGRA frame with a buffer reuse identifier and an initial timestamp of zero.
+    ///
     /// - Throws: An error on invalid dimensions, memory size overflow, or cropping or pixel drawing failure.
     func makeVideoFrame(
         width: Int,
@@ -34,18 +35,23 @@ protocol DecodedImage: Sendable {
 /// Retains an oriented Core Graphics image and produces video frames.
 final class CoreGraphicsDecodedImage: DecodedImage, @unchecked Sendable {
 
-    /// Image resources
+    /// The decoded image pixels.
     private let image: CGImage
 
-    /// Image information
+    /// The decoded dimensions, in pixels.
     let size: CGSize
 
     /// Retains a Core Graphics image with orientation applied.
     ///
     /// - Parameter image: The pixel image used for subsequent cropping and scaling.
-    init(image: CGImage) {
+    init(
+        image: CGImage
+    ) {
         self.image = image
-        size = CGSize(width: image.width, height: image.height)
+        size = CGSize(
+            width: image.width,
+            height: image.height
+        )
     }
 
     /// Center-crops and scales the image to the target aspect ratio, creating a reusable video frame.
@@ -53,7 +59,9 @@ final class CoreGraphicsDecodedImage: DecodedImage, @unchecked Sendable {
     /// - Parameters:
     ///   - width: The target frame width in pixels.
     ///   - height: The target frame height in pixels.
+    ///
     /// - Returns: A BGRA frame with a buffer reuse identifier and an initial timestamp of zero.
+    ///
     /// - Throws: An error on invalid dimensions, memory size overflow, or cropping or pixel drawing failure.
     func makeVideoFrame(
         width: Int,
@@ -62,8 +70,7 @@ final class CoreGraphicsDecodedImage: DecodedImage, @unchecked Sendable {
         guard width > 0, height > 0 else {
             throw XmaxError(
                 code: .invalidConfiguration,
-                message: "Image width and height must be finite numbers " +
-                    "greater than zero"
+                message: "Image width and height must be finite numbers " + "greater than zero"
             )
         }
 
@@ -75,7 +82,8 @@ final class CoreGraphicsDecodedImage: DecodedImage, @unchecked Sendable {
         )
         let sourceImage: CGImage
         if cropRect.width == CGFloat(image.width),
-           cropRect.height == CGFloat(image.height) {
+            cropRect.height == CGFloat(image.height)
+        {
             sourceImage = image
         } else {
             guard let croppedImage = image.cropping(to: cropRect) else {
@@ -84,12 +92,14 @@ final class CoreGraphicsDecodedImage: DecodedImage, @unchecked Sendable {
             sourceImage = croppedImage
         }
 
-        let (pixelCount, pixelOverflow) = width
+        let (pixelCount, pixelOverflow) =
+            width
             .multipliedReportingOverflow(by: height)
         guard !pixelOverflow else {
             throw Self.processingError("Image dimensions are too large")
         }
-        let (byteCount, byteOverflow) = pixelCount
+        let (byteCount, byteOverflow) =
+            pixelCount
             .multipliedReportingOverflow(by: 4)
         guard !byteOverflow else {
             throw Self.processingError("Image dimensions are too large")
@@ -97,26 +107,31 @@ final class CoreGraphicsDecodedImage: DecodedImage, @unchecked Sendable {
 
         let bytesPerRow = try Self.bytesPerRow(width: width)
         var data = Data(count: byteCount)
-        let bitmapInfo = CGBitmapInfo.byteOrder32Little.rawValue |
-            CGImageAlphaInfo.premultipliedFirst.rawValue
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
         let didRender = data.withUnsafeMutableBytes { bytes -> Bool in
             guard let address = bytes.baseAddress,
-                  let context = CGContext(
-                      data: address,
-                      width: width,
-                      height: height,
-                      bitsPerComponent: 8,
-                      bytesPerRow: bytesPerRow,
-                      space: CGColorSpaceCreateDeviceRGB(),
-                      bitmapInfo: bitmapInfo
-                  ) else {
+                let context = CGContext(
+                    data: address,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: bytesPerRow,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: bitmapInfo
+                )
+            else {
                 return false
             }
 
             context.interpolationQuality = .high
             context.draw(
                 sourceImage,
-                in: CGRect(x: 0, y: 0, width: width, height: height)
+                in: CGRect(
+                    x: 0,
+                    y: 0,
+                    width: width,
+                    height: height
+                )
             )
             return true
         }
@@ -148,6 +163,7 @@ final class CoreGraphicsDecodedImage: DecodedImage, @unchecked Sendable {
     ///   - sourceHeight: The source image height in pixels.
     ///   - targetWidth: The target output width in pixels.
     ///   - targetHeight: The target output height in pixels.
+    ///
     /// - Returns: An integer-pixel crop rectangle in source image coordinates.
     static func centerCropRect(
         sourceWidth: Int,
@@ -182,12 +198,17 @@ final class CoreGraphicsDecodedImage: DecodedImage, @unchecked Sendable {
 }
 
 private extension CoreGraphicsDecodedImage {
+
     /// Calculates the BGRA image byte count per row.
     ///
     /// - Parameter width: The image width in pixels.
+    ///
     /// - Returns: The total row byte count for four-byte pixels.
+    ///
     /// - Throws: A media error if width calculation overflows.
-    static func bytesPerRow(width: Int) throws -> Int {
+    static func bytesPerRow(
+        width: Int
+    ) throws -> Int {
         let (value, overflow) = width.multipliedReportingOverflow(by: 4)
         guard !overflow else {
             throw processingError("Image dimensions are too large")
@@ -198,8 +219,14 @@ private extension CoreGraphicsDecodedImage {
     /// Creates an image processing error.
     ///
     /// - Parameter message: A readable image processing failure description.
+    ///
     /// - Returns: An SDK error with the media error code.
-    static func processingError(_ message: String) -> XmaxError {
-        XmaxError(code: .mediaError, message: message)
+    static func processingError(
+        _ message: String
+    ) -> XmaxError {
+        XmaxError(
+            code: .mediaError,
+            message: message
+        )
     }
 }

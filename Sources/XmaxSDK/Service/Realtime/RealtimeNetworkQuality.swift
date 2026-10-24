@@ -1,10 +1,9 @@
 //
 //  RealtimeNetworkQuality.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -44,10 +43,6 @@ public struct RealtimeNetworkQuality: Equatable, Sendable {
     public let downlink: RealtimeNetworkQualityLevel
 
     /// Creates an upstream and downstream network quality snapshot.
-    ///
-    /// - Parameters:
-    ///   - uplink: The local media upstream network quality.
-    ///   - downlink: The remote media downstream network quality.
     public init(
         uplink: RealtimeNetworkQualityLevel,
         downlink: RealtimeNetworkQualityLevel
@@ -58,6 +53,7 @@ public struct RealtimeNetworkQuality: Equatable, Sendable {
 }
 
 /// The realtime network quality listener.
-public typealias RealtimeNetworkQualityListener = @MainActor @Sendable (
-    RealtimeNetworkQuality
-) -> Void
+public typealias RealtimeNetworkQualityListener =
+    @MainActor @Sendable (
+        RealtimeNetworkQuality
+    ) -> Void

@@ -1,10 +1,9 @@
 //
 //  CameraController.swift
 //  XmaxSDK
-//  Repo: https://github.com/XingMai/XmaxSDK-MacOS
 //
 //  Author: 翁跃庭 (Yueting Weng)
-//  GitHub: https://github.com/WengYuehTing
+//  GitHub: https://github.com/Xmax-AI/XmaxSDK-MacOS
 //
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
@@ -15,36 +14,52 @@ import Foundation
 /// Coordinates RTC camera capture and SDK local preview.
 final class CameraController: CameraControlling, @unchecked Sendable {
 
-    /// Track identity
+    /// The local camera track identifier.
     private static let localVideoTrackID = "video0"
 
-    /// Foundation components
+    /// The RTC media adapter.
     private let rtcManager: any RtcManaging
+
+    /// The camera and microphone permission manager.
     private let permissionManager: any PermissionManaging
+
+    /// The camera capture manager.
     private let captureManager: any CameraCaptureManaging
 
-    /// Service components
+    /// The model media sizing service.
     private let mediaService: any MediaServicing
 
-    /// Event listeners
+    /// The camera video frame handler.
     private let videoFrameListener: MediaVideoFrameListener
+
+    /// The camera media failure handler.
     private let errorListener: XmaxErrorListener
+
+    /// The internal preview readiness handler.
     private var previewReadyHandler: CameraPreviewReadyHandler?
 
-    /// Concurrency control
+    /// The lock protecting camera, capture, and preview state.
     private let stateLock = NSLock()
+
+    /// The lock serializing microphone start and stop operations.
     private let audioOperationLock = NSRecursiveLock()
 
-    /// Local resources
+    /// The active camera track.
     private var activeTrack: RealtimeVideoTrack?
+
+    /// The camera preview resources.
     private var preview: Preview?
 
-    /// Preview state
+    /// Whether capture can support local media readiness.
     private var isCaptureReady = false
+
+    /// Whether a preview view is attached.
     private var isPreviewAttached = false
 
-    /// Microphone configuration and capture state
+    /// Whether this camera input requests microphone access.
     private var storedUseMicrophone = false
+
+    /// Whether RTC microphone capture is active.
     private var isMicrophoneCapturing = false
 
     /// Creates a camera controller with system permission and capture components.
@@ -106,9 +121,13 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// Resolves an explicit device or system default without silently replacing an unavailable explicit selection.
     ///
     /// - Parameter deviceID: The specified device identifier; an empty value uses the default device.
+    ///
     /// - Returns: The available target device.
+    ///
     /// - Throws: A media error if the specified device is unavailable or no camera exists.
-    private func resolveDevice(_ deviceID: String?) throws -> CameraDevice {
+    private func resolveDevice(
+        _ deviceID: String?
+    ) throws -> CameraDevice {
         let devices = captureManager.listCameraDevices()
         let device: CameraDevice?
         if let deviceID {
@@ -117,7 +136,10 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             device = devices.first { $0.isDefault } ?? devices.first
         }
         guard let device else {
-            throw XmaxError(code: .mediaError, message: "The requested camera is unavailable")
+            throw XmaxError(
+                code: .mediaError,
+                message: "The requested camera is unavailable"
+            )
         }
         return device
     }
@@ -135,7 +157,9 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// Reports ready capture and a bound preview without requiring hidden native views to render.
     ///
     /// - Parameter handler: The readiness callback; an empty value clears it.
-    func setPreviewReadyHandler(_ handler: CameraPreviewReadyHandler?) {
+    func setPreviewReadyHandler(
+        _ handler: CameraPreviewReadyHandler?
+    ) {
         let track = stateLock.withLock {
             previewReadyHandler = handler
             return activeTrack
@@ -146,11 +170,15 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// Creates and starts a local camera stream.
     ///
     /// - Parameters:
-    ///   - videoFormat: The requested dimensions, frame rate, and encoding configuration; dimensions follow model rules.
+    ///   - videoFormat: The requested dimensions, frame rate, and encoding configuration; dimensions follow model
+    ///     rules.
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
     ///   - useMicrophone: Whether to request microphone permission and allow capture when realtime connects.
+    ///
     /// - Returns: The media stream containing the local camera video track.
-    /// - Throws: An error on an existing camera stream, invalid format, insufficient permissions, or capture startup failure.
+    ///
+    /// - Throws: An error on an existing camera stream, invalid format, insufficient permissions, or capture startup
+    ///   failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
@@ -183,10 +211,15 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             }
             try Task.checkCancellation()
             if !captureManager.suppliesRTCVideo {
-                try LocalMediaPreparationTiming.measure(.externalVideoSource) { try rtcManager.useExternalVideoSource() }
+                try LocalMediaPreparationTiming.measure(.externalVideoSource) {
+                    try rtcManager.useExternalVideoSource()
+                }
             }
             let preview = await LocalMediaPreparationTiming.measureAsync(.createPreview) {
-                await makePreview(for: track, position: device.position)
+                await makePreview(
+                    for: track,
+                    position: device.position
+                )
             }
             stateLock.withLock {
                 activeTrack = track
@@ -214,7 +247,11 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                     frameRate: resolvedFormat.fps,
                     deviceID: device.id,
                     frameListener: { [weak self] frame in
-                        try self?.handleFrame(frame, track: track, preview: preview)
+                        try self?.handleFrame(
+                            frame,
+                            track: track,
+                            preview: preview
+                        )
                     },
                     errorListener: { [weak self] error in
                         guard let self, currentTrack === track else { return }
@@ -223,7 +260,10 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 )
             }
             try Task.checkCancellation()
-            return RealtimeMediaStream(id: StreamID.local.rawValue, videoTrack: track)
+            return RealtimeMediaStream(
+                id: StreamID.local.rawValue,
+                videoTrack: track
+            )
         } catch {
             await stopLocalCameraStream()
             throw XmaxError.from(error)
@@ -265,9 +305,9 @@ final class CameraController: CameraControlling, @unchecked Sendable {
         } catch {
             XmaxLogger.realtime.error(
                 message: """
-                停止麦克风采集失败 (Failed to Stop Microphone Capture)
-                └─ \(XmaxLogger.localized("原因：", "Reason: "))\((error as NSError).localizedDescription)
-                """
+                    停止麦克风采集失败 (Failed to Stop Microphone Capture)
+                    └─ \(XmaxLogger.localized("原因：", "Reason: "))\((error as NSError).localizedDescription)
+                    """
             )
         }
         let resources = stateLock.withLock {
@@ -292,59 +332,114 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// Switches to the specified camera device while retaining the current video track.
     ///
     /// - Returns: The media stream containing the updated camera track.
+    ///
     /// - Throws: An error if no camera stream is active or device switching fails.
-    func switchCamera(to deviceID: String) async throws -> RealtimeMediaStream {
+    func switchCamera(
+        to deviceID: String
+    ) async throws -> RealtimeMediaStream {
         guard let track = currentTrack else {
-            throw XmaxError(code: .rtcError, message: "Local camera preview is not started")
+            throw XmaxError(
+                code: .rtcError,
+                message: "Local camera preview is not started"
+            )
         }
         let device = try resolveDevice(deviceID)
         try await captureManager.switchCamera(to: device.id)
         track.updateDevice(device)
         let preview = stateLock.withLock { self.preview }
         try await preview?.setMirrored(device.position == .front)
-        return RealtimeMediaStream(id: StreamID.local.rawValue, videoTrack: track)
+        return RealtimeMediaStream(
+            id: StreamID.local.rawValue,
+            videoTrack: track
+        )
     }
 
 }
 
 private extension CameraController {
+
     /// Retains native rendering or the custom preview fallback.
     enum Preview: Sendable {
+
+        /// A preview driven by decoded video frames.
         case decoded(DecodedVideoPreviewPresenter, DecodedVideoPreviewDispatcher)
+
+        /// A preview rendered directly by the RTC engine.
         case native(RtcCameraPreviewPresenter)
 
+        /// The decoded preview dispatcher, when decoded capture is in use.
         var dispatcher: DecodedVideoPreviewDispatcher? {
-            if case .decoded(_, let dispatcher) = self { return dispatcher }
+            if case .decoded(
+                _,
+                let dispatcher
+            ) = self {
+                return dispatcher
+            }
             return nil
         }
 
-        @MainActor func attach(to view: XmaxVideoView, contentMode: VideoContentMode) throws {
+        /// Attaches the active preview implementation to a video view.
+        @MainActor func attach(
+            to view: XmaxVideoView,
+            contentMode: VideoContentMode
+        ) throws {
             switch self {
-            case .decoded(let presenter, _): presenter.attach(to: view, contentMode: contentMode)
-            case .native(let presenter): try presenter.attach(to: view, contentMode: contentMode)
+            case .decoded(
+                let presenter,
+                _
+            ):
+                presenter.attach(
+                    to: view,
+                    contentMode: contentMode
+                )
+            case .native(let presenter):
+                try presenter.attach(
+                    to: view,
+                    contentMode: contentMode
+                )
             }
         }
 
-        @MainActor func detach(from view: XmaxVideoView) throws {
+        /// Removes the matching preview binding.
+        @MainActor func detach(
+            from view: XmaxVideoView
+        ) throws {
             switch self {
-            case .decoded(let presenter, _): presenter.detach(from: view)
+            case .decoded(
+                let presenter,
+                _
+            ): presenter.detach(from: view)
             case .native(let presenter): try presenter.detach(from: view)
             }
         }
 
-        @MainActor func setMirrored(_ mirrored: Bool) throws {
+        /// Updates mirroring for the active preview implementation.
+        @MainActor func setMirrored(
+            _ mirrored: Bool
+        ) throws {
             switch self {
-            case .decoded(let presenter, _): presenter.setMirrored(mirrored)
+            case .decoded(
+                let presenter,
+                _
+            ): presenter.setMirrored(mirrored)
             case .native(let presenter): try presenter.setMirrored(mirrored)
             }
         }
 
+        /// Clears and releases the active preview presentation.
         @MainActor func clear() {
             switch self {
-            case .decoded(let presenter, _): presenter.clear()
+            case .decoded(
+                let presenter,
+                _
+            ): presenter.clear()
             case .native(let presenter):
-                do { try presenter.clear() }
-                catch { XmaxVideoView.logRenderingFailure(title: "Failed to detach native camera preview", error: error) }
+                do { try presenter.clear() } catch {
+                    XmaxVideoView.logRenderingFailure(
+                        title: "Failed to detach native camera preview",
+                        error: error
+                    )
+                }
             }
         }
     }
@@ -354,34 +449,52 @@ private extension CameraController {
     /// - Parameters:
     ///   - track: The local camera track to preview.
     ///   - position: The camera position determining preview mirroring.
+    ///
     /// - Returns: The preview components used for frame submission and resource release.
     @MainActor
-    func makePreview(for track: RealtimeVideoTrack, position: CameraPosition) -> Preview {
+    func makePreview(
+        for track: RealtimeVideoTrack,
+        position: CameraPosition
+    ) -> Preview {
         let preview: Preview
         if captureManager.suppliesRTCVideo {
-            preview = .native(RtcCameraPreviewPresenter(rtcManager: rtcManager, mirrored: position == .front))
+            preview = .native(
+                RtcCameraPreviewPresenter(
+                    rtcManager: rtcManager,
+                    mirrored: position == .front
+                )
+            )
         } else {
             let presenter = DecodedVideoPreviewPresenter()
             presenter.setMirrored(position == .front)
-            preview = .decoded(presenter, DecodedVideoPreviewDispatcher(presenter: presenter))
+            preview = .decoded(
+                presenter,
+                DecodedVideoPreviewDispatcher(presenter: presenter)
+            )
         }
-        VideoRenderRegistry.register(track, binding: VideoRenderBinding(
-            attachHandler: { [weak self] view, contentMode in
-                guard let videoView = view as? XmaxVideoView else {
-                    throw XmaxError(
-                        code: .invalidConfiguration,
-                        message: "Camera tracks require an XmaxVideoView"
+        VideoRenderRegistry.register(
+            track,
+            binding: VideoRenderBinding(
+                attachHandler: { [weak self] view, contentMode in
+                    guard let videoView = view as? XmaxVideoView else {
+                        throw XmaxError(
+                            code: .invalidConfiguration,
+                            message: "Camera tracks require an XmaxVideoView"
+                        )
+                    }
+                    try preview.attach(
+                        to: videoView,
+                        contentMode: contentMode
                     )
+                    self?.stateLock.withLock { self?.isPreviewAttached = true }
+                    self?.notifyPreviewReady(for: track)
+                },
+                detachHandler: { [weak self] view in
+                    if let videoView = view as? XmaxVideoView { try preview.detach(from: videoView) }
+                    self?.stateLock.withLock { self?.isPreviewAttached = false }
                 }
-                try preview.attach(to: videoView, contentMode: contentMode)
-                self?.stateLock.withLock { self?.isPreviewAttached = true }
-                self?.notifyPreviewReady(for: track)
-            },
-            detachHandler: { [weak self] view in
-                if let videoView = view as? XmaxVideoView { try preview.detach(from: videoView) }
-                self?.stateLock.withLock { self?.isPreviewAttached = false }
-            }
-        ))
+            )
+        )
         return preview
     }
 
@@ -391,8 +504,13 @@ private extension CameraController {
     ///   - frame: The captured frame after orientation and dimension conversion.
     ///   - track: The camera track producing the frame.
     ///   - preview: The preview components retained by this track.
+    ///
     /// - Throws: An error if the video frame listener fails to process the frame.
-    func handleFrame(_ frame: VideoFrame, track: RealtimeVideoTrack, preview: Preview) throws {
+    func handleFrame(
+        _ frame: VideoFrame,
+        track: RealtimeVideoTrack,
+        preview: Preview
+    ) throws {
         let accepted = try stateLock.withLock {
             guard activeTrack === track else { return false }
             preview.dispatcher?.enqueue(frame)
@@ -407,10 +525,11 @@ private extension CameraController {
     /// Reports readiness once capture is active and the preview is bound.
     ///
     /// - Parameter track: The camera track whose validity must be checked.
-    func notifyPreviewReady(for track: RealtimeVideoTrack) {
+    func notifyPreviewReady(
+        for track: RealtimeVideoTrack
+    ) {
         let shouldNotify = stateLock.withLock {
-            activeTrack === track && isCaptureReady && isPreviewAttached &&
-                previewReadyHandler != nil
+            activeTrack === track && isCaptureReady && isPreviewAttached && previewReadyHandler != nil
         }
         guard shouldNotify else { return }
         Task { @MainActor [weak self] in
@@ -435,15 +554,25 @@ private extension CameraController {
     /// Resolves the actual camera output format using model dimension rules.
     ///
     /// - Parameter videoFormat: The requested camera video format.
+    ///
     /// - Returns: The valid output format retaining frame rate and encoding options.
+    ///
     /// - Throws: An error if input format is invalid or the model does not support target dimensions.
-    func resolveVideoFormat(_ videoFormat: RealtimeVideoFormat) throws -> RealtimeVideoFormat {
+    func resolveVideoFormat(
+        _ videoFormat: RealtimeVideoFormat
+    ) throws -> RealtimeVideoFormat {
         try videoFormat.validate()
         let targetSize = try mediaService.resolveMediaSize(
-            CGSize(width: videoFormat.width, height: videoFormat.height),
+            CGSize(
+                width: videoFormat.width,
+                height: videoFormat.height
+            ),
             source: .camera
         )
-        let resolvedFormat = videoFormat.resized(width: Int(targetSize.width), height: Int(targetSize.height))
+        let resolvedFormat = videoFormat.resized(
+            width: Int(targetSize.width),
+            height: Int(targetSize.height)
+        )
         try resolvedFormat.validate()
         return resolvedFormat
     }
