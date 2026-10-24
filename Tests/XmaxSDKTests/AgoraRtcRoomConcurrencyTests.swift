@@ -5,6 +5,19 @@ import XCTest
 @testable import XmaxSDK
 
 final class AgoraRtcRoomConcurrencyTests: XCTestCase, @unchecked Sendable {
+    func testJoinDoesNotRegisterObserverUntilRemoteFramesAreRequested() async throws {
+        let (room, engine) = try await joinedRoom()
+        defer { room.destroy() }
+        XCTAssertEqual(engine.registrationCount, 0, "Entering the RTC room must not wait for raw video registration")
+        XCTAssertNil(engine.videoDelegate)
+
+        try room.setRemoteVideoFrameListener({ _ in }, for: "bot")
+        XCTAssertEqual(engine.registrationCount, 1)
+        XCTAssertNotNil(engine.videoDelegate)
+        try room.setRemoteVideoFrameListener(nil, for: "bot")
+        XCTAssertEqual(engine.registrationCount, 1, "Removing a listener must not register an observer")
+    }
+
     func testUnpublishLetsInFlightVideoCallbackReturn() async throws {
         let (room, engine) = try await joinedRoom()
         defer { room.destroy() }
@@ -169,6 +182,7 @@ private final class CallbackWaitingAgoraEngine: AgoraRtcRoomEngine, @unchecked S
     var onUnregister: (() -> Void)?
     var callbackReturned: Bool?
     var leaveCount = 0
+    var registrationCount = 0
     var lastVideoPublication: (camera: Bool, custom: Bool)?
 
     func waitForCallback(_ callback: @escaping @Sendable () -> Void) {
@@ -179,6 +193,7 @@ private final class CallbackWaitingAgoraEngine: AgoraRtcRoomEngine, @unchecked S
     }
 
     func setVideoFrameDelegate(_ delegate: (any AgoraVideoFrameDelegate)?) -> Bool {
+        if delegate != nil { registrationCount += 1 }
         if delegate == nil { onUnregister?() }
         videoDelegate = delegate
         return true

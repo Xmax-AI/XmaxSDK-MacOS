@@ -91,10 +91,6 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
                 callback?(frame)
             }
             videoSink = sink
-            guard platform.setRemoteVideoSink(sink) else {
-                throw XmaxError(
-                    code: .rtcError, message: "Failed to register RTC video frame observer")
-            }
 
             let options = AgoraRtcChannelMediaOptions()
             options.channelProfile = .liveBroadcasting
@@ -241,6 +237,12 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
         try platform.lock.withLock {
             try requireJoined()
             let uid = try resolveUID(userID)
+            // Joining does not depend on raw video access. Register only when frames are requested.
+            if listener != nil {
+                guard let videoSink, platform.setRemoteVideoSink(videoSink) else {
+                    throw XmaxError(code: .rtcError, message: "Failed to register RTC video frame observer")
+                }
+            }
             callbackLock.withLock {
                 if !callbackState.isClosed { callbackState.frameListeners[uid] = listener }
             }
