@@ -199,7 +199,7 @@ final class TrajectoryTests: XCTestCase {
         let recorder = TrajectoryFrameRecorder()
         render.registerRemoteTrack(track, resolvedMediaSize: CGSize(width: 4, height: 4), interactionListener: { await recorder.append($0) })
         let renderer = RecordingTrajectoryRenderer()
-        let video = XmaxVideoView(track: track, videoContentMode: .fit)
+        let video = XmaxRealtimeVideoView(track: track, videoContentMode: .fit)
         video.trajectoryRenderer = renderer
         let window = makeWindow(content: video)
         defer { window.close() }
@@ -259,7 +259,7 @@ final class TrajectoryTests: XCTestCase {
         let recorder = TrajectoryFrameRecorder()
         render.registerRemoteTrack(track, resolvedMediaSize: basis, interactionListener: { await recorder.append($0) })
         let renderer = RecordingTrajectoryRenderer()
-        let video = XmaxVideoView(track: track, videoContentMode: .fit)
+        let video = XmaxRealtimeVideoView(track: track, videoContentMode: .fit)
         video.trajectoryRenderer = renderer
         let window = makeWindow(content: video)
         defer { window.close() }
@@ -297,20 +297,20 @@ final class TrajectoryTests: XCTestCase {
         try await render.resetRemoteTrack(track)
     }
 
-    func testRealtimeContainerInteractionInitializerAndTrackChangesRetainTheSetting() {
+    func testDualVideoInteractionInitializerAndTrackChangesRetainTheSetting() {
         let local = RealtimeVideoTrack(id: "local")
         let remote = RealtimeVideoTrack(id: "remote")
-        let view = XmaxRealtimeVideoView(
+        let view = XmaxRealtimeDualVideoView(
             localTrack: local, remoteTrack: remote, videoContentMode: .fit, isInteractionEnabled: false
         )
         XCTAssertFalse(view.isInteractionEnabled)
-        XCTAssertFalse((view.subviews.last as? XmaxVideoView)?.isInteractionEnabled ?? true)
+        XCTAssertFalse((view.subviews.last as? XmaxRealtimeVideoView)?.isInteractionEnabled ?? true)
         view.remoteTrack = nil
         view.remoteTrack = remote
         XCTAssertFalse(view.isInteractionEnabled)
         view.isInteractionEnabled = true
         XCTAssertTrue(view.isInteractionEnabled)
-        XCTAssertTrue(XmaxRealtimeVideoView().isInteractionEnabled)
+        XCTAssertTrue(XmaxRealtimeDualVideoView().isInteractionEnabled)
         view.remoteTrack = nil
         view.localTrack = nil
     }

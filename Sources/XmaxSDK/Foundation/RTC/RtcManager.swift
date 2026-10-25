@@ -266,7 +266,7 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
                 do {
                     if try tryPreviewCommand(operation) { return }
                 } catch {
-                    XmaxVideoView.logRenderingFailure(
+                    XmaxRealtimeVideoView.logRenderingFailure(
                         title: "Failed to bind native camera preview",
                         error: error
                     )

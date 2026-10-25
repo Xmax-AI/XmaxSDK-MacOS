@@ -254,7 +254,7 @@ let realtime = client.createRealtimeManager(
 
 let localStream = try await realtime.createLocalCameraStream()
 
-let videoView = XmaxRealtimeVideoView(
+let videoView = XmaxRealtimeDualVideoView(
     localTrack: localStream.videoTrack,
     videoContentMode: .fill
 )
@@ -275,17 +275,20 @@ let remoteStream = try await realtime.startGeneration(
 videoView.remoteTrack = remoteStream.videoTrack
 ```
 
-The view displays a local camera preview until the first generated frame arrives.
+`XmaxRealtimeDualVideoView` keeps local preview running underneath the generated
+result, reveals the result after its first frame, and restores local preview when
+`remoteTrack` is cleared. To display a single local or remote track, use
+`XmaxRealtimeVideoView(track:)`.
 
 <br>
 
 ### Using SwiftUI
 
-Use `XmaxRealtimeVideo` as your primary SwiftUI view. Store the local and remote
+Use `XmaxRealtimeDualVideo` as your primary SwiftUI view. Store the local and remote
 tracks in observable state, updating them dynamically as streams become available:
 
 ```swift
-XmaxRealtimeVideo(
+XmaxRealtimeDualVideo(
     localTrack: localTrack,
     remoteTrack: remoteTrack,
     videoContentMode: .fill
@@ -293,6 +296,7 @@ XmaxRealtimeVideo(
 ```
 
 See the [SwiftUI guide](./Materials/usage.md#appkit-and-swiftui) for state binding.
+Use `XmaxRealtimeVideo(track:)` when displaying one local or remote track.
 
 <br>
 
@@ -305,13 +309,13 @@ pulsing rings, and fading tail as the Web and iOS SDKs. Local previews do not se
 trajectories.
 
 ```swift
-videoView.isInteractionEnabled = true // XmaxVideoView or XmaxRealtimeVideoView
+videoView.isInteractionEnabled = true // XmaxRealtimeVideoView or XmaxRealtimeDualVideoView
 videoView.isMirrored = true           // Mirrors the result; pointer coordinates keep their displayed orientation
 videoView.trajectoryRenderer = nil    // Built-in effect
 ```
 
 Use `isInteractionEnabled`, `isMirrored`, and `trajectoryRenderer` in the SwiftUI
-`XmaxVideo` and `XmaxRealtimeVideo` initializers as well. To customize visuals,
+`XmaxRealtimeVideo` and `XmaxRealtimeDualVideo` initializers as well. To customize visuals,
 implement `TrajectoryEffectRendering` with an `NSView` and its began, moved, ended,
 and reset callbacks. The SDK continues to own input collection, coordinate mapping,
 and signaling independently of the renderer.

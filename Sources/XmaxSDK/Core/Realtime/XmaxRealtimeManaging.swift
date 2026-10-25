@@ -249,7 +249,7 @@ public protocol XmaxRealtimeManaging: Sendable {
     ///   - source: The video source implemented and owned by your app.
     ///   - videoFormat: Optional processing format; nil retains the source frame rate and encoding settings.
     ///
-    /// - Returns: A local stream for an `XmaxVideoView` or realtime generation.
+    /// - Returns: A local stream for an `XmaxRealtimeVideoView` or realtime generation.
     ///
     /// - Throws: An error if the format is invalid, a stream already exists, an operation
     ///   conflicts, or source binding fails.

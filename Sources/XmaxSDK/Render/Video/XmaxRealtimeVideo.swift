@@ -10,15 +10,12 @@
 
 import SwiftUI
 
-/// Automatically switches between local preview and remote generation in SwiftUI.
+/// A SwiftUI view rendering one local or remote realtime video track.
 @MainActor
 public struct XmaxRealtimeVideo: NSViewRepresentable {
 
-    /// The displayed local video track.
-    public let localTrack: RealtimeVideoTrack?
-
-    /// The displayed remote generation video track.
-    public let remoteTrack: RealtimeVideoTrack?
+    /// The displayed video track.
+    public let track: RealtimeVideoTrack?
 
     /// The video content display mode in its container.
     public let videoContentMode: VideoContentMode
@@ -32,17 +29,15 @@ public struct XmaxRealtimeVideo: NSViewRepresentable {
     /// Custom trajectory visuals; nil uses the built-in green glow.
     public let trajectoryRenderer: (any TrajectoryEffectRendering)?
 
-    /// Creates a SwiftUI realtime video component.
+    /// Creates a SwiftUI video rendering component.
     public init(
-        localTrack: RealtimeVideoTrack?,
-        remoteTrack: RealtimeVideoTrack?,
+        track: RealtimeVideoTrack?,
         videoContentMode: VideoContentMode = .fill,
         isInteractionEnabled: Bool = true,
         isMirrored: Bool = false,
         trajectoryRenderer: (any TrajectoryEffectRendering)? = nil
     ) {
-        self.localTrack = localTrack
-        self.remoteTrack = remoteTrack
+        self.track = track
         self.videoContentMode = videoContentMode
         self.isInteractionEnabled = isInteractionEnabled
         self.isMirrored = isMirrored
@@ -53,16 +48,15 @@ public struct XmaxRealtimeVideo: NSViewRepresentable {
     ///
     /// - Parameter context: The SwiftUI view creation context.
     ///
-    /// - Returns: The SDK realtime video view configured with local and remote tracks.
+    /// - Returns: The SDK video view configured for the current track.
     public func makeNSView(
         context: Context
     ) -> XmaxRealtimeVideoView {
         let view = XmaxRealtimeVideoView(
-            localTrack: localTrack,
-            remoteTrack: remoteTrack,
-            videoContentMode: videoContentMode,
-            isInteractionEnabled: isInteractionEnabled
+            track: track,
+            videoContentMode: videoContentMode
         )
+        view.isInteractionEnabled = isInteractionEnabled
         view.isMirrored = isMirrored
         view.trajectoryRenderer = trajectoryRenderer
         return view
@@ -81,8 +75,7 @@ public struct XmaxRealtimeVideo: NSViewRepresentable {
         view.isInteractionEnabled = isInteractionEnabled
         view.isMirrored = isMirrored
         view.trajectoryRenderer = trajectoryRenderer
-        view.localTrack = localTrack
-        view.remoteTrack = remoteTrack
+        view.track = track
     }
 
     /// Unbinds video tracks when SwiftUI removes the view.
@@ -94,7 +87,6 @@ public struct XmaxRealtimeVideo: NSViewRepresentable {
         _ view: XmaxRealtimeVideoView,
         coordinator: Void
     ) {
-        view.localTrack = nil
-        view.remoteTrack = nil
+        view.track = nil
     }
 }

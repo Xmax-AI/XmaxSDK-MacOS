@@ -87,7 +87,7 @@ let remoteStream = try await manager.startGeneration(
 )
 ```
 
-Display `remoteStream.videoTrack` in `XmaxVideo` or `XmaxVideoView`. Do not wait for this call to return before feeding frames: startup waits for generated results and their first displayable frame.
+Display `remoteStream.videoTrack` in `XmaxRealtimeVideo` or `XmaxRealtimeVideoView`. Do not wait for this call to return before feeding frames: startup waits for generated results and their first displayable frame.
 
 ## Frame contract
 
@@ -106,9 +106,9 @@ Keep queues bounded: drop stale capture frames when conversion cannot keep up ra
 
 If the application already displays its own camera preview, leave the default preview methods unchanged. Binding the local track to an SDK view then displays no automatic camera image.
 
-Bind the returned local track to `XmaxVideoView` to preview the frames submitted to the SDK. Keep submitting while disconnected to maintain that preview. Your app may also retain its own independent capture preview.
+Bind the returned local track to `XmaxRealtimeVideoView` to preview the frames submitted to the SDK. Keep submitting while disconnected to maintain that preview. Your app may also retain its own independent capture preview.
 
-These methods run on the main actor. The local track can then be displayed by `XmaxVideo(track: localStream.videoTrack)`, and the SDK forwards its binding to your preview methods.
+These methods run on the main actor. The local track can then be displayed by `XmaxRealtimeVideo(track: localStream.videoTrack)`, and the SDK forwards its binding to your preview methods.
 
 ## Disconnect, unbind, and errors
 

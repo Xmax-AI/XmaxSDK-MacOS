@@ -350,7 +350,7 @@ final class RealtimeButton: NSButton {
         if let foregroundColor { return foregroundColor }
         if style == .primary { return .white }
         if style == .destructive { return NSColor(srgbRed: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1) }
-        if selected && style == .statistics { return RealtimePalette.accent }
+        if selected && (style == .statistics || style == .recording) { return RealtimePalette.accent }
         if selected && style == .interpolation { return NSColor(srgbRed: 169 / 255, green: 102 / 255, blue: 8 / 255, alpha: 1) }
         if style == .statistics || style == .interpolation || style == .volume || style == .recording {
             return selected || (hovered && isEnabled) ? RealtimePalette.text :
@@ -409,17 +409,15 @@ final class RealtimeButton: NSButton {
         case .destructive:
             bottom = NSColor(srgbRed: 253 / 255, green: hot ? 232 / 255 : 242 / 255, blue: hot ? 232 / 255 : 242 / 255, alpha: 1)
             border = foreground.withAlphaComponent(hot ? 0.5 : 0.28)
-        case .statistics where selected:
-            top = NSColor(srgbRed: 238 / 255, green: 241 / 255, blue: 1, alpha: 1)
-            bottom = top; border = NSColor(srgbRed: 215 / 255, green: 221 / 255, blue: 251 / 255, alpha: 1)
+        case .statistics, .recording:
+            if selected {
+                top = NSColor(srgbRed: 238 / 255, green: 241 / 255, blue: 1, alpha: 1)
+                bottom = top; border = NSColor(srgbRed: 215 / 255, green: 221 / 255, blue: 251 / 255, alpha: 1)
+            }
         case .interpolation where selected:
             top = NSColor(srgbRed: 1, green: 250 / 255, blue: 240 / 255, alpha: 1)
             bottom = NSColor(srgbRed: 1, green: 240 / 255, blue: 202 / 255, alpha: 1)
             border = NSColor(srgbRed: 240 / 255, green: 207 / 255, blue: 136 / 255, alpha: 1)
-        case .recording where selected:
-            top = NSColor(srgbRed: 249 / 255, green: 250 / 255, blue: 251 / 255, alpha: 1)
-            bottom = NSColor(srgbRed: 235 / 255, green: 238 / 255, blue: 242 / 255, alpha: 1)
-            border = NSColor(srgbRed: 208 / 255, green: 213 / 255, blue: 221 / 255, alpha: 1)
         case .tab:
             top = selected ? .white : .white.withAlphaComponent(hot ? 0.65 : 0)
             bottom = top; border = .clear
@@ -429,23 +427,19 @@ final class RealtimeButton: NSButton {
         }
         if isHighlighted { bottom = bottom.blended(withFraction: 0.06, of: .black) ?? bottom }
         NSGradient(starting: top, ending: bottom)?.draw(in: path, angle: 90)
-        if style == .pill || style == .volume || style == .recording || style == .destructive || (!selected && (style == .statistics || style == .interpolation)) {
+        if style == .pill || style == .volume || style == .destructive || (!selected && (style == .statistics || style == .interpolation || style == .recording)) {
             let highlight = NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: rect.height / 2 - 1, yRadius: rect.height / 2 - 1)
             NSColor.white.withAlphaComponent(0.6).setStroke(); highlight.lineWidth = 1; highlight.stroke()
         }
         border.setStroke(); path.lineWidth = 1; path.stroke()
         layer?.shadowColor = (style == .primary ? RealtimePalette.accent : NSColor.black).cgColor
-        let flat = style == .plain || (style == .tab && !selected) || (selected && (style == .statistics || style == .interpolation))
+        let flat = style == .plain || (style == .tab && !selected) || (selected && (style == .statistics || style == .interpolation || style == .recording))
         layer?.shadowOpacity = !showsShadow || flat ? 0 : style == .primary ? 0.35 : style == .tab ? 0.1 : hot ? 0.08 : 0.05
         layer?.shadowRadius = style == .primary ? 15 : style == .tab ? 4 : hot ? 8 : 6
         layer?.shadowOffset = CGSize(width: 0, height: style == .primary ? 10 : style == .tab ? 2 : hot ? 6 : 4)
         layer?.shadowPath = CGPath(roundedRect: rect, cornerWidth: rect.height / 2, cornerHeight: rect.height / 2, transform: nil)
         let (iconRect, textRect) = contentFrames()
-        if let icon, !loading {
-            let iconColor = style == .recording && selected ?
-                NSColor(srgbRed: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1) : foreground
-            RealtimeWebIcon.draw(icon, in: iconRect, color: iconColor)
-        }
+        if let icon, !loading { RealtimeWebIcon.draw(icon, in: iconRect, color: foreground) }
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [.font: font ?? NSFont.systemFont(ofSize: 13), .foregroundColor: foreground, .paragraphStyle: paragraph, .kern: tracking]
@@ -562,7 +556,7 @@ final class RealtimeStatisticsPanel: RealtimeCanvas {
 
 /// The SDK view remains attached throughout startup and page transitions.
 final class RealtimeVideoPanel: RealtimeCanvas {
-    let video = XmaxVideoView()
+    let video = XmaxRealtimeVideoView()
     private let videoContainer = RealtimeCanvas(color: .black)
     private let placeholder = realtimeLabel(size: 14, color: .white.withAlphaComponent(0.55))
     private let caption: NSTextField

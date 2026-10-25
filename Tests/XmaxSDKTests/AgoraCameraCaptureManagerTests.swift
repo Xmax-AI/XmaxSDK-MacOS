@@ -16,7 +16,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
             videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil, mirror: true
         )
         let track = try XCTUnwrap(stream.videoTrack)
-        let view = XmaxVideoView()
+        let view = XmaxRealtimeVideoView()
         try VideoRenderRegistry.binding(for: track)?.attach(to: view, contentMode: .fit)
         let canvas = try XCTUnwrap(view.subviews.first)
         try await controller.updateVideoFormat(RealtimeVideoFormat(width: 1024, height: 1920, fps: 24))
@@ -74,7 +74,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
             videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil
         )
         let track = try XCTUnwrap(stream.videoTrack)
-        let view = XmaxVideoView()
+        let view = XmaxRealtimeVideoView()
         try VideoRenderRegistry.binding(for: track)?.attach(to: view, contentMode: .fit)
         XCTAssertEqual(view.subviews.count, 1)
         XCTAssertFalse(view.layer?.sublayers?.contains { $0 is AVSampleBufferDisplayLayer } ?? false)
@@ -109,7 +109,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
             videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil
         )
         let track = try XCTUnwrap(stream.videoTrack)
-        let view = XmaxVideoView()
+        let view = XmaxRealtimeVideoView()
         try VideoRenderRegistry.binding(for: track)?.attach(to: view, contentMode: .fit)
         let switched = try await controller.switchCamera(to: "usb")
         XCTAssertTrue(switched.videoTrack === track)
@@ -156,7 +156,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
         let stream = try await controller.createLocalCameraStream(
             videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil
         )
-        let view = XmaxVideoView()
+        let view = XmaxRealtimeVideoView()
         try VideoRenderRegistry.binding(for: XCTUnwrap(stream.videoTrack))?.attach(to: view, contentMode: .fill)
         let late = rtc.currentCameraPreviewReadyListener
         let unexpected = expectation(description: "Stopped preview must not become ready")
@@ -180,8 +180,8 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
             videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil
         )
         let binding = try XCTUnwrap(VideoRenderRegistry.binding(for: XCTUnwrap(stream.videoTrack)))
-        let old = XmaxVideoView()
-        let next = XmaxVideoView()
+        let old = XmaxRealtimeVideoView()
+        let next = XmaxRealtimeVideoView()
         try binding.attach(to: old, contentMode: .fill)
         try binding.attach(to: next, contentMode: .fit)
         XCTAssertTrue(old.subviews.isEmpty)

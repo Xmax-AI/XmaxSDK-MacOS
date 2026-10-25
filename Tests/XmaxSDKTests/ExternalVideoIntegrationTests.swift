@@ -377,7 +377,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let next = RealtimeVideoFormat(width: 1024, height: 1920, fps: 24)
         do { try await manager.updateCameraFormat(next); XCTFail("Expected preview readiness requirement") }
         catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
-        let view = XmaxVideoView()
+        let view = XmaxRealtimeVideoView()
         try VideoRenderRegistry.binding(for: track)?.attach(to: view, contentMode: .fit)
         try await waitUntil { await manager.currentState.connectionState == .ready }
         try await manager.updateCameraFormat(next)
@@ -577,7 +577,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         }
         await fulfillment(of: [initial], timeout: 2)
         let local = try await manager.createLocalCameraStream()
-        let view = XmaxVideoView()
+        let view = XmaxRealtimeVideoView()
         try VideoRenderRegistry.binding(for: XCTUnwrap(local.videoTrack))?.attach(to: view, contentMode: .fit)
         try await waitUntil { await manager.currentState.connectionState == .ready }
         await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }

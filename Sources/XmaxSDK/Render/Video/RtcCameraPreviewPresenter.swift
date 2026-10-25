@@ -18,7 +18,7 @@ final class RtcCameraPreviewPresenter {
     private let rtcManager: any RtcManaging
 
     /// The SDK video view hosting native rendering.
-    private weak var view: XmaxVideoView?
+    private weak var view: XmaxRealtimeVideoView?
 
     /// The native renderer's child canvas.
     private weak var canvasView: NSView?
@@ -40,7 +40,7 @@ final class RtcCameraPreviewPresenter {
 
     /// Creates a native canvas and binds preview updates to the SDK view.
     func attach(
-        to view: XmaxVideoView,
+        to view: XmaxRealtimeVideoView,
         contentMode: VideoContentMode
     ) throws {
         self.view = view
@@ -48,7 +48,7 @@ final class RtcCameraPreviewPresenter {
         canvasView = view.prepareNativeVideoPreview()
         view.nativePreviewUpdateHandler = { [weak self] in
             do { try self?.update() } catch {
-                XmaxVideoView.logRenderingFailure(
+                XmaxRealtimeVideoView.logRenderingFailure(
                     title: "Failed to update native camera preview",
                     error: error
                 )
@@ -67,7 +67,7 @@ final class RtcCameraPreviewPresenter {
 
     /// Clears the preview when the specified SDK view is the current host.
     func detach(
-        from view: XmaxVideoView
+        from view: XmaxRealtimeVideoView
     ) throws {
         guard self.view === view else { return }
         try clear()

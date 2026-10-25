@@ -423,7 +423,7 @@ private extension CameraController {
 
         /// Attaches the active preview implementation to a video view.
         @MainActor func attach(
-            to view: XmaxVideoView,
+            to view: XmaxRealtimeVideoView,
             contentMode: VideoContentMode
         ) throws {
             switch self {
@@ -445,7 +445,7 @@ private extension CameraController {
 
         /// Removes the matching preview binding.
         @MainActor func detach(
-            from view: XmaxVideoView
+            from view: XmaxRealtimeVideoView
         ) throws {
             switch self {
             case .decoded(
@@ -478,7 +478,7 @@ private extension CameraController {
             ): presenter.clear()
             case .native(let presenter):
                 do { try presenter.clear() } catch {
-                    XmaxVideoView.logRenderingFailure(
+                    XmaxRealtimeVideoView.logRenderingFailure(
                         title: "Failed to detach native camera preview",
                         error: error
                     )
@@ -519,10 +519,10 @@ private extension CameraController {
             track,
             binding: VideoRenderBinding(
                 attachHandler: { [weak self] view, contentMode in
-                    guard let videoView = view as? XmaxVideoView else {
+                    guard let videoView = view as? XmaxRealtimeVideoView else {
                         throw XmaxError(
                             code: .invalidConfiguration,
-                            message: "Camera tracks require an XmaxVideoView"
+                            message: "Camera tracks require an XmaxRealtimeVideoView"
                         )
                     }
                     try preview.attach(
@@ -533,7 +533,7 @@ private extension CameraController {
                     self?.notifyPreviewReady(for: track)
                 },
                 detachHandler: { [weak self] view in
-                    if let videoView = view as? XmaxVideoView { try preview.detach(from: videoView) }
+                    if let videoView = view as? XmaxRealtimeVideoView { try preview.detach(from: videoView) }
                     self?.stateLock.withLock { self?.isPreviewAttached = false }
                 }
             )

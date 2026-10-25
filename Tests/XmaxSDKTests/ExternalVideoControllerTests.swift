@@ -138,7 +138,7 @@ final class ExternalVideoControllerTests: XCTestCase {
             videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30)
         )
         let local = try await controller.create(source: source)
-        let view = XmaxVideoView(frame: CGRect(x: 0, y: 0, width: 640, height: 480))
+        let view = XmaxRealtimeVideoView(frame: CGRect(x: 0, y: 0, width: 640, height: 480))
         let displayed = expectation(description: "SDK preview receives disconnected external input")
         view.frameDisplayHandler = { displayed.fulfill() }
         view.track = local.videoTrack

@@ -153,7 +153,7 @@ and video on the same timeline across playback loops and seeks. Apply orientatio
 and mirroring before submission; buffers can be reused after the call returns.
 
 Binding enters `ready` without waiting for a frame or preview. Frames remain accepted
-while disconnected, driving the SDK preview through `XmaxVideoView`. Pace frames at
+while disconnected, driving the SDK preview through `XmaxRealtimeVideoView`. Pace frames at
 the declared source frame rate; `isRequestingFrames` becomes false after failure or
 unbinding. SDK preview does not transfer ownership of capture resources.
 
@@ -220,14 +220,21 @@ is sent on each call; pass it again on subsequent updates when needed.
 
 ## AppKit and SwiftUI
 
-For side-by-side AppKit rendering, use two `XmaxVideoView` instances and assign
-the local and remote tracks separately, as in the [Quick Start](../README.md#quick-start).
-For SwiftUI, keep both tracks in observable state and use two `XmaxVideo` views in
+| Purpose | AppKit | SwiftUI |
+| --- | --- | --- |
+| One local or remote track | `XmaxRealtimeVideoView` | `XmaxRealtimeVideo` |
+| Stacked local preview and generated result | `XmaxRealtimeDualVideoView` | `XmaxRealtimeDualVideo` |
+
+For side-by-side AppKit rendering, use two `XmaxRealtimeVideoView` instances and
+assign the local and remote tracks separately.
+For SwiftUI, keep both tracks in observable state and use two `XmaxRealtimeVideo` views in
 an `HStack`. Clear the remote track when the remote session ends.
 
-For a single surface, use `XmaxRealtimeVideoView` in AppKit or `XmaxRealtimeVideo`
-in SwiftUI. Both accept `isInteractionEnabled` during initialization. These retain local preview beneath generated output, reveal the
-result after its first frame, and restore local preview when `remoteTrack` is nil.
+For a shared surface, use `XmaxRealtimeDualVideoView` in AppKit or
+`XmaxRealtimeDualVideo` in SwiftUI. These stack both views in the same bounds,
+retain local preview beneath generated output, reveal the result after its first
+frame, and restore local preview when `remoteTrack` is nil. All four types accept
+`isInteractionEnabled` during initialization.
 
 See the [AppKit screen](../Examples/XLab/XLab/RealtimeViewController.swift) and
 [session controller](../Examples/XLab/XLab/RealtimeSessionController.swift).
