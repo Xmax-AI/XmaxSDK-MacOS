@@ -56,9 +56,6 @@ final class RenderController: RenderControlling {
     /// The result stream whose native PCM listener is installed.
     private var activeRemoteAudioStream: RemoteStream?
 
-    /// The serial delivery of final remote video frames to your app.
-    private let remoteVideoFrameDispatcher = RealtimeVideoFrameDispatcher()
-
     /// The current rendering revision.
     private var renderingToken: UInt64 = 0
 
@@ -210,15 +207,6 @@ final class RenderController: RenderControlling {
         }
         try activateRemoteAudioIfReady()
         remoteMediaFrameDispatcher.setListener(listener)
-    }
-
-    /// Sets the final remote video frame listener.
-    ///
-    /// - Parameter listener: The final frame callback on a separate serial queue; `nil` clears it.
-    func setRemoteVideoFrameListener(
-        _ listener: RealtimeVideoFrameListener?
-    ) {
-        remoteVideoFrameDispatcher.setListener(listener)
     }
 
     /// Registers a video render binding for the remote track.
@@ -575,7 +563,6 @@ private extension RenderController {
         )
         latestRemoteFrame = nil
         refreshInteractionAvailability()
-        remoteVideoFrameDispatcher.invalidatePendingFrames()
         renderingToken &+= 1
         let token = renderingToken
         Task { [remoteFramePipeline] in
@@ -597,7 +584,6 @@ private extension RenderController {
         latestRemoteFrame = frame
         if wasWaiting { refreshInteractionAvailability() }
         finishAllRemoteFrameReadyWaiters()
-        remoteVideoFrameDispatcher.dispatch(frame)
         if let remoteMediaStreamID {
             remoteMediaFrameDispatcher.dispatchVideo(
                 frame,

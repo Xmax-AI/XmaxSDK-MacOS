@@ -37,13 +37,6 @@ protocol RenderControlling: AnyObject, Sendable {
         _ stream: RemoteStream?
     ) throws
 
-    /// Sets the final remote video frame listener.
-    ///
-    /// - Parameter listener: The final frame callback on a separate serial queue; `nil` clears it.
-    func setRemoteVideoFrameListener(
-        _ listener: RealtimeVideoFrameListener?
-    )
-
     /// Registers a video render binding for the remote track.
     ///
     /// - Parameters:

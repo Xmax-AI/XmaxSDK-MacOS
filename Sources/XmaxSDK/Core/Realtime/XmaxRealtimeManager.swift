@@ -277,19 +277,6 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         try await renderController.setRemoteMediaFrameListener(listener)
     }
 
-    /// Sets the final remote video frame listener.
-    ///
-    /// Receives frames after optional interpolation, immediately before display. The SDK invokes the callback
-    /// on an internal serial queue without blocking the main thread. Forward frames promptly and avoid
-    /// expensive encoding in the callback. Pass `nil` to clear the listener.
-    ///
-    /// - Parameter listener: The final remote video frame callback.
-    func setRemoteVideoFrameListener(
-        _ listener: RealtimeVideoFrameListener?
-    ) async {
-        await renderController.setRemoteVideoFrameListener(listener)
-    }
-
     /// Sets the upstream video statistics listener.
     ///
     /// - Parameter listener: The main-thread callback; receives nil before publication or after disconnect. Pass nil to

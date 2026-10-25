@@ -334,8 +334,14 @@ pending output is limited to 256 packets and 32 MiB. Removal or replacement disc
 queued output; a callback already executing may finish. Clear the listener with
 `try await realtime.setRemoteMediaFrameListener(nil)`.
 
-The video-only `setRemoteVideoFrameListener` remains available and can be used
-independently of unified media output.
+For video-only processing, select `.video` events from the same listener:
+
+```swift
+try await realtime.setRemoteMediaFrameListener { event in
+    guard case .video(let video) = event.content else { return }
+    // Forward video.pixelBuffer and video.presentationTimeStamp to your pipeline.
+}
+```
 
 ## Manual and automatic quality
 

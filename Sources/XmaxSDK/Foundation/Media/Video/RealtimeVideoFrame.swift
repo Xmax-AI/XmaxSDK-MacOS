@@ -39,9 +39,3 @@ public struct RealtimeVideoFrame: @unchecked Sendable {
         self.duration = duration
     }
 }
-
-/// A listener receiving final remote video frames.
-public typealias RealtimeVideoFrameListener =
-    @Sendable (
-        _ frame: RealtimeVideoFrame
-    ) -> Void
