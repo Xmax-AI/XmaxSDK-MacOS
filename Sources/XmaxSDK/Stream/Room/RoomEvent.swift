@@ -179,7 +179,7 @@ private extension RoomEvent {
     ///
     /// - Parameter size: The return video integer-pixel dimensions.
     ///
-    /// - Returns: The downstream minimum and maximum bitrate in kbps.
+    /// - Returns: A 500 kbps minimum and a maximum clamped to 500...10000 kbps.
     ///
     /// - Throws: An error on invalid dimensions or bitrate calculation failure.
     static func downlinkBitrates(
@@ -203,7 +203,7 @@ private extension RoomEvent {
                 fps: 24
             )
         )
-        return (100, min(10000, budget.maximum))
+        return (500, min(10000, max(500, budget.maximum)))
     }
 
     /// Adds runtime environment and session task fields, then encodes the signal.

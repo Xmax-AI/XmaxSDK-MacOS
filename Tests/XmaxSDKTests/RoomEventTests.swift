@@ -25,7 +25,8 @@ final class RoomEventTests: XCTestCase {
         XCTAssertEqual(params["target_size"] as? [Int], [864, 1536])
         XCTAssertEqual(params["padding"] as? String, "contain")
         let budget = try EncodingBitratePolicy.resolve(RealtimeVideoFormat(width: 864, height: 1536, fps: 24))
-        XCTAssertEqual(params["max_bitrate"] as? Int, min(10000, budget.maximum))
+        XCTAssertEqual(params["min_bitrate"] as? Int, 500)
+        XCTAssertEqual(params["max_bitrate"] as? Int, min(10000, max(500, budget.maximum)))
 
         let update = try decode(RoomEvent.changeCondition(
             userID: "user", taskID: "task", videoFormat: canvas,
@@ -72,9 +73,25 @@ final class RoomEventTests: XCTestCase {
         XCTAssertEqual(event["uid"] as? String, "task-id")
         let params = try XCTUnwrap(event["params"] as? [String: Any])
         XCTAssertEqual(Set(params.keys), ["target_size", "min_bitrate", "max_bitrate"])
-        XCTAssertEqual(params["min_bitrate"] as? Int, 100)
+        XCTAssertEqual(params["min_bitrate"] as? Int, 500)
         XCTAssertEqual(params["target_size"] as? [Int], [676, 1196])
         try assertRuntime(in: event)
+    }
+
+    func testDownlinkBudgetUses500KbpsFloorAnd10000KbpsCeilingForStartAndResize() throws {
+        let canvas = RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
+        for (target, expectedMaximum) in [(CGSize(width: 4, height: 4), 500), (CGSize(width: 8192, height: 8192), 10000)] {
+            let messages = try [
+                RoomEvent.start(userID: "user", taskID: "task", videoFormat: canvas,
+                                targetSize: target, context: RealtimeContext(prompt: "test")),
+                RoomEvent.changeTargetSize(userID: "user", taskID: "task", targetSize: target)
+            ]
+            for message in messages {
+                let params = try XCTUnwrap(decode(message)["params"] as? [String: Any])
+                XCTAssertEqual(params["min_bitrate"] as? Int, 500)
+                XCTAssertEqual(params["max_bitrate"] as? Int, expectedMaximum)
+            }
+        }
     }
 
     func testStartAndChangeConditionSeparateGenerationAndReturnSizes() throws {

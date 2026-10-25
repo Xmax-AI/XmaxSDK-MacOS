@@ -12,8 +12,8 @@ import SwiftUI
 
 /// A SwiftUI view stacking remote generation above a continuously running local preview.
 ///
-/// Both video views share the same bounds. The remote view becomes visible after its first frame is
-/// submitted; clearing `remoteTrack` immediately reveals the local preview again.
+/// Both video views share the same bounds. The remote view fades in after its first frame is submitted;
+/// clearing `remoteTrack` immediately reveals the local preview again.
 @MainActor
 public struct XmaxRealtimeDualVideo: NSViewRepresentable {
 
@@ -25,6 +25,9 @@ public struct XmaxRealtimeDualVideo: NSViewRepresentable {
 
     /// The video content display mode in its container.
     public let videoContentMode: VideoContentMode
+
+    /// The remote video's fade-in duration, in seconds. The default is 0.3; zero disables animation.
+    public let remoteVideoFadeInDuration: TimeInterval
 
     /// Whether a ready remote track accepts pointer trajectories.
     public let isInteractionEnabled: Bool
@@ -40,6 +43,7 @@ public struct XmaxRealtimeDualVideo: NSViewRepresentable {
         localTrack: RealtimeVideoTrack?,
         remoteTrack: RealtimeVideoTrack?,
         videoContentMode: VideoContentMode = .fill,
+        remoteVideoFadeInDuration: TimeInterval = 0.3,
         isInteractionEnabled: Bool = true,
         isMirrored: Bool = false,
         trajectoryRenderer: (any TrajectoryEffectRendering)? = nil
@@ -47,6 +51,7 @@ public struct XmaxRealtimeDualVideo: NSViewRepresentable {
         self.localTrack = localTrack
         self.remoteTrack = remoteTrack
         self.videoContentMode = videoContentMode
+        self.remoteVideoFadeInDuration = remoteVideoFadeInDuration
         self.isInteractionEnabled = isInteractionEnabled
         self.isMirrored = isMirrored
         self.trajectoryRenderer = trajectoryRenderer
@@ -64,6 +69,7 @@ public struct XmaxRealtimeDualVideo: NSViewRepresentable {
             localTrack: localTrack,
             remoteTrack: remoteTrack,
             videoContentMode: videoContentMode,
+            remoteVideoFadeInDuration: remoteVideoFadeInDuration,
             isInteractionEnabled: isInteractionEnabled
         )
         view.isMirrored = isMirrored
@@ -81,6 +87,7 @@ public struct XmaxRealtimeDualVideo: NSViewRepresentable {
         context: Context
     ) {
         view.videoContentMode = videoContentMode
+        view.remoteVideoFadeInDuration = remoteVideoFadeInDuration
         view.isInteractionEnabled = isInteractionEnabled
         view.isMirrored = isMirrored
         view.trajectoryRenderer = trajectoryRenderer

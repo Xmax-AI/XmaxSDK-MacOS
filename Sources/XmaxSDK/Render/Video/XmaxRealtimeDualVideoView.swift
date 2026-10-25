@@ -9,11 +9,12 @@
 //
 
 import AppKit
+import QuartzCore
 
 /// An AppKit view stacking remote generation above a continuously running local preview.
 ///
-/// Both video views share the same bounds. The remote view becomes visible after its first frame is
-/// submitted; clearing `remoteTrack` immediately reveals the local preview again.
+/// Both video views share the same bounds. The remote view fades in after its first frame is submitted;
+/// clearing `remoteTrack` immediately reveals the local preview again.
 @MainActor
 public final class XmaxRealtimeDualVideoView: NSView {
 
@@ -37,6 +38,11 @@ public final class XmaxRealtimeDualVideoView: NSView {
             remoteVideoView.videoContentMode = videoContentMode
         }
     }
+
+    /// The remote video's fade-in duration, in seconds. The default is 0.3.
+    ///
+    /// Zero, negative, or nonfinite values disable the animation. Changes apply to the next fade-in.
+    public var remoteVideoFadeInDuration: TimeInterval = 0.3
 
     /// Enables trajectories on the generated result only.
     public var isInteractionEnabled: Bool {
@@ -68,16 +74,19 @@ public final class XmaxRealtimeDualVideoView: NSView {
     ///   - localTrack: The continuously previewed local track.
     ///   - remoteTrack: The generation result track displayed as an overlay.
     ///   - videoContentMode: The video content display mode.
+    ///   - remoteVideoFadeInDuration: The remote fade-in duration, in seconds; zero disables animation.
     ///   - isInteractionEnabled: Whether to accept pointer trajectories on the generated result.
     public init(
         localTrack: RealtimeVideoTrack? = nil,
         remoteTrack: RealtimeVideoTrack? = nil,
         videoContentMode: VideoContentMode = .fill,
+        remoteVideoFadeInDuration: TimeInterval = 0.3,
         isInteractionEnabled: Bool = true
     ) {
         self.localTrack = localTrack
         self.remoteTrack = remoteTrack
         self.videoContentMode = videoContentMode
+        self.remoteVideoFadeInDuration = remoteVideoFadeInDuration
         super.init(frame: .zero)
         self.isInteractionEnabled = isInteractionEnabled
         configureView()
@@ -126,14 +135,35 @@ public final class XmaxRealtimeDualVideoView: NSView {
     /// Waits for the new remote track's first frame to avoid blank output during switching.
     private func updateRemoteTrack() {
         remoteVideoView.frameDisplayHandler = nil
-        remoteVideoView.track = nil
+        remoteVideoView.layer?.removeAllAnimations()
+        remoteVideoView.alphaValue = 0
         remoteVideoView.isHidden = true
+        remoteVideoView.track = nil
         guard let remoteTrack else { return }
         remoteVideoView.frameDisplayHandler = { [weak self, weak remoteTrack] in
             guard let self, self.remoteTrack === remoteTrack else { return }
-            remoteVideoView.isHidden = false
-            remoteVideoView.frameDisplayHandler = nil
+            showRemoteVideo()
         }
         remoteVideoView.track = remoteTrack
+    }
+
+    /// Displays the first remote frame, optionally fading it in over the local preview.
+    private func showRemoteVideo() {
+        remoteVideoView.frameDisplayHandler = nil
+        guard remoteVideoView.isHidden || remoteVideoView.alphaValue < 1 else { return }
+        remoteVideoView.layer?.removeAllAnimations()
+        remoteVideoView.isHidden = false
+        remoteVideoView.alphaValue = 1
+        let duration = remoteVideoFadeInDuration
+        guard duration.isFinite, duration > 0 else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = duration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        remoteVideoView.layer?.add(
+            fade,
+            forKey: "remoteVideoFadeIn"
+        )
     }
 }

@@ -276,9 +276,12 @@ videoView.remoteTrack = remoteStream.videoTrack
 ```
 
 `XmaxRealtimeDualVideoView` keeps local preview running underneath the generated
-result, reveals the result after its first frame, and restores local preview when
+result, fades in the result after its first frame, and restores local preview when
 `remoteTrack` is cleared. To display a single local or remote track, use
 `XmaxRealtimeVideoView(track:)`.
+
+The Dual views expose `remoteVideoFadeInDuration` (default `0.3` seconds). Set it to
+`0` for an immediate switch; this option is available in both AppKit and SwiftUI.
 
 <br>
 

@@ -236,6 +236,12 @@ retain local preview beneath generated output, reveal the result after its first
 frame, and restore local preview when `remoteTrack` is nil. All four types accept
 `isInteractionEnabled` during initialization.
 
+Only the Dual types expose `remoteVideoFadeInDuration`, in seconds. The default is
+`0.3`: remote video fades in after its first frame while local preview stays below
+it. Set it to `0` to switch immediately; negative and nonfinite values also disable
+the animation. A new value applies to the next fade-in. Clearing `remoteTrack`
+cancels any fade-in and immediately reveals local preview.
+
 See the [AppKit screen](../Examples/XLab/XLab/RealtimeViewController.swift) and
 [session controller](../Examples/XLab/XLab/RealtimeSessionController.swift).
 
