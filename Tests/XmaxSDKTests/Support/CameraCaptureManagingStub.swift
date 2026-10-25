@@ -12,12 +12,15 @@ final class CameraCaptureManagingStub: CameraCaptureManaging, @unchecked Sendabl
     enum Call: Equatable {
         case start(String)
         case switchCamera(String)
+        case updateFormat(VideoFormat, Int)
         case stop
     }
 
     /// Test configuration
     let devices: [CameraDevice]
     let startError: (any Error)?
+    var updateError: (any Error)?
+    var updateHandler: (@Sendable () async -> Void)?
     let switchError: (any Error)?
     let startHandler: (@Sendable () async -> Void)?
 
@@ -64,6 +67,12 @@ final class CameraCaptureManagingStub: CameraCaptureManaging, @unchecked Sendabl
     func switchCamera(to deviceID: String) async throws {
         lock.withLock { recordedCalls.append(.switchCamera(deviceID)) }
         if let switchError { throw switchError }
+    }
+
+    func updateFormat(_ videoFormat: VideoFormat, frameRate: Int) async throws {
+        lock.withLock { recordedCalls.append(.updateFormat(videoFormat, frameRate)) }
+        await updateHandler?()
+        if let updateError { throw updateError }
     }
 
     func stop() async {

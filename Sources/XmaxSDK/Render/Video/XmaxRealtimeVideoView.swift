@@ -65,15 +65,18 @@ public final class XmaxRealtimeVideoView: NSView {
     ///   - localTrack: The continuously previewed local track.
     ///   - remoteTrack: The generation result track displayed as an overlay.
     ///   - videoContentMode: The video content display mode.
+    ///   - isInteractionEnabled: Whether to accept pointer trajectories on the generated result.
     public init(
         localTrack: RealtimeVideoTrack? = nil,
         remoteTrack: RealtimeVideoTrack? = nil,
-        videoContentMode: VideoContentMode = .fill
+        videoContentMode: VideoContentMode = .fill,
+        isInteractionEnabled: Bool = true
     ) {
         self.localTrack = localTrack
         self.remoteTrack = remoteTrack
         self.videoContentMode = videoContentMode
         super.init(frame: .zero)
+        self.isInteractionEnabled = isInteractionEnabled
         configureView()
     }
 

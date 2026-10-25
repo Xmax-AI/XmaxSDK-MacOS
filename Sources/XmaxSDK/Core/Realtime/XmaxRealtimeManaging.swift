@@ -24,6 +24,39 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// The current realtime connection and generation state.
     var currentState: RealtimeState { get async }
 
+    /// The camera's resolved media format, or `nil` without a camera stream. Uplink quality changes
+    /// do not affect it.
+    var currentCameraVideoFormat: RealtimeVideoFormat? {
+        get async
+    }
+
+    /// The preset matching the camera dimensions, or `nil` if no camera or matching preset exists.
+    var currentCameraPreset: RealtimeCameraPreset? {
+        get async
+    }
+
+    /// Updates a ready, disconnected camera stream while preserving its track and view bindings.
+    ///
+    /// - Parameter videoFormat: The new capture dimensions, frame rate, and encoding settings.
+    ///   Dimensions must match a supported model format.
+    ///
+    /// - Throws: An error if the state or format is invalid, another operation is active, or device
+    ///   configuration fails.
+    func updateCameraFormat(
+        _ videoFormat: RealtimeVideoFormat
+    ) async throws
+
+    /// Updates camera dimensions while preserving the current frame rate, bitrate, and encoding
+    /// preference.
+    ///
+    /// - Parameter preset: A resolution preset supported by the model.
+    ///
+    /// - Throws: An error if the state or preset is invalid, another operation is active, or device
+    ///   configuration fails.
+    func updateCameraFormat(
+        _ preset: RealtimeCameraPreset
+    ) async throws
+
     /// The applied uplink level, or `nil` before connection completes or after disconnection
     /// begins.
     var uplinkQualityLevel: RealtimeQualityLevel? {
@@ -77,7 +110,7 @@ public protocol XmaxRealtimeManaging: Sendable {
         _ listener: RealtimeStateListener?
     ) async
 
-    /// Sets the startup timing listener for camera startup, four generation stages, and total timing.
+    /// Sets the startup timing listener for the four generation stages and total timing.
     ///
     /// - Parameter listener: The main-thread snapshot callback; `nil` clears the listener.
     func setLaunchTimingListener(
@@ -176,6 +209,8 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// - Parameters:
     ///   - videoFormat: The camera capture video format.
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
+    ///   - mirror: Whether to mirror both native local preview and the encoded camera stream.
+    ///     Generated output and frame callbacks retain the direction returned by the server.
     ///   - useMicrophone: Whether to use the microphone; requests permission at creation, starts capture on connection,
     ///     and stops on disconnect.
     ///
@@ -186,6 +221,7 @@ public protocol XmaxRealtimeManaging: Sendable {
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
+        mirror: Bool,
         useMicrophone: Bool
     ) async throws -> RealtimeMediaStream
 

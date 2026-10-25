@@ -35,6 +35,15 @@ final class XmaxConfigurationTests: XCTestCase {
         )
     }
 
+    func testRealtimeEnvironmentEndpointsMatchIOS() {
+        XCTAssertEqual(XmaxEnvironment.china.realtimeApiBaseURL, XmaxEnvironment.china.apiBaseURL)
+        XCTAssertEqual(
+            XmaxEnvironment.global.realtimeApiBaseURL.absoluteString,
+            "https://api.xmax.ai/open/api/v1"
+        )
+        XCTAssertNotEqual(XmaxEnvironment.global.realtimeApiBaseURL, XmaxEnvironment.global.apiBaseURL)
+    }
+
     func testConfigurationKeepsLoggerOptions() {
         let configuration = XmaxConfiguration(
             apiKey: "test-key",
@@ -58,10 +67,12 @@ final class XmaxConfigurationTests: XCTestCase {
         }
     }
 
-    func testRealtimeConfigurationKeepsModelAndDisablesInterpolationByDefault() {
+    func testRealtimeConfigurationKeepsModelAndEnablesInterpolationByDefault() {
         let configuration = RealtimeConfiguration(model: .x2_1_1_preview_cn)
 
         XCTAssertEqual(configuration.model.rawValue, "x2.1.1-preview-cn")
-        XCTAssertFalse(configuration.isFrameInterpolationEnabled)
+        XCTAssertTrue(configuration.isFrameInterpolationEnabled)
+        let disabled = RealtimeConfiguration(model: .x2_1_1_preview_cn, isFrameInterpolationEnabled: false)
+        XCTAssertFalse(disabled.isFrameInterpolationEnabled)
     }
 }

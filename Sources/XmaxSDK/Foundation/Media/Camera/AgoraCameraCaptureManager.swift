@@ -132,6 +132,25 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
         }
     }
 
+    /// Updates capture on the same serial queue used for device switches and shutdown.
+    func updateFormat(
+        _ videoFormat: VideoFormat,
+        frameRate: Int
+    ) async throws {
+        try Task.checkCancellation()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            queue.async { [rtcManager] in
+                do {
+                    try rtcManager.updateCameraCapture(
+                        videoFormat: videoFormat,
+                        frameRate: frameRate
+                    )
+                    continuation.resume()
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
     /// Clears readiness observation and stops native capture on the control queue.
     func stop() async {
         setNativePreviewReadyListener(nil)

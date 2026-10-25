@@ -21,9 +21,6 @@ struct InteractionFrame: Sendable {
 
     /// The view's video content mode.
     let contentMode: VideoContentMode
-
-    /// The displayed media dimensions used to map viewport coordinates.
-    var displayedVideoSize: CGSize? = nil
 }
 
 extension RealtimeVideoFormat {

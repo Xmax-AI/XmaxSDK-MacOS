@@ -24,6 +24,7 @@ enum RtcManagingCall: Equatable {
     case useExternalVideoSource
     case startCameraCapture(RtcCameraConfiguration)
     case switchCameraCapture(String)
+    case updateCameraCapture(VideoFormat, Int)
     case stopCameraCapture
     case attachCameraPreview(VideoContentMode, mirrored: Bool)
     case detachCameraPreview
@@ -82,7 +83,17 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
 
     /// Concurrent state
     private let lock = NSLock()
+    private var storedReplacementKeys: [String?] = []
+    private var storedDiscardedKeys: [String?] = []
+    var replacementKeys: [String?] { lock.withLock { storedReplacementKeys } }
+    var discardedKeys: [String?] { lock.withLock { storedDiscardedKeys } }
+
     private var storedCalls: [RtcManagingCall] = []
+    private var storedCameraMirrors: [Bool] = []
+    var cameraMirrors: [Bool] { lock.withLock { storedCameraMirrors } }
+    func configureLocalVideoMirror(_ mirror: Bool) throws {
+        lock.withLock { storedCameraMirrors.append(mirror) }
+    }
     private var cameraPreviewReadyListener: (@Sendable () -> Void)?
     private weak var storedEventListener: (any RtcEventListener)?
     private weak var storedQualityListener: (any RtcQualityListener)?
@@ -194,6 +205,10 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
 
     func switchCameraCapture(to deviceID: String) throws {
         lock.withLock { storedCalls.append(.switchCameraCapture(deviceID)) }
+    }
+
+    func updateCameraCapture(videoFormat: VideoFormat, frameRate: Int) throws {
+        lock.withLock { storedCalls.append(.updateCameraCapture(videoFormat, frameRate)) }
     }
 
     func stopCameraCapture() throws {
@@ -369,9 +384,10 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     }
 
     @discardableResult
-    func sendRoomMessage(_ message: String, reportFailure: Bool = true) throws -> Task<Void, any Error> {
+    func sendRoomMessage(_ message: String, reportFailure: Bool = true, replacingPendingMessage key: String? = nil) throws -> Task<Void, any Error> {
         try lock.withLock {
             storedCalls.append(.sendRoomMessage(message))
+            storedReplacementKeys.append(key)
             if let sendRoomMessageError {
                 throw sendRoomMessageError
             }
@@ -390,6 +406,8 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
             storedEventListener = listener
         }
     }
+
+    func discardPendingMessages(key: String?) { lock.withLock { storedDiscardedKeys.append(key) } }
 
     func awaitPendingMessages() async throws {
         try await flushHandler?()

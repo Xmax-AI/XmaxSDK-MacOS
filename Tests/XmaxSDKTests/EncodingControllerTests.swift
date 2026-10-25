@@ -267,7 +267,7 @@ final class EncodingControllerTests: XCTestCase {
         let baseline = RealtimeVideoFormat(width: 1024, height: 1920, fps: 30)
         let minimum = RealtimeModel.x2_1_1_preview_cn.minimumInputPixels
 
-        for level in 1...5 {
+        for level in RealtimeQualityLevel.allCases {
             let format = QualityVideoFormat.resolve(
                 baseline,
                 level: level,

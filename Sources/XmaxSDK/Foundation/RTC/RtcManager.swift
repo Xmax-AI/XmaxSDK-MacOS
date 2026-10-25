@@ -160,6 +160,17 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
         try withEngine { try $0.configureVideoEncoding(configuration) }
     }
 
+    /// Sets camera upstream mirroring, retaining the setting across encoder reconfiguration.
+    ///
+    /// - Parameter mirror: Whether to mirror the encoded camera stream.
+    ///
+    /// - Throws: An error if the engine is unavailable or rejects the setting.
+    func configureLocalVideoMirror(
+        _ mirror: Bool
+    ) throws {
+        try withEngine { try $0.configureLocalVideoMirror(mirror) }
+    }
+
     /// Enables external video input.
     ///
     /// - Throws: An error if video source configuration fails.
@@ -187,6 +198,19 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
         to deviceID: String
     ) throws {
         try withCameraEngine { try $0.switchCameraCapture(to: deviceID) }
+    }
+
+    /// Updates native camera capture without replacing its engine or preview canvas.
+    func updateCameraCapture(
+        videoFormat: VideoFormat,
+        frameRate: Int
+    ) throws {
+        try withCameraEngine {
+            try $0.updateCameraCapture(
+                videoFormat: videoFormat,
+                frameRate: frameRate
+            )
+        }
     }
 
     /// Stops native camera capture without requiring an active engine.
@@ -542,25 +566,42 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
         }
     }
 
-    /// Sends a message to the current RTC room.
+    /// Sends a message to the active RTC room.
     ///
     /// - Parameters:
-    ///   - message: The complete JSON signal.
-    ///   - reportFailure: Whether asynchronous send failures report room faults.
+    ///   - message: The complete JSON message.
+    ///   - reportFailure: Whether asynchronous send failures are reported as room failures.
+    ///   - key: The key replacing older, unsent messages with the same key.
     ///
-    /// - Returns: The signal send task for awaiting this message's result independently.
+    /// - Returns: The task for awaiting this message's send result.
     ///
     /// - Throws: An error if enqueueing fails.
     @discardableResult
     func sendRoomMessage(
         _ message: String,
-        reportFailure: Bool = true
+        reportFailure: Bool = true,
+        replacingPendingMessage key: String? = nil
     ) throws -> Task<Void, any Error> {
         try withRoom {
             try $0.sendRoomMessage(
                 message,
-                reportFailure: reportFailure
+                reportFailure: reportFailure,
+                replacingPendingMessage: key
             )
+        }
+    }
+
+    /// Drops coalescible messages not yet sent by the active room.
+    ///
+    /// - Parameter key: The coalescing key, or `nil` for all coalescible messages.
+    func discardPendingMessages(
+        key: String?
+    ) {
+        operationLock.withLock {
+            let room = stateLock.withLock {
+                activeRoom?.room
+            }
+            room?.discardPendingMessages(key: key)
         }
     }
 

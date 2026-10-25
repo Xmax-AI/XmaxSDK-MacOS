@@ -105,6 +105,18 @@ final class RtcCameraEventSink: NSObject, AgoraRtcEngineDelegate, @unchecked Sen
             return
         }
         guard state == .failed else { return }
+        reportFailure(
+            XmaxError(
+                code: .mediaError,
+                message: "Agora camera capture failed (reason: \(reason.rawValue))"
+            )
+        )
+    }
+
+    /// Reports the first failure for the current camera session outside engine control locks.
+    func reportFailure(
+        _ error: XmaxError
+    ) {
         let delivery = lock.withLock { () -> Session? in
             guard var current = session, !current.didFail else { return nil }
             current.didFail = true
@@ -112,13 +124,9 @@ final class RtcCameraEventSink: NSObject, AgoraRtcEngineDelegate, @unchecked Sen
             return current
         }
         guard let delivery else { return }
-        let failure = XmaxError(
-            code: .mediaError,
-            message: "Agora camera capture failed (reason: \(reason.rawValue))"
-        )
         queue.async { [weak self] in
             guard self?.isCurrent(delivery.id) == true else { return }
-            delivery.failure(failure)
+            delivery.failure(error)
         }
     }
 

@@ -31,4 +31,14 @@ extension XmaxEnvironment {
             URL(string: "https://api.xmax.cloud/open/api/v1")!
         }
     }
+
+    /// The base URL for realtime session requests in this environment.
+    var realtimeApiBaseURL: URL {
+        switch self {
+        case .china:
+            apiBaseURL
+        case .global:
+            URL(string: "https://api.xmax.ai/open/api/v1")!
+        }
+    }
 }

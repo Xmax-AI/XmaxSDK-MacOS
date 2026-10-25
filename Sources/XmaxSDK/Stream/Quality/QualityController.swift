@@ -75,18 +75,21 @@ final class QualityController: QualityControlling, RtcQualityListener,
         listenerLock.withLock { configuration() }
     }
 
-    /// Prepares transport tiers from the media baseline and model history.
+    /// Prepares initial transport quality from the media baseline and model history.
     ///
     /// - Parameters:
-    ///   - baseline: The original local media output format, unchanged by tier adjustments.
-    ///   - model: The model identifier isolating tier history.
-    ///   - isAdaptiveQualityEnabled: Whether to restore and save automatic quality history; false starts at L1.
+    ///   - baseline: The resolved local media baseline, unchanged by adaptation.
+    ///   - model: The model identifier isolating quality history.
+    ///   - minimumInputPixels: The model's minimum uplink area, in pixels.
+    ///   - isAdaptiveQualityEnabled: Whether to adapt quality. Disabled connections start at L1
+    ///     without using history.
     ///
-    /// - Returns: The initial upstream and downstream configuration for this connection.
+    /// - Returns: The initial directional quality configuration.
     func prepareQuality(
         baseline: RealtimeVideoFormat,
         model: String,
-        isAdaptiveQualityEnabled: Bool = true
+        minimumInputPixels: Int = 0,
+        isAdaptiveQualityEnabled: Bool
     ) -> QualityConfiguration {
         listenerLock.withLock {
             let history =
@@ -97,18 +100,18 @@ final class QualityController: QualityControlling, RtcQualityListener,
                 )
                 : nil
             self.history = history
-            let minimumInputPixels = RealtimeModel(rawValue: model)?.minimumInputPixels ?? 0
             uplinkQuality = QualityDirection(
                 baseline: baseline,
-                level: history?.read(downlink: false) ?? 1,
+                level: history?.read(downlink: false) ?? .l1,
                 downlink: false,
                 minimumInputPixels: minimumInputPixels
             )
             downlinkQuality = QualityDirection(
                 baseline: baseline,
-                level: history?.read(downlink: true) ?? 1,
+                level: history?.read(downlink: true) ?? .l1,
                 downlink: true
             )
+
             return configuration()!
         }
     }
@@ -150,19 +153,20 @@ final class QualityController: QualityControlling, RtcQualityListener,
         }
     }
 
-    /// Commits one direction's outcome, saving tier history only on success.
+    /// Commits an adjustment result, persisting successful levels only.
     ///
     /// - Parameters:
-    ///   - downlink: true indicates downstream; false indicates upstream.
-    ///   - level: The attempted tier in 1...5.
-    ///   - success: Whether configuration applied successfully.
+    ///   - downlink: Whether this is downlink rather than uplink.
+    ///   - level: The attempted quality level.
+    ///   - success: Whether configuration succeeded.
     func completeQuality(
         downlink: Bool,
-        level: Int,
+        level: RealtimeQualityLevel,
         success: Bool
     ) {
         listenerLock.withLock {
             let now = ProcessInfo.processInfo.systemUptime
+
             if downlink {
                 downlinkQuality?.complete(
                     level: level,
@@ -176,6 +180,7 @@ final class QualityController: QualityControlling, RtcQualityListener,
                     now: now
                 )
             }
+
             if success {
                 history?.write(
                     level: level,

@@ -280,6 +280,40 @@ final class XmaxRealtimeLifecycleManagerTests: XCTestCase {
         }
     }
 
+    func testEarlyCameraReadinessWaitsForPreparationToReleaseOwnership() async throws {
+        for kind in [XmaxRealtimeLifecycleManager.OperationKind.media, .cameraSwitch, .configuration] {
+            let lifecycle = makeCoordinator(probe: XmaxRealtimeLifecycleManagerProbe())
+            let gate = LifecycleFailureGate()
+            var states: [RealtimeConnectionState] = []
+            var followup: Task<Void, any Error>?
+            await lifecycle.setStateListener { state in
+                states.append(state.connectionState)
+                if state.connectionState == .ready {
+                    followup = Task { try await lifecycle.run(kind: .configuration) { try $0.ensureCurrent() } }
+                }
+            }
+            try await lifecycle.run(kind: .media) { token in
+                try await lifecycle.commit(RealtimeState(connectionState: .preparing), token: token)
+            }
+            let preparation = Task {
+                try await lifecycle.run(kind: kind) { token in
+                    await lifecycle.localPreviewDidBecomeReady(isCurrent: { true })
+                    await gate.wait()
+                    try token.ensureCurrent()
+                }
+            }
+            await waitUntil { await gate.isWaiting }
+            let pending = await lifecycle.currentState
+            XCTAssertEqual(pending.connectionState, .preparing)
+            XCTAssertEqual(states, [.idle, .preparing])
+            XCTAssertNil(followup)
+            await gate.release()
+            try await preparation.value
+            try await XCTUnwrap(followup).value
+            XCTAssertEqual(states, [.idle, .preparing, .ready])
+        }
+    }
+
     func testCompletionWaitsForTheOperationBodyToFinish() async throws {
         let lifecycle = makeCoordinator(probe: XmaxRealtimeLifecycleManagerProbe())
         let gate = LifecycleFailureGate()

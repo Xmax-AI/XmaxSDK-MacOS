@@ -42,6 +42,12 @@ protocol RtcCameraCapturing: Sendable {
         to deviceID: String
     ) throws
 
+    /// Updates native capture dimensions and frame rate while retaining the device and preview binding.
+    func updateCameraCapture(
+        videoFormat: VideoFormat,
+        frameRate: Int
+    ) throws
+
     /// Stops native camera capture and preview.
     func stopCameraCapture() throws
 

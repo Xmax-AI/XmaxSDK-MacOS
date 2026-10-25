@@ -43,9 +43,12 @@ final class RealtimeSessionController: ObservableObject {
     @Published private(set) var uplinkStatistics: UplinkVideoStatistics?
     @Published private(set) var downlinkStatistics: DownlinkVideoStatistics?
     @Published private(set) var networkQuality: RealtimeNetworkQuality?
-    @Published private(set) var interpolationEnabled = false
+    @Published private(set) var interpolationEnabled = true
     @Published private(set) var interpolationSwitching = false
     @Published private(set) var remoteAudioVolume: Float = 0
+    @Published private(set) var isRecording = false
+    @Published private(set) var isFinishingRecording = false
+    @Published private(set) var recordingToSave: URL?
 
     /// SDK resources and operation ownership
     private var client: XmaxClient?
@@ -55,6 +58,9 @@ final class RealtimeSessionController: ObservableObject {
     private var pendingInitialReference: RealtimeReference?
     private var application: Task<Void, Never>?
     private var closingTask: Task<Void, Never>?
+    private var recorder: RealtimeMediaRecorder?
+    private var recordingID = UUID()
+    private var recordingFinishTask: Task<Void, Never>?
     private let makeManager: (XmaxClient, RealtimeConfiguration) -> any XmaxRealtimeManaging
     private let uploadImage: (XmaxClient, Data, String, XmaxStorageProgressHandler?) async throws -> URL
 
@@ -74,6 +80,10 @@ final class RealtimeSessionController: ObservableObject {
 
     var hasAPIKey: Bool { !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var canGenerate: Bool { hasAPIKey && !isBusy && sessionActive }
+    var canRecord: Bool {
+        sessionActive && state.connectionState == .generating && remoteStream != nil &&
+            !isClosing && !isFinishingRecording && recordingToSave == nil
+    }
     var freeReference: RealtimeReference? { uploadedReferences.first { $0.mode == .free } }
     var referenceUploading: Bool {
         uploadedReferences.contains { $0.mode == activeMode && $0.uploadState == .uploading }
@@ -128,7 +138,12 @@ final class RealtimeSessionController: ObservableObject {
                 self.sessionActive = true
                 self.sessionStartedAt = Date()
             }
-            if ![.connected, .generating].contains(state.connectionState) { self.remoteStream = nil }
+            if ![.connected, .generating].contains(state.connectionState) {
+                self.remoteStream = nil
+                if self.isRecording {
+                    Task { [weak self] in await self?.stopRecording() }
+                }
+            }
             if case let .failure(error) = state.reason {
                 self.errorMessage = error.message
                 if !self.sessionActive {
@@ -144,7 +159,7 @@ final class RealtimeSessionController: ObservableObject {
         }
         pendingInitialReference = RealtimeExampleMode.charx.presets.first
         do {
-            let stream = try await manager.createLocalCameraStream(useMicrophone: useMicrophone)
+            let stream = try await manager.createLocalCameraStream(mirror: true, useMicrophone: useMicrophone)
             guard lifecycleID == operation else { await manager.close(); return }
             localStream = stream
             try await manager.setRemoteAudioVolume(remoteAudioVolume)
@@ -335,6 +350,57 @@ final class RealtimeSessionController: ObservableObject {
 
     func dismissError() { errorMessage = nil }
 
+    /// Records unified remote output, independently of the user's playback volume.
+    func startRecording() async {
+        guard canRecord, !isRecording, let manager else { return }
+        let id = UUID()
+        recordingID = id
+        let recorder = RealtimeMediaRecorder { [weak self] message in
+            Task { @MainActor [weak self] in
+                guard let self, self.isRecording, self.recordingID == id else { return }
+                self.errorMessage = message
+                await self.stopRecording()
+            }
+        }
+        self.recorder = recorder
+        isRecording = true
+        errorMessage = nil
+        do {
+            try await manager.setRemoteMediaFrameListener { frame in recorder.append(frame) }
+        } catch {
+            guard self.recorder === recorder else { return }
+            errorMessage = error.localizedDescription
+            await stopRecording()
+        }
+    }
+
+    /// Serializes finalization so stop, disconnect, session teardown, and app termination share one file.
+    func stopRecording() async {
+        if let task = recordingFinishTask { await task.value; return }
+        guard let recorder else { return }
+        recorder.stopAccepting()
+        self.recorder = nil
+        isRecording = false
+        isFinishingRecording = true
+        let manager = manager
+        let task = Task { @MainActor in
+            try? await manager?.setRemoteMediaFrameListener(nil)
+            do { recordingToSave = try await recorder.finish() }
+            catch { errorMessage = error.localizedDescription }
+            isFinishingRecording = false
+            recordingFinishTask = nil
+        }
+        recordingFinishTask = task
+        await task.value
+    }
+
+    /// The save panel owns the completed temporary clip until the user saves or cancels.
+    func releaseRecording(_ url: URL) {
+        guard recordingToSave == url else { return }
+        try? FileManager.default.removeItem(at: url)
+        recordingToSave = nil
+    }
+
     /// Returns to the landing page immediately while preventing a restart until media teardown finishes.
     func close() async {
         guard sessionActive, !isClosing else { return }
@@ -352,7 +418,10 @@ final class RealtimeSessionController: ObservableObject {
         errorMessage = nil
         // Keep the hidden video bindings alive until teardown finishes; only the visible page changes now.
         sessionActive = false
-        let task = Task<Void, Never> { await closingManager?.close() }
+        let task = Task<Void, Never> {
+            await stopRecording()
+            await closingManager?.close()
+        }
         closingTask = task
         await task.value
         closingTask = nil
@@ -362,6 +431,7 @@ final class RealtimeSessionController: ObservableObject {
 
     /// Releases capture and transport before the AppKit application finishes termination.
     func shutdown() async {
+        await stopRecording()
         let manager = manager
         let closingTask = closingTask
         application?.cancel()

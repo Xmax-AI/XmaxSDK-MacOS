@@ -127,14 +127,15 @@ actor XmaxRealtimeGenerationManager {
                 videoFormat: videoFormat
             )
             try ensureCurrent()
-            currentContext = resolvedContext
-            currentFaceRestoration = faceRestoration
             await renderController.setInteractionEnabled(true)
             try ensureCurrent()
             try await renderController.waitUntilRemoteFrameReady()
             try ensureCurrent()
             timing.finishFirstFrame(taskID: taskID)
             try streamController.activateRemoteAudio()
+            try ensureCurrent()
+            currentContext = resolvedContext
+            currentFaceRestoration = faceRestoration
             return taskID
         } catch {
             try? await stop(taskID: taskID)
@@ -187,10 +188,10 @@ actor XmaxRealtimeGenerationManager {
             videoFormat: videoFormat
         )
         try ensureCurrent()
-        currentContext = resolvedContext
-        currentFaceRestoration = faceRestoration
         await renderController.setInteractionEnabled(true)
         try ensureCurrent()
+        currentContext = resolvedContext
+        currentFaceRestoration = faceRestoration
     }
 
     /// Stops interaction and sends the generation stop signal.

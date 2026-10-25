@@ -37,7 +37,7 @@ final class RtcVideoFrameObserver: NSObject, AgoraVideoFrameDelegate, @unchecked
     /// Requests frames with rotation already applied.
     func getRotationApplied() -> Bool { true }
 
-    /// Keeps native mirroring out of the returned pixels.
+    /// Leaves incoming pixels unchanged by RTC rendering mirror settings.
     func getMirrorApplied() -> Bool { false }
 
     /// Forwards a remote frame after releasing the sink state lock.

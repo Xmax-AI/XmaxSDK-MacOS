@@ -53,6 +53,12 @@ protocol CameraCaptureManaging: Sendable {
         to deviceID: String
     ) async throws
 
+    /// Updates output dimensions and frame rate while retaining the camera device and callbacks.
+    func updateFormat(
+        _ videoFormat: VideoFormat,
+        frameRate: Int
+    ) async throws
+
     /// Stops capture and clears capture callbacks.
     func stop() async
 }

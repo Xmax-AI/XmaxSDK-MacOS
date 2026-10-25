@@ -60,9 +60,9 @@ public struct XmaxRealtimeVideo: NSViewRepresentable {
         let view = XmaxRealtimeVideoView(
             localTrack: localTrack,
             remoteTrack: remoteTrack,
-            videoContentMode: videoContentMode
+            videoContentMode: videoContentMode,
+            isInteractionEnabled: isInteractionEnabled
         )
-        view.isInteractionEnabled = isInteractionEnabled
         view.isMirrored = isMirrored
         view.trajectoryRenderer = trajectoryRenderer
         return view

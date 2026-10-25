@@ -46,6 +46,7 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
     private let volumeButton = RealtimeButton(icon: .muted, style: .volume)
     private let interpolationButton = RealtimeButton("2x", icon: .lightning, style: .interpolation)
     private let elapsed = RealtimeButton("00:00")
+    private let recordButton = RealtimeButton("Record", icon: .record, style: .recording)
     private let stopButton = RealtimeButton("Stop Session", icon: .stop, style: .destructive)
     private let keyField = NSTextField()
     private let volumeSlider = NSSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
@@ -79,6 +80,7 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
     private var displayedError: String?
     private var errorTask: Task<Void, Never>?
     private var ticker: Task<Void, Never>?
+    private var recordingSaveTask: Task<Void, Never>?
 
     override func loadView() {
         view = root
@@ -118,6 +120,9 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
 
     func shutdown() async {
         observation = nil
+        await controller.stopRecording()
+        scheduleRecordingSave()
+        await recordingSaveTask?.value
         ticker?.cancel(); ticker = nil
         errorTask?.cancel(); errorTask = nil
         pendingVolume = nil
@@ -143,7 +148,7 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         logo.setAccessibilityLabel("Xmax")
         [logo, homeControls, sessionControls].forEach(header.addSubview)
         [modelButton, keyButton].forEach(homeControls.addSubview)
-        [currentModel, statisticsButton, volumeButton, interpolationButton, elapsed, stopButton].forEach(sessionControls.addSubview)
+        [currentModel, statisticsButton, volumeButton, interpolationButton, elapsed, recordButton, stopButton].forEach(sessionControls.addSubview)
         modelButton.font = RealtimeHeaderTypography.font(size: 12)
         modelButton.leadingPadding = 18; modelButton.trailingPadding = 30
         modelButton.chevron = true
@@ -151,13 +156,21 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         keyButton.iconSize = 14
         currentModel.font = RealtimeHeaderTypography.font(size: 13, weight: .medium)
         elapsed.font = RealtimeHeaderTypography.font(size: 13, weight: .medium, monospacedDigits: true)
-        for button in [statisticsButton, volumeButton, interpolationButton, stopButton] {
+        for button in [statisticsButton, volumeButton, interpolationButton, recordButton, stopButton] {
             button.font = RealtimeHeaderTypography.font(size: 13, weight: .semibold)
         }
         interpolationButton.iconSize = 15; interpolationButton.iconSpacing = 3
         interpolationButton.leadingPadding = 12; interpolationButton.trailingPadding = 15
         stopButton.iconSize = 12; stopButton.iconSpacing = 7
         stopButton.leadingPadding = 16; stopButton.trailingPadding = 16
+        recordButton.iconSize = 12; recordButton.iconSpacing = 7
+        recordButton.onClick = { [weak self] in
+            Task { [weak self] in
+                guard let self else { return }
+                if self.controller.isRecording { await self.controller.stopRecording() }
+                else { await self.controller.startRecording() }
+            }
+        }
         modelButton.onClick = { [weak self] in self?.showModels() }
         keyButton.toolTip = "API Key"; keyButton.setAccessibilityLabel("API Key")
         keyButton.onClick = { [weak self] in self?.showKeyEditor() }
@@ -293,8 +306,11 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         let active = controller.sessionActive
         let pageChanged = displayedSession != active
         let keyTitle = controller.hasAPIKey ? controller.apiKey : ""
+        let recordTitle = controller.isFinishingRecording ? "Finishing…" :
+            controller.recordingToSave != nil ? "Saving…" : controller.isRecording ? "Stop Recording" : "Record"
         let needsPageLayout = pageChanged || keyButton.title != keyTitle ||
-            modelButton.title != controller.model.displayName || displayedError != controller.errorMessage
+            modelButton.title != controller.model.displayName || displayedError != controller.errorMessage ||
+            recordButton.title != recordTitle
         modelButton.title = controller.model.displayName
         modelButton.isEnabled = !controller.isBusy
         currentModel.title = controller.model.displayName
@@ -321,6 +337,13 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         stopButton.title = controller.isClosing ? "Stopping…" : "Stop Session"
         stopButton.loading = controller.isClosing
         stopButton.isEnabled = !controller.isClosing
+        recordButton.title = recordTitle
+        recordButton.selected = controller.isRecording
+        recordButton.loading = controller.isFinishingRecording
+        recordButton.isEnabled = controller.isRecording || controller.canRecord
+        recordButton.toolTip = controller.isRecording ? "Stop recording and save the remote result" : "Record remote video and audio"
+        recordButton.setAccessibilityLabel(recordTitle)
+        scheduleRecordingSave()
         updateElapsed()
 
         // The preview is bound even while the landing page is visible, as required by SDK readiness.
@@ -328,7 +351,6 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         let placeholder = controller.state.connectionState == .generating && controller.remoteStream != nil ? "" :
             [.connected, .generating].contains(controller.state.connectionState) ? "Generating…" : "Waiting for connection…"
         resultPanel.update(track: controller.remoteStream?.videoTrack, message: placeholder, statistics: controller.remoteStatisticsPanels, visible: controller.statisticsVisible)
-        resultPanel.mirrored = controller.localStream?.videoTrack?.position == .front
         for (mode, button) in tabButtons {
             button.selected = controller.activeMode == mode
             button.isEnabled = !controller.isBusy
@@ -501,7 +523,8 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         let stopWidth = ceil(RealtimeHeaderTypography.size("Stop Session", font: stopButton.font!).width) + 12 + 7 + 32
         let controls: [(RealtimeButton, CGFloat)] = [
             (currentModel, currentModel.preferredWidth), (statisticsButton, 36), (volumeButton, 36),
-            (interpolationButton, interpolationButton.preferredWidth), (elapsed, elapsed.preferredWidth), (stopButton, stopWidth)
+            (interpolationButton, interpolationButton.preferredWidth), (elapsed, elapsed.preferredWidth),
+            (recordButton, recordButton.preferredWidth), (stopButton, stopWidth)
         ]
         let sessionWidth = controls.reduce(CGFloat(0)) { $0 + $1.1 } + CGFloat(controls.count - 1) * 12
         sessionControls.frame = NSRect(x: header.bounds.width - sessionWidth, y: 8 + (rowHeight - 36) / 2, width: sessionWidth, height: 36)
@@ -639,6 +662,51 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         label.alignment = .center; label.frame = NSRect(x: 14, y: 202, width: 180, height: 24)
         content.addSubview(image); content.addSubview(label)
         presentPopover(content: content, from: wechat)
+    }
+
+    /// Presents each completed clip once, including when disconnecting or terminating the app.
+    private func scheduleRecordingSave() {
+        guard recordingSaveTask == nil, let url = controller.recordingToSave else { return }
+        recordingSaveTask = Task { @MainActor in
+            await presentRecordingSave(url)
+            controller.releaseRecording(url)
+            recordingSaveTask = nil
+        }
+    }
+
+    private func presentRecordingSave(_ source: URL) async {
+        while true {
+            let panel = NSSavePanel()
+            panel.title = "Save Recording"
+            panel.allowedContentTypes = [.mpeg4Movie]
+            panel.canCreateDirectories = true
+            let date = DateFormatter()
+            date.dateFormat = "yyyy-MM-dd-HHmmss"
+            panel.nameFieldStringValue = "XLab-\(date.string(from: Date())).mp4"
+            let response = await withCheckedContinuation { continuation in
+                if let window = view.window, window.isVisible {
+                    panel.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+                } else { panel.begin { continuation.resume(returning: $0) } }
+            }
+            guard response == .OK, let destination = panel.url else { return }
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try RealtimeMediaRecorder.save(source, to: destination)
+                }.value
+                return
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Unable to Save Recording"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "Try Again")
+                alert.addButton(withTitle: "Discard Recording")
+                let choice: NSApplication.ModalResponse
+                if let window = view.window, window.isVisible {
+                    choice = await alert.beginSheetModal(for: window)
+                } else { choice = alert.runModal() }
+                if choice != .alertFirstButtonReturn { return }
+            }
+        }
     }
 
     private func presentImporter(mode: RealtimeExampleMode) {

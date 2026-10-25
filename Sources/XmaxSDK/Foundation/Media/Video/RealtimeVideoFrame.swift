@@ -17,7 +17,7 @@ public struct RealtimeVideoFrame: @unchecked Sendable {
     /// The current frame pixel buffer.
     ///
     /// The pixel format follows the remote video pipeline. Callers may retain the buffer until asynchronous
-    /// encoding completes.
+    /// encoding completes. Pixels retain the received frame direction; view-specific mirroring is not applied.
     public let pixelBuffer: CVPixelBuffer
 
     /// The current frame presentation time on the realtime video timeline.

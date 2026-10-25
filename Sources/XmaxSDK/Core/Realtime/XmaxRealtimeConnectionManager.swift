@@ -181,7 +181,10 @@ actor XmaxRealtimeConnectionManager {
                 id: connection.botName ?? "video-remote",
                 videoFormat: remoteVideoFormat(for: videoFormat)
             )
-            await registerRemoteTrack(remoteTrack)
+            await registerRemoteTrack(
+                remoteTrack,
+                resolvedMediaSize: videoFormat.size
+            )
 
             activeSession = session
             activeRemoteTrack = remoteTrack
@@ -256,6 +259,7 @@ extension XmaxRealtimeConnectionManager {
         let quality = streamController.prepareQuality(
             baseline: baseline,
             model: options.model.rawValue,
+            minimumInputPixels: options.model.minimumInputPixels,
             isAdaptiveQualityEnabled: options.isAdaptiveQualityEnabled
         )
         try streamController.setVideoEncoderConfig(quality.uplink)
@@ -283,7 +287,7 @@ extension XmaxRealtimeConnectionManager {
     ///
     /// - Parameters:
     ///   - baseline: The negotiated local video format.
-    ///   - level: The downstream quality tier in `1...5`.
+    ///   - level: The downstream quality level.
     ///   - interpolation: Whether to apply interpolation pixel limits.
     ///
     /// - Returns: The format preserving aspect ratio within the tier and four-pixel alignment limits.
@@ -291,7 +295,7 @@ extension XmaxRealtimeConnectionManager {
     /// - Throws: An error if the baseline is invalid or no valid return dimensions can be calculated.
     nonisolated func resolveTargetVideoFormat(
         baseline: RealtimeVideoFormat,
-        level: Int,
+        level: RealtimeQualityLevel,
         interpolation: Bool
     ) throws -> RealtimeVideoFormat {
         try baseline.validate()
@@ -318,14 +322,14 @@ extension XmaxRealtimeConnectionManager {
     /// Applies encoding or return dimensions and records the tier change outcome.
     ///
     /// - Parameters:
-    ///   - level: The target tier in `1...5`.
+    ///   - level: The target quality level.
     ///   - downlink: Whether to update return dimensions rather than local encoding.
     ///   - taskID: The generation task whose transport configuration is being updated.
     ///   - ensureCurrent: The callback checking operation validity.
     ///
     /// - Throws: An error on cancellation, unsupported interpolation dimensions, signaling, or encoding failure.
     func applyQualityLevel(
-        _ level: Int,
+        _ level: RealtimeQualityLevel,
         downlink: Bool,
         taskID: String,
         ensureCurrent: @escaping @Sendable () throws -> Void
@@ -383,7 +387,7 @@ extension XmaxRealtimeConnectionManager {
             )
             XmaxLogger.realtime.debug(
                 message: "自动调档 (Adaptive Quality)\n"
-                    + "└─ \(downlink ? "Downlink" : "Uplink"): L\(level), \(format.width) × \(format.height)"
+                    + "└─ \(downlink ? "Downlink" : "Uplink"): L\(level.rawValue), \(format.width) × \(format.height)"
             )
         } catch {
             guard (try? ensureCurrent()) != nil else { throw error }
@@ -418,7 +422,7 @@ extension XmaxRealtimeConnectionManager {
             let targetSize = try mediaFormat.map {
                 try resolveTargetVideoFormat(
                     baseline: $0,
-                    level: streamController.qualityConfiguration?.downlinkLevel ?? 2,
+                    level: streamController.qualityConfiguration?.downlinkLevel ?? .l2,
                     interpolation: enabled
                 ).size
             }
@@ -477,7 +481,7 @@ extension XmaxRealtimeConnectionManager {
         for videoFormat: RealtimeVideoFormat?
     ) async throws -> CGSize? {
         guard let videoFormat else { return nil }
-        let level = streamController.qualityConfiguration?.downlinkLevel ?? 2
+        let level = streamController.qualityConfiguration?.downlinkLevel ?? .l2
         let fallbackFormat = try resolveTargetVideoFormat(
             baseline: videoFormat,
             level: level,
@@ -549,15 +553,20 @@ private extension XmaxRealtimeConnectionManager {
         }
     }
 
-    /// Registers remote track rendering and forwards view interactions to the media interaction component.
+    /// Registers a remote track for rendering and forwards view interactions to the media layer.
     ///
-    /// - Parameter track: The remote video track to register.
+    /// - Parameters:
+    ///   - track: The remote video track to register.
+    ///   - resolvedMediaSize: The resolved local media dimensions used to map interaction
+    ///     coordinates.
     func registerRemoteTrack(
-        _ track: RealtimeVideoTrack
+        _ track: RealtimeVideoTrack,
+        resolvedMediaSize: CGSize
     ) async {
         let interactionController = interactionController
         await renderController.registerRemoteTrack(
             track,
+            resolvedMediaSize: resolvedMediaSize,
             interactionListener: { frame in
                 await interactionController.submitInteraction(frame)
             }

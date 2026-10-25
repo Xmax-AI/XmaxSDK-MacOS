@@ -143,22 +143,26 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// The current media baseline and directional quality levels.
     var qualityConfiguration: QualityConfiguration? { qualityController.qualityConfiguration }
 
-    /// Prepares upstream and downstream tiers from media baseline and model history.
+    /// Prepares quality levels from the media baseline and model history.
     ///
     /// - Parameters:
-    ///   - baseline: The original local media output format, unchanged by tier adjustments.
-    ///   - model: The model identifier isolating tier history.
-    ///   - isAdaptiveQualityEnabled: Whether to restore and save automatic quality history; false starts at L1.
+    ///   - baseline: The resolved local media baseline, unchanged by adaptation.
+    ///   - model: The model identifier isolating quality history.
+    ///   - minimumInputPixels: The model's minimum uplink area, in pixels.
+    ///   - isAdaptiveQualityEnabled: Whether to adapt quality. Disabled connections start at L1
+    ///     without using history.
     ///
-    /// - Returns: The initial upstream and downstream configuration for this connection.
+    /// - Returns: The initial directional quality configuration.
     func prepareQuality(
         baseline: RealtimeVideoFormat,
         model: String,
-        isAdaptiveQualityEnabled: Bool = true
+        minimumInputPixels: Int,
+        isAdaptiveQualityEnabled: Bool
     ) -> QualityConfiguration {
         qualityController.prepareQuality(
             baseline: baseline,
             model: model,
+            minimumInputPixels: minimumInputPixels,
             isAdaptiveQualityEnabled: isAdaptiveQualityEnabled
         )
     }
@@ -189,15 +193,15 @@ final class StreamController: StreamControlling, RtcEventListener,
         )
     }
 
-    /// Commits tier adjustment results and saves history on success.
+    /// Commits adjustment results, persisting successful levels.
     ///
     /// - Parameters:
-    ///   - downlink: true indicates downstream; false indicates upstream.
-    ///   - level: The attempted tier in 1...5.
-    ///   - success: Whether configuration applied successfully.
+    ///   - downlink: Whether this is downlink rather than uplink.
+    ///   - level: The attempted quality level.
+    ///   - success: Whether configuration succeeded.
     func completeQuality(
         downlink: Bool,
-        level: Int,
+        level: RealtimeQualityLevel,
         success: Bool
     ) {
         qualityController.completeQuality(

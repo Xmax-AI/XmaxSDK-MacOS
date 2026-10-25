@@ -25,7 +25,7 @@ public struct RealtimeConfiguration: Equatable, Sendable {
     /// Creates realtime business configuration.
     public init(
         model: RealtimeModel,
-        isFrameInterpolationEnabled: Bool = false,
+        isFrameInterpolationEnabled: Bool = true,
         isAdaptiveQualityEnabled: Bool = true
     ) {
         self.model = model

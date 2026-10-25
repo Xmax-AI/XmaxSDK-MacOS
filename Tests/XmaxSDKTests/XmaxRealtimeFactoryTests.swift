@@ -21,6 +21,8 @@ final class XmaxRealtimeFactoryTests: XCTestCase {
         let manager = XmaxRealtimeManager(options: options, components: components)
         let initial = await manager.currentState
         XCTAssertEqual(initial.connectionState, .idle)
+        let interpolationEnabled = await manager.isFrameInterpolationEnabled
+        XCTAssertTrue(interpolationEnabled)
         XCTAssertEqual(api.requests, 0)
         try await components.lifecycleManager.run(kind: .media) { token in
             try await components.lifecycleManager.complete(RealtimeState(connectionState: .ready), token: token)

@@ -176,12 +176,14 @@ actor MediaController: MediaControlling {
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
+        mirror: Bool = false,
         useMicrophone: Bool = false
     ) async throws -> RealtimeMediaStream {
         try await createSource(kind: .camera) {
             try await self.cameraController.createLocalCameraStream(
                 videoFormat: videoFormat,
                 deviceID: deviceID,
+                mirror: mirror,
                 useMicrophone: useMicrophone
             )
         }
@@ -277,6 +279,24 @@ actor MediaController: MediaControlling {
         }
         try ensureNoOperationInProgress()
         return try await cameraController.switchCamera(to: deviceID)
+    }
+
+    /// Updates the active camera format while retaining its track.
+    ///
+    /// - Parameter videoFormat: The new dimensions, frame rate, and encoding settings.
+    ///
+    /// - Throws: An error if no camera exists, a media operation conflicts, or configuration fails.
+    func updateCameraFormat(
+        _ videoFormat: RealtimeVideoFormat
+    ) async throws {
+        guard activeSource?.kind == .camera else {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Camera preview is not started"
+            )
+        }
+        try ensureNoOperationInProgress()
+        try await cameraController.updateVideoFormat(videoFormat)
     }
 
     /// Checks whether the active media source owns the specified stream.

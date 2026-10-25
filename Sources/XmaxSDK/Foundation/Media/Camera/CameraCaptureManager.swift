@@ -272,6 +272,44 @@ final class CameraCaptureManager: NSObject, CameraCaptureManaging, @unchecked Se
         }
     }
 
+    /// Updates frame conversion dimensions and sensor frame rate on the capture queue.
+    func updateFormat(
+        _ videoFormat: VideoFormat,
+        frameRate: Int
+    ) async throws {
+        try Task.checkCancellation()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            captureQueue.async { [self] in
+                do {
+                    guard self.videoFormat != nil, let device = input?.device else {
+                        throw Self.cameraError("Camera capture is not running")
+                    }
+                    guard frameRate > 0, frameRate <= Int(Int32.max), videoFormat.pixelFormat == .nv12,
+                        videoFormat.width.isMultiple(of: 2), videoFormat.height.isMultiple(of: 2)
+                    else {
+                        throw Self.cameraError("Camera output format is invalid")
+                    }
+                    if self.frameRate != frameRate {
+                        let selected = try selectFormat(
+                            device: device,
+                            frameRate: frameRate
+                        )
+                        session.beginConfiguration()
+                        defer { session.commitConfiguration() }
+                        try device.lockForConfiguration()
+                        defer { device.unlockForConfiguration() }
+                        device.activeFormat = selected.format
+                        device.activeVideoMinFrameDuration = selected.duration
+                        device.activeVideoMaxFrameDuration = selected.duration
+                    }
+                    self.videoFormat = videoFormat
+                    self.frameRate = frameRate
+                    continuation.resume()
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
     /// Stops capture, waits for in-flight frames, and releases the device.
     func stop() async {
         await withCheckedContinuation { continuation in
@@ -366,6 +404,48 @@ private extension CameraCaptureManager {
             throw Self.cameraError("The requested camera is unavailable")
         }
 
+        let selected = try selectFormat(
+            device: device,
+            frameRate: frameRate
+        )
+
+        let newInput = try AVCaptureDeviceInput(device: device)
+        if let input {
+            session.removeInput(input)
+        }
+        input = nil
+
+        guard session.canAddInput(newInput) else {
+            throw Self.cameraError("Failed to attach the requested camera")
+        }
+        session.addInput(newInput)
+        input = newInput
+
+        do {
+            try device.lockForConfiguration()
+            defer {
+                device.unlockForConfiguration()
+            }
+
+            device.activeFormat = selected.format
+            device.activeVideoMinFrameDuration = selected.duration
+            device.activeVideoMaxFrameDuration = selected.duration
+
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            }
+
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            }
+        }
+    }
+
+    /// Selects a supported sensor format and exact duration using the macOS capture policy.
+    func selectFormat(
+        device: AVCaptureDevice,
+        frameRate: Int
+    ) throws -> (format: AVCaptureDevice.Format, duration: CMTime) {
         // Prefers 16:9 formats up to 1920×1080, falling back to 4:3 formats up to 1920×1440.
         let selected = device.formats.compactMap {
             format -> (
@@ -374,7 +454,7 @@ private extension CameraCaptureManager {
             guard
                 let duration = format.videoSupportedFrameRateRanges.lazy.compactMap({
                     Self.captureFrameDuration(
-                        frameRate: self.frameRate,
+                        frameRate: frameRate,
                         minimum: $0.minFrameDuration,
                         maximum: $0.maxFrameDuration
                     )
@@ -409,36 +489,7 @@ private extension CameraCaptureManager {
             )
         }
 
-        let newInput = try AVCaptureDeviceInput(device: device)
-        if let input {
-            session.removeInput(input)
-        }
-        input = nil
-
-        guard session.canAddInput(newInput) else {
-            throw Self.cameraError("Failed to attach the requested camera")
-        }
-        session.addInput(newInput)
-        input = newInput
-
-        do {
-            try device.lockForConfiguration()
-            defer {
-                device.unlockForConfiguration()
-            }
-
-            device.activeFormat = selected.format
-            device.activeVideoMinFrameDuration = selected.duration
-            device.activeVideoMaxFrameDuration = selected.duration
-
-            if device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusMode = .continuousAutoFocus
-            }
-
-            if device.isExposureModeSupported(.continuousAutoExposure) {
-                device.exposureMode = .continuousAutoExposure
-            }
-        }
+        return (selected.format, selected.duration)
     }
 
     /// Configures the video capture connection and disables automatic system mirroring.

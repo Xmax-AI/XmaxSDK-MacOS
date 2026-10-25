@@ -10,7 +10,7 @@
 
 import Foundation
 
-/// Stores successfully committed tiers by model and direction for one hour.
+/// The successfully applied model and directional levels retained for one hour.
 struct QualityHistory {
 
     /// The model identifier isolating quality history.
@@ -19,37 +19,40 @@ struct QualityHistory {
     /// The preferences storing levels and timestamps.
     var defaults: UserDefaults = .standard
 
-    /// Reads a valid tier for the model and direction from the past hour.
+    /// Returns a valid level from the last hour for this model and direction.
     ///
     /// - Parameters:
-    ///   - downlink: Whether to read downstream history; `false` reads upstream.
-    ///   - now: The current Unix time in seconds.
+    ///   - downlink: Whether to read downlink rather than uplink.
+    ///   - now: The Unix time, in seconds.
     ///
-    /// - Returns: The valid historical tier, or default tier 2 for missing, expired, or invalid history.
+    /// - Returns: The valid historical level, or L2 if missing, expired, or invalid.
     func read(
         downlink: Bool,
         now: TimeInterval = Date().timeIntervalSince1970
-    ) -> Int {
+    ) -> RealtimeQualityLevel {
         let key = key(downlink)
         let savedAt = defaults.double(forKey: key + ".time")
-        let level = defaults.integer(forKey: key)
-        guard (1...5).contains(level), savedAt > 0, now >= savedAt, now - savedAt < 3600 else { return 2 }
+        guard let level = RealtimeQualityLevel(rawValue: defaults.integer(forKey: key)),
+            savedAt > 0, now >= savedAt, now - savedAt < 3600
+        else {
+            return .l2
+        }
         return level
     }
 
-    /// Saves a successfully applied tier for the current model and direction.
+    /// Persists a successfully applied model and directional level.
     ///
     /// - Parameters:
-    ///   - level: The successfully applied tier in `1...5`.
-    ///   - downlink: Whether to save downstream history; `false` saves upstream.
-    ///   - now: The current Unix time in seconds.
+    ///   - level: The applied quality level.
+    ///   - downlink: Whether to store downlink rather than uplink.
+    ///   - now: The Unix time, in seconds.
     func write(
-        level: Int,
+        level: RealtimeQualityLevel,
         downlink: Bool,
         now: TimeInterval = Date().timeIntervalSince1970
     ) {
         defaults.set(
-            level,
+            level.rawValue,
             forKey: key(downlink)
         )
         defaults.set(
@@ -58,11 +61,11 @@ struct QualityHistory {
         )
     }
 
-    /// Creates a history storage key scoped by model and direction.
+    /// Creates a model-specific directional history key.
     ///
-    /// - Parameter downlink: Whether this is the downstream direction.
+    /// - Parameter downlink: Whether this is the downlink direction.
     ///
-    /// - Returns: The storage key for the current model and direction.
+    /// - Returns: The storage key for the model and direction.
     private func key(
         _ downlink: Bool
     ) -> String {

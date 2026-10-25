@@ -17,6 +17,9 @@ final class TrajectoryBinding {
     /// The receiver submitting viewport trajectories to the media layer.
     private let listener: RenderInteractionListener
 
+    /// The immutable resolved media dimensions used for trajectory mapping.
+    private let resolvedMediaSize: CGSize
+
     /// The viewport currently attached to this binding.
     private weak var overlay: TrajectoryOverlayView?
 
@@ -31,9 +34,11 @@ final class TrajectoryBinding {
 
     /// Creates a viewport binding with an interaction receiver.
     init(
-        listener: @escaping RenderInteractionListener
+        listener: @escaping RenderInteractionListener,
+        resolvedMediaSize: CGSize
     ) {
         self.listener = listener
+        self.resolvedMediaSize = resolvedMediaSize
     }
 
     /// Attaches a viewport and invalidates input from its previous attachment.
@@ -49,6 +54,7 @@ final class TrajectoryBinding {
             )
             self.overlay = overlay
         }
+        overlay.setResolvedMediaSize(resolvedMediaSize)
         overlay.setBinding(
             self,
             enabled: enabled
@@ -66,6 +72,7 @@ final class TrajectoryBinding {
             nil,
             enabled: false
         )
+        overlay.setResolvedMediaSize(nil)
     }
 
     /// A task or stream boundary cancels the old gesture even if interaction remains enabled.
@@ -103,6 +110,7 @@ final class TrajectoryBinding {
             nil,
             enabled: false
         )
+        overlay?.setResolvedMediaSize(nil)
         overlay = nil
     }
 }

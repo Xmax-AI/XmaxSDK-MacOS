@@ -63,9 +63,6 @@ public final class XmaxVideoView: NSView {
     /// The registered interaction binding for the displayed remote track.
     private weak var trajectoryBinding: TrajectoryBinding?
 
-    /// The latest media dimensions used for pointer coordinate mapping.
-    private var displayedVideoSize: CGSize?
-
     /// Whether the local source requires mirrored presentation.
     private var sourceMirrored = false
 
@@ -233,13 +230,12 @@ extension XmaxVideoView {
         updateTrajectoryConfiguration()
     }
 
-    /// Updates pointer mapping from the current video dimensions and display options.
+    /// Updates pointer presentation without changing the binding's resolved media dimensions.
     private func updateTrajectoryConfiguration() {
         trajectoryOverlay?.configure(
             contentMode: videoContentMode,
             mirrored: isMirrored || sourceMirrored,
-            requested: isInteractionEnabled,
-            displayedSize: displayedVideoSize
+            requested: isInteractionEnabled
         )
     }
 
@@ -362,7 +358,7 @@ extension XmaxVideoView {
         }
     }
 
-    /// Submits remote frames with their durations and updates interaction mapping dimensions.
+    /// Submits processed remote frames with their durations for display.
     ///
     /// - Parameters:
     ///   - frame: The remote video frame after interpolation and other processing.
@@ -371,11 +367,6 @@ extension XmaxVideoView {
         _ frame: RealtimeVideoFrame,
         contentMode: VideoContentMode
     ) {
-        displayedVideoSize = CGSize(
-            width: CVPixelBufferGetWidth(frame.pixelBuffer),
-            height: CVPixelBufferGetHeight(frame.pixelBuffer)
-        )
-        updateTrajectoryConfiguration()
         if decodedVideoLayer == nil {
             prepareDecodedVideoPreview(contentMode: contentMode)
         }
@@ -503,7 +494,6 @@ extension XmaxVideoView {
         }
         trajectoryOverlay = nil
         trajectoryBinding = nil
-        displayedVideoSize = nil
         sourceMirrored = false
         do {
             try VideoRenderRegistry.binding(for: track)?.detach(from: self)

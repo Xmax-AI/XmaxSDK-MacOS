@@ -10,8 +10,19 @@
 
 @preconcurrency import AgoraRtcKit
 
-/// The native camera capture, preview, and device selection operations used by the platform adapter.
+/// The native camera capture, preview, device selection, and upstream encoding operations.
 protocol AgoraRtcCameraEngine: AnyObject {
+
+    /// Applies upstream video encoding and mirror settings before joining a connection.
+    func setVideoEncoderConfiguration(
+        _ config: AgoraVideoEncoderConfiguration
+    ) -> Int32
+
+    /// Applies upstream video encoding and mirror settings to the joined connection.
+    func setVideoEncoderConfigurationEx(
+        _ config: AgoraVideoEncoderConfiguration,
+        connection: AgoraRtcConnection
+    ) -> Int32
 
     /// Enables or disables native local video capture.
     func enableLocalVideo(

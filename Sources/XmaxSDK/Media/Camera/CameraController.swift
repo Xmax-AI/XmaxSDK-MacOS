@@ -44,6 +44,9 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// The lock serializing microphone start and stop operations.
     private let audioOperationLock = NSRecursiveLock()
 
+    /// Serializes format changes across suspension points.
+    @MainActor private var formatUpdateTask: Task<Void, any Error>?
+
     /// The active camera track.
     private var activeTrack: RealtimeVideoTrack?
 
@@ -58,6 +61,9 @@ final class CameraController: CameraControlling, @unchecked Sendable {
 
     /// Whether this camera input requests microphone access.
     private var storedUseMicrophone = false
+
+    /// The explicit mirror policy retained across camera device and format changes.
+    private var storedMirror = false
 
     /// Whether RTC microphone capture is active.
     private var isMicrophoneCapturing = false
@@ -173,6 +179,7 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     ///   - videoFormat: The requested dimensions, frame rate, and encoding configuration; dimensions follow model
     ///     rules.
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
+    ///   - mirror: Whether to mirror camera preview and upstream encoding; disabled by default.
     ///   - useMicrophone: Whether to request microphone permission and allow capture when realtime connects.
     ///
     /// - Returns: The media stream containing the local camera video track.
@@ -182,6 +189,7 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
+        mirror: Bool = false,
         useMicrophone: Bool = false
     ) async throws -> RealtimeMediaStream {
         guard currentTrack == nil else {
@@ -207,14 +215,16 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             if !captureManager.suppliesRTCVideo {
                 try rtcManager.useExternalVideoSource()
             }
+            try rtcManager.configureLocalVideoMirror(mirror)
             let preview = await makePreview(
                 for: track,
-                position: device.position
+                mirrored: mirror
             )
             stateLock.withLock {
                 activeTrack = track
                 self.preview = preview
                 storedUseMicrophone = useMicrophone
+                storedMirror = mirror
                 isCaptureReady = false
                 isPreviewAttached = false
             }
@@ -304,6 +314,7 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             preview = nil
             previewReadyHandler = nil
             storedUseMicrophone = false
+            storedMirror = false
             isMicrophoneCapturing = false
             isCaptureReady = false
             isPreviewAttached = false
@@ -314,6 +325,50 @@ final class CameraController: CameraControlling, @unchecked Sendable {
         await MainActor.run {
             if let track = resources.0 { VideoRenderRegistry.unregister(track) }
             resources.1?.clear()
+        }
+    }
+
+    /// Updates a camera format while retaining the current track and preview binding.
+    ///
+    /// - Throws: An error if no camera exists, the format is unsupported, or capture configuration fails.
+    @MainActor
+    func updateVideoFormat(
+        _ videoFormat: RealtimeVideoFormat
+    ) async throws {
+        guard let track = currentTrack else {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Camera preview is not started"
+            )
+        }
+        let previous = formatUpdateTask
+        let task = Task { @MainActor [self] in
+            _ = try? await previous?.value
+            try Task.checkCancellation()
+            guard currentTrack === track else { throw CancellationError() }
+            let resolved = try resolveVideoFormat(videoFormat)
+            let output = try VideoFormat(
+                width: resolved.width,
+                height: resolved.height,
+                pixelFormat: .nv12
+            )
+            if resolved != track.videoFormat {
+                try await captureManager.updateFormat(
+                    output,
+                    frameRate: resolved.fps
+                )
+            }
+            try stateLock.withLock {
+                guard activeTrack === track else { throw CancellationError() }
+                preview?.dispatcher?.reset()
+                track.updateVideoFormat(resolved)
+            }
+        }
+        formatUpdateTask = task
+        try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
         }
     }
 
@@ -334,8 +389,8 @@ final class CameraController: CameraControlling, @unchecked Sendable {
         let device = try resolveDevice(deviceID)
         try await captureManager.switchCamera(to: device.id)
         track.updateDevice(device)
-        let preview = stateLock.withLock { self.preview }
-        try await preview?.setMirrored(device.position == .front)
+        let presentation = stateLock.withLock { (preview, storedMirror) }
+        try await presentation.0?.setMirrored(presentation.1)
         return RealtimeMediaStream(
             id: StreamID.local.rawValue,
             videoTrack: track
@@ -436,25 +491,25 @@ private extension CameraController {
     ///
     /// - Parameters:
     ///   - track: The local camera track to preview.
-    ///   - position: The camera position determining preview mirroring.
+    ///   - mirrored: Whether the camera stream requests mirrored presentation.
     ///
     /// - Returns: The preview components used for frame submission and resource release.
     @MainActor
     func makePreview(
         for track: RealtimeVideoTrack,
-        position: CameraPosition
+        mirrored: Bool
     ) -> Preview {
         let preview: Preview
         if captureManager.suppliesRTCVideo {
             preview = .native(
                 RtcCameraPreviewPresenter(
                     rtcManager: rtcManager,
-                    mirrored: position == .front
+                    mirrored: mirrored
                 )
             )
         } else {
             let presenter = DecodedVideoPreviewPresenter()
-            presenter.setMirrored(position == .front)
+            presenter.setMirrored(mirrored)
             preview = .decoded(
                 presenter,
                 DecodedVideoPreviewDispatcher(presenter: presenter)

@@ -20,6 +20,11 @@ resources for the screen's lifetime, and run UI operations on the main actor.
 - [Frame interpolation](#frame-interpolation)
 - [Logging](#logging)
 
+`XmaxConfiguration.environment` selects service endpoints for the client, independently
+of the realtime model. The China environment uses the domestic endpoint; the global
+environment uses `https://api.xmax.cloud/open/api/v1` for general requests and
+`https://api.xmax.ai/open/api/v1` for realtime sessions.
+
 ## Camera selection and microphone
 
 List devices without starting capture:
@@ -29,6 +34,7 @@ let devices = await realtime.listCameraDevices()
 let selectedDeviceID = devices.first(where: { $0.isDefault })?.id
 let localStream = try await realtime.createLocalCameraStream(
     deviceID: selectedDeviceID,
+    mirror: true,
     useMicrophone: true
 )
 ```
@@ -38,6 +44,12 @@ identifier returns an error rather than silently selecting a different device.
 Bind the returned track to a preview view in a window. Camera input enters `ready`
 when native camera capture has started and the preview is bound. Agora renders
 the local preview directly; hidden preview views do not delay capture readiness.
+
+`mirror` defaults to `false`. Enable it to mirror both Agora's native local preview
+and the encoded camera video sent for generation. The setting is retained across
+camera switches, format changes, quality updates, and reconnects. It changes the
+input seen by the generation service. Generated video views and media callbacks
+use the returned frame direction without an additional horizontal flip.
 
 Microphone input is disabled by default. Enabling it requests permission when the
 camera stream is created; audio capture begins on connection and stops on
@@ -73,8 +85,41 @@ let format = RealtimeVideoFormat(
     maximumBitrate: 3000,
     encoderPreference: .maintainFramerate
 )
-let localStream = try await realtime.createLocalCameraStream(videoFormat: format)
+let localStream = try await realtime.createLocalCameraStream(
+    videoFormat: format,
+    useMicrophone: true
+)
 ```
+
+Use `RealtimeModel.supportedVideoFormats` to list the model's camera dimensions and
+default frame rate. `resolutionBuckets` remains available for dimension-only callers.
+Read `currentCameraVideoFormat` for the applied camera format; uplink quality changes
+do not alter this value.
+
+A camera stream must be `ready` and disconnected before changing its format:
+
+```swift
+await realtime.disconnect()
+try await realtime.updateCameraFormat(
+    RealtimeVideoFormat(width: 1024, height: 1920, fps: 24)
+)
+```
+
+The existing track, selected device, and preview binding are retained. A configuration
+failure leaves the preceding format in place when capture can be restored. If native
+capture restoration also fails, the SDK reports a runtime media failure and releases
+unusable media. Disconnect before changing dimensions or frame rate; encoding quality
+controls remain available during generation.
+
+`createLocalCameraStream(preset:deviceID:mirror:useMicrophone:)` creates a camera stream using
+the preset's dimensions and the selected model's recommended frame rate. Unsupported
+presets are rejected before capture starts.
+
+`updateCameraFormat(_ preset: RealtimeCameraPreset)` changes dimensions while retaining
+frame rate and bitrate settings. Both preset APIs require model support. The current
+models' two camera dimensions do not match the shared presets, so `currentCameraPreset`
+is nil and those presets are rejected; use an explicit supported format instead.
+Camera format queries return nil for external video input.
 
 Bitrates are in kbps. The default encoder minimum is 500 kbps, capped by the
 resolved maximum; an explicit 0 removes the minimum.
@@ -163,6 +208,12 @@ try await realtime.startGeneration(
 )
 ```
 
+Starting generation caches its context and face restoration setting only after the first
+processed result frame and remote audio activation succeed. A failed or cancelled start
+retains the last successful context; pass `context: nil` to reuse it. If no generation has
+succeeded yet, provide a context for the next attempt. Condition updates commit their
+cache after signaling and validity checks complete.
+
 To retain a reference image, include its URL in the new context. For virtual
 try-on, pass `faceRestoration: true` to preserve the original face. This setting
 is sent on each call; pass it again on subsequent updates when needed.
@@ -175,12 +226,20 @@ For SwiftUI, keep both tracks in observable state and use two `XmaxVideo` views 
 an `HStack`. Clear the remote track when the remote session ends.
 
 For a single surface, use `XmaxRealtimeVideoView` in AppKit or `XmaxRealtimeVideo`
-in SwiftUI. These retain local preview beneath generated output, reveal the
+in SwiftUI. Both accept `isInteractionEnabled` during initialization. These retain local preview beneath generated output, reveal the
 result after its first frame, and restore local preview when `remoteTrack` is nil.
 
-See the [SwiftUI screen](../Examples/XLab/XLab/RealtimeView.swift) and
+See the [AppKit screen](../Examples/XLab/XLab/RealtimeViewController.swift) and
 [session controller](../Examples/XLab/XLab/RealtimeSessionController.swift).
-The macOS views do not currently expose mouse trajectory interaction.
+
+In XLab, click **Record** during generation to record the remote result's video and
+audio, then click **Stop Recording** to choose where to save the MP4 (H.264/AAC).
+Playback mute does not mute the recording. Ending the session or disconnecting
+also finishes the current clip and opens the save panel. Canceling the panel
+discards the temporary clip. XLab creates its camera stream with `mirror: true`
+and records remote frame pixels as received. The result preview and recording
+apply no additional mirror transform.
+The macOS views support primary-button dragging for trajectory interaction during generation.
 
 ## Remote audio volume
 
@@ -221,6 +280,12 @@ await realtime.setStateListener { state in
     }
 }
 ```
+
+Completion callbacks for input readiness, a standalone connection, generation startup,
+and local input shutdown are delivered after the completed operation releases ownership.
+You can schedule the next operation from those callbacks without adding an artificial delay.
+`preparing` and `connecting` still report active work; the intermediate `connected` state
+inside combined connection-and-generation startup does not end that operation.
 
 Handle throwing async operations with `do/catch`. Workflow-ending failures appear
 in `state.reason` after cleanup completes. For camera input, preview binding is
@@ -281,6 +346,20 @@ when creating `RealtimeConfiguration` to start every connection at L1 and disabl
 automatic changes. Manual controls remain available and do not overwrite adaptive
 history in that mode.
 
+## Trajectory signaling
+
+Trajectory coordinates and aspect-fit margins use the resolved local media dimensions
+captured for the remote track. Changes to return dimensions, quality, or interpolation
+do not change that reference or cancel an active pointer gesture. Resizing the viewport,
+changing presentation options, switching track bindings, or ending generation cancels it.
+
+Unsent trajectory updates are coalesced by generation task: only the latest pending
+trajectory is retained while earlier signals or rate limits delay delivery. Once a
+fragmented message starts sending, all its fragments finish in order. Starting,
+changing conditions, or stopping generation discards unsent trajectories before
+queuing the control signal. Controls retain their order and are not coalesced.
+Disconnecting closes the queue and cancels pending work.
+
 ## File download progress
 
 `downloadImage` and `downloadVideo` use a file-backed download task and report byte
@@ -296,21 +375,19 @@ memory. Concurrent downloads keep their progress callbacks separate.
 ## Startup timing
 
 `setLaunchTimingListener` reports optional millisecond values in
-`RealtimeLaunchTiming`: `cameraMs`, `sessionMs`, `rtcJoinMs`, `publishMs`,
-`firstFrameMs`, and `totalMs`. `cameraMs` measures camera preparation through capture
-readiness, including permissions and RTC initialization when needed, excluding
-preview binding and display. It remains available when generation starts with an
-already prepared camera and is nil for external input. Unfinished stages are nil.
-The four generation stages align with iOS performance logs. Total time measures
-generation startup through the first displayable result frame and generation state
-commitment, including orchestration between stages. Camera preparation is measured
-separately and is excluded from the generation total. The total is measured directly
-and need not equal the sum of the stages.
+`RealtimeLaunchTiming`: `sessionMs`, `rtcJoinMs`, `publishMs`, `firstFrameMs`, and
+`totalMs`. Unfinished stages are nil. The four stages align with iOS performance
+logs. Total time starts when generation enters the business flow and ends after the
+first displayable result frame and startup completion. It includes orchestration
+between stages and is measured directly rather than adding their durations.
+Camera stream creation does not start a generation timing measurement.
 
 ## Frame interpolation
 
-Frame interpolation is disabled by default. It requires macOS 26 or later and
-supported hardware. Enable it through `RealtimeConfiguration` or the runtime setter:
+Frame interpolation is enabled by default and requires macOS 26 or later with
+supported hardware. Initial media configuration falls back to ordinary rendering
+when interpolation is unsupported. Set `isFrameInterpolationEnabled: false` in
+`RealtimeConfiguration` to opt out, or change it at runtime:
 
 ```swift
 try await realtime.setFrameInterpolationEnabled(true)

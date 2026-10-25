@@ -129,17 +129,26 @@ protocol RtcRoom: AnyObject, Sendable {
     ///
     /// - Parameters:
     ///   - message: The complete JSON signal.
-    ///   - reportFailure: Whether asynchronous send failure reports a room fault; false only logs and throws to the
-    ///     awaiting caller.
-    ///
-    /// - Throws: An error if the signal is invalid or the queue unavailable.
+    ///   - reportFailure: Whether asynchronous send failure reports a room fault; false only logs
+    ///     and throws to the awaiting caller.
+    ///   - key: The key replacing older, unsent messages with the same key.
     ///
     /// - Returns: The send task for this signal.
+    ///
+    /// - Throws: An error if the signal is invalid or the queue unavailable.
     @discardableResult
     func sendRoomMessage(
         _ message: String,
-        reportFailure: Bool
+        reportFailure: Bool,
+        replacingPendingMessage key: String?
     ) throws -> Task<Void, any Error>
+
+    /// Drops coalescible messages that have not started sending.
+    ///
+    /// - Parameter key: The coalescing key, or `nil` for all coalescible messages.
+    func discardPendingMessages(
+        key: String?
+    )
 
     /// Waits for earlier queued signals to be submitted to RTC.
     ///
@@ -171,7 +180,8 @@ extension RtcRoom {
     ) throws {
         try sendRoomMessage(
             message,
-            reportFailure: true
+            reportFailure: true,
+            replacingPendingMessage: nil
         )
     }
 }

@@ -21,12 +21,14 @@ protocol StreamControlling: Sendable {
     /// - Parameters:
     ///   - baseline: The original local media output format, unchanged by tier adjustments.
     ///   - model: The model identifier isolating tier history.
+    ///   - minimumInputPixels: The model's minimum uplink area, in pixels.
     ///   - isAdaptiveQualityEnabled: Whether to restore and save automatic quality history; false starts at L1.
     ///
     /// - Returns: The initial upstream and downstream configuration for this connection.
     func prepareQuality(
         baseline: RealtimeVideoFormat,
         model: String,
+        minimumInputPixels: Int,
         isAdaptiveQualityEnabled: Bool
     ) -> QualityConfiguration
 
@@ -53,11 +55,11 @@ protocol StreamControlling: Sendable {
     ///
     /// - Parameters:
     ///   - downlink: true indicates downstream; false indicates upstream.
-    ///   - level: The attempted tier in 1...5.
+    ///   - level: The attempted quality level.
     ///   - success: Whether configuration applied successfully.
     func completeQuality(
         downlink: Bool,
-        level: Int,
+        level: RealtimeQualityLevel,
         success: Bool
     )
 

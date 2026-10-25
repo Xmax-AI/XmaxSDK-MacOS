@@ -28,7 +28,7 @@ enum QualityVideoFormat {
     /// - Returns: The aspect-preserving maximum dimensions, allowing fractional pixels.
     static func resolveDownlinkMaximumSize(
         _ baseline: RealtimeVideoFormat,
-        level: Int
+        level: RealtimeQualityLevel
     ) -> CGSize {
         let scale = sizeScale(
             baseline,
@@ -52,11 +52,11 @@ enum QualityVideoFormat {
     /// - Returns: The resolved transport format; uplink dimensions are multiples of 4.
     static func resolve(
         _ baseline: RealtimeVideoFormat,
-        level: Int,
+        level: RealtimeQualityLevel,
         downlink: Bool,
         minimumInputPixels: Int = 0
     ) -> RealtimeVideoFormat {
-        let index = min(5, max(1, level)) - 1
+        let index = level.rawValue - 1
         let scale = sizeScale(
             baseline,
             level: level
@@ -145,9 +145,9 @@ enum QualityVideoFormat {
     /// - Returns: The dimension scale, no greater than 1.
     private static func sizeScale(
         _ baseline: RealtimeVideoFormat,
-        level: Int
+        level: RealtimeQualityLevel
     ) -> Double {
-        let index = min(5, max(1, level)) - 1
+        let index = level.rawValue - 1
         let shortSide = min(
             baseline.width,
             baseline.height

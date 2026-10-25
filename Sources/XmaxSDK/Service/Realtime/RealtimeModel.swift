@@ -28,11 +28,26 @@ public enum RealtimeModel: String, CaseIterable, Sendable {
         }
     }
 
-    /// The session API URL for this model.
-    var apiBaseURL: URL {
+    /// The supported frame dimensions and recommended frame rates.
+    ///
+    /// Camera dimensions must match an entry exactly. Images and videos retain their media aspect
+    /// ratio and use the closest generation canvas. An empty array allows variable canvas
+    /// dimensions, resolved using pixel limits and alignment.
+    public var supportedVideoFormats: [RealtimeVideoFormat] {
         switch self {
-        case .x2_1_1_preview_cn: URL(string: "https://cloud.xmax.22duck.cn/open/api/v1")!
-        case .x2_1_1_preview_us: URL(string: "https://api.xmax.ai/open/api/v1")!
+        case .x2_1_1_preview_cn, .x2_1_1_preview_us:
+            [
+                RealtimeVideoFormat(
+                    width: 1024,
+                    height: 1920,
+                    fps: defaultFrameRate
+                ),
+                RealtimeVideoFormat(
+                    width: 1920,
+                    height: 1024,
+                    fps: defaultFrameRate
+                )
+            ]
         }
     }
 
@@ -40,16 +55,7 @@ public enum RealtimeModel: String, CaseIterable, Sendable {
     /// Images and videos retain their aspect ratio and use the closest generation canvas.
     /// An empty array permits calculated canvas dimensions based on pixel area limits and alignment rules.
     public var resolutionBuckets: [CGSize] {
-        [
-            CGSize(
-                width: 1024,
-                height: 1920
-            ),
-            CGSize(
-                width: 1920,
-                height: 1024
-            )
-        ]
+        supportedVideoFormats.map(\.size)
     }
 
     /// The minimum local media and uplink pixel area; also limits variable generation canvases.

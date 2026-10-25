@@ -21,15 +21,14 @@ final class TrajectoryTests: XCTestCase {
         let setup = makeOverlay(listener: { await recorder.append($0) })
         defer { setup.window.close() }
         for mirrored in [false, true] {
-            setup.overlay.configure(contentMode: .fit, mirrored: mirrored, requested: true,
-                                    displayedSize: CGSize(width: 200, height: 200))
+            setup.overlay.configure(contentMode: .fit, mirrored: mirrored, requested: true)
+        setup.overlay.setResolvedMediaSize(CGSize(width: 200, height: 200))
             setup.overlay.mouseDown(with: event(.leftMouseDown, x: 4, y: 6, in: setup.overlay))
             await drain()
             let last = await recorder.last()
             let frame = try XCTUnwrap(last)
             let mapped = try XCTUnwrap(InteractionCoordinateMapper.map(frame.points[0],
-                viewportSize: frame.viewportSize, displayedVideoSize: CGSize(width: 200, height: 200),
-                mediaSize: CGSize(width: 1024, height: 1024), contentMode: frame.contentMode))
+                viewportSize: frame.viewportSize, resolvedMediaSize: CGSize(width: 200, height: 200), contentMode: frame.contentMode))
             XCTAssertEqual(mapped.x, 0.02, accuracy: 0.0001)
             XCTAssertEqual(mapped.y, 0.03, accuracy: 0.0001)
             let visual = try XCTUnwrap(setup.renderer.began.last)
@@ -43,18 +42,17 @@ final class TrajectoryTests: XCTestCase {
         let recorder = TrajectoryFrameRecorder()
         let setup = makeOverlay(listener: { await recorder.append($0) })
         defer { setup.window.close() }
-        setup.overlay.configure(contentMode: .fit, mirrored: true, requested: true,
-                                displayedSize: CGSize(width: 400, height: 200))
+        setup.overlay.configure(contentMode: .fit, mirrored: true, requested: true)
+        setup.overlay.setResolvedMediaSize(CGSize(width: 400, height: 200))
         setup.overlay.mouseDown(with: event(.leftMouseDown, x: 0, y: 100, in: setup.overlay))
         await drain()
         let last = await recorder.last()
         let frame = try XCTUnwrap(last)
         let mapped = try XCTUnwrap(InteractionCoordinateMapper.map(frame.points[0],
-            viewportSize: frame.viewportSize, displayedVideoSize: CGSize(width: 400, height: 200),
-            mediaSize: CGSize(width: 400, height: 200), contentMode: .fit))
+            viewportSize: frame.viewportSize, resolvedMediaSize: CGSize(width: 400, height: 200), contentMode: .fit))
         XCTAssertEqual(mapped.x, 0, accuracy: 0.001)
-        setup.overlay.configure(contentMode: .fill, mirrored: false, requested: true,
-                                displayedSize: CGSize(width: 400, height: 200))
+        setup.overlay.configure(contentMode: .fill, mirrored: false, requested: true)
+        setup.overlay.setResolvedMediaSize(CGSize(width: 400, height: 200))
         setup.overlay.mouseDown(with: event(.leftMouseDown, x: 0, y: 100, in: setup.overlay))
         XCTAssertEqual(try XCTUnwrap(setup.renderer.began.last).normalizedLocation.x, 0.25, accuracy: 0.001)
     }
@@ -67,7 +65,7 @@ final class TrajectoryTests: XCTestCase {
         XCTAssertNil(TrajectoryRegistry.binding(for: other))
         TrajectoryRegistry.register(track, binding: setup.binding)
         setup.overlay.mouseDown(with: event(.leftMouseDown, x: 70, y: 70, in: setup.overlay))
-        let replacement = TrajectoryBinding(listener: { _ in })
+        let replacement = TrajectoryBinding(listener: { _ in }, resolvedMediaSize: CGSize(width: 400, height: 200))
         TrajectoryRegistry.register(track, binding: replacement)
         XCTAssertEqual(setup.renderer.ended.count, 1)
         setup.binding.update(enabled: true)
@@ -100,8 +98,8 @@ final class TrajectoryTests: XCTestCase {
         let recorder = TrajectoryFrameRecorder()
         let setup = makeOverlay(listener: { await recorder.append($0) })
         defer { setup.window.close() }
-        setup.overlay.configure(contentMode: .fit, mirrored: true, requested: true,
-                                displayedSize: CGSize(width: 400, height: 200))
+        setup.overlay.configure(contentMode: .fit, mirrored: true, requested: true)
+        setup.overlay.setResolvedMediaSize(CGSize(width: 400, height: 200))
         setup.overlay.mouseDown(with: event(.leftMouseDown, x: 50, y: 75, in: setup.overlay))
         await drain()
         let first = try XCTUnwrap(setup.renderer.began.last)
@@ -110,8 +108,7 @@ final class TrajectoryTests: XCTestCase {
         let frames = await recorder.frames
         let frame = try XCTUnwrap(frames.first)
         let mapped = try XCTUnwrap(InteractionCoordinateMapper.map(frame.points[0],
-            viewportSize: frame.viewportSize, displayedVideoSize: try XCTUnwrap(frame.displayedVideoSize),
-            mediaSize: CGSize(width: 1920, height: 960), contentMode: frame.contentMode))
+            viewportSize: frame.viewportSize, resolvedMediaSize: CGSize(width: 400, height: 200), contentMode: frame.contentMode))
         XCTAssertEqual(mapped.x, 0.25, accuracy: 0.001)
         XCTAssertEqual(mapped.y, 0.25, accuracy: 0.001)
         setup.overlay.mouseDragged(with: event(.leftMouseDragged, x: 150, y: 125, in: setup.overlay))
@@ -140,7 +137,7 @@ final class TrajectoryTests: XCTestCase {
         let last = await recorder.last()
         let frame = try XCTUnwrap(last)
         XCTAssertNotNil(InteractionCoordinateMapper.map(frame.points[0], viewportSize: frame.viewportSize,
-            displayedVideoSize: CGSize(width: 400, height: 200), mediaSize: CGSize(width: 400, height: 200), contentMode: .fit))
+            resolvedMediaSize: CGSize(width: 400, height: 200), contentMode: .fit))
     }
 
     func testBindingTransferAndInvalidationRejectOldViewAndQueuedSamples() async {
@@ -178,13 +175,13 @@ final class TrajectoryTests: XCTestCase {
         setup.overlay.layout()
         XCTAssertEqual(setup.renderer.ended.count, 1)
         begin()
-        setup.overlay.configure(contentMode: .fit, mirrored: false, requested: false,
-                                displayedSize: CGSize(width: 400, height: 200))
+        setup.overlay.configure(contentMode: .fit, mirrored: false, requested: false)
+        setup.overlay.setResolvedMediaSize(CGSize(width: 400, height: 200))
         XCTAssertEqual(setup.renderer.ended.count, 2)
         begin()
         XCTAssertEqual(setup.renderer.began.count, 2)
-        setup.overlay.configure(contentMode: .fit, mirrored: false, requested: true,
-                                displayedSize: CGSize(width: 400, height: 200))
+        setup.overlay.configure(contentMode: .fit, mirrored: false, requested: true)
+        setup.overlay.setResolvedMediaSize(CGSize(width: 400, height: 200))
         begin()
         let replacement = RecordingTrajectoryRenderer()
         setup.overlay.setRenderer(replacement)
@@ -200,7 +197,7 @@ final class TrajectoryTests: XCTestCase {
         let render = RenderController(rtcManager: rtc)
         let track = RealtimeVideoTrack(id: "remote", videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30))
         let recorder = TrajectoryFrameRecorder()
-        render.registerRemoteTrack(track, interactionListener: { await recorder.append($0) })
+        render.registerRemoteTrack(track, resolvedMediaSize: CGSize(width: 4, height: 4), interactionListener: { await recorder.append($0) })
         let renderer = RecordingTrajectoryRenderer()
         let video = XmaxVideoView(track: track, videoContentMode: .fit)
         video.trajectoryRenderer = renderer
@@ -254,15 +251,79 @@ final class TrajectoryTests: XCTestCase {
         XCTAssertEqual(stopped, after)
     }
 
+    func testReturnFrameAspectChangesKeepResolvedMediaMappingAndActiveGesture() async throws {
+        let rtc = RtcManagingStub()
+        let render = RenderController(rtcManager: rtc)
+        let track = RealtimeVideoTrack(id: "result", videoFormat: RealtimeVideoFormat(width: 400, height: 200, fps: 30))
+        let basis = CGSize(width: 400, height: 200)
+        let recorder = TrajectoryFrameRecorder()
+        render.registerRemoteTrack(track, resolvedMediaSize: basis, interactionListener: { await recorder.append($0) })
+        let renderer = RecordingTrajectoryRenderer()
+        let video = XmaxVideoView(track: track, videoContentMode: .fit)
+        video.trajectoryRenderer = renderer
+        let window = makeWindow(content: video)
+        defer { window.close() }
+        let overlay = try XCTUnwrap(video.subviews.compactMap { $0 as? TrajectoryOverlayView }.first)
+        overlay.layout()
+        try render.setRemoteStream(RemoteStream(roomID: "room", userID: "bot"))
+        render.setInteractionEnabled(true)
+        try rtc.emitRemoteVideoFrame(width: 8, height: 8)
+        try await render.waitUntilRemoteFrameReady()
+        overlay.mouseDown(with: event(.leftMouseDown, x: 50, y: 25, in: overlay))
+        XCTAssertTrue(renderer.began.isEmpty, "Fit margins follow the resolved media basis")
+        overlay.mouseDown(with: event(.leftMouseDown, x: 50, y: 75, in: overlay))
+        let began = try XCTUnwrap(renderer.began.last)
+        XCTAssertEqual(began.normalizedLocation.x, 0.25, accuracy: 0.001)
+        XCTAssertEqual(began.normalizedLocation.y, 0.25, accuracy: 0.001)
+        let displayed = expectation(description: "Changed return aspect is displayed")
+        video.frameDisplayHandler = { displayed.fulfill() }
+        try rtc.emitRemoteVideoFrame(width: 4, height: 8, presentationTimeStamp: CMTime(value: 1, timescale: 30))
+        await fulfillment(of: [displayed], timeout: 2)
+        video.frameDisplayHandler = nil
+        XCTAssertTrue(renderer.ended.isEmpty, "Return dimensions must not invalidate the active gesture")
+        overlay.mouseDragged(with: event(.leftMouseDragged, x: 150, y: 125, in: overlay))
+        overlay.mouseUp(with: event(.leftMouseUp, x: 150, y: 125, in: overlay))
+        await drain()
+        let frames = await recorder.snapshot()
+        let last = try XCTUnwrap(frames.last)
+        let mapped = try XCTUnwrap(InteractionCoordinateMapper.map(
+            try XCTUnwrap(last.points.last), viewportSize: last.viewportSize,
+            resolvedMediaSize: basis, contentMode: last.contentMode
+        ))
+        XCTAssertEqual(mapped.x, 0.75, accuracy: 0.001)
+        XCTAssertEqual(mapped.y, 0.75, accuracy: 0.001)
+        XCTAssertEqual(renderer.moved.last?.id, began.id)
+        XCTAssertEqual(renderer.ended, [began.id])
+        try await render.resetRemoteTrack(track)
+    }
+
+    func testRealtimeContainerInteractionInitializerAndTrackChangesRetainTheSetting() {
+        let local = RealtimeVideoTrack(id: "local")
+        let remote = RealtimeVideoTrack(id: "remote")
+        let view = XmaxRealtimeVideoView(
+            localTrack: local, remoteTrack: remote, videoContentMode: .fit, isInteractionEnabled: false
+        )
+        XCTAssertFalse(view.isInteractionEnabled)
+        XCTAssertFalse((view.subviews.last as? XmaxVideoView)?.isInteractionEnabled ?? true)
+        view.remoteTrack = nil
+        view.remoteTrack = remote
+        XCTAssertFalse(view.isInteractionEnabled)
+        view.isInteractionEnabled = true
+        XCTAssertTrue(view.isInteractionEnabled)
+        XCTAssertTrue(XmaxRealtimeVideoView().isInteractionEnabled)
+        view.remoteTrack = nil
+        view.localTrack = nil
+    }
+
     private func makeOverlay(listener: @escaping RenderInteractionListener = { _ in }) ->
         (overlay: TrajectoryOverlayView, renderer: RecordingTrajectoryRenderer, binding: TrajectoryBinding, window: NSWindow) {
         let renderer = RecordingTrajectoryRenderer()
         let overlay = TrajectoryOverlayView(renderer: renderer)
         let window = makeWindow(content: overlay)
-        overlay.configure(contentMode: .fit, mirrored: false, requested: true,
-                          displayedSize: CGSize(width: 400, height: 200))
+        overlay.configure(contentMode: .fit, mirrored: false, requested: true)
+        overlay.setResolvedMediaSize(CGSize(width: 400, height: 200))
         overlay.layout()
-        let binding = TrajectoryBinding(listener: listener)
+        let binding = TrajectoryBinding(listener: listener, resolvedMediaSize: CGSize(width: 400, height: 200))
         binding.attach(to: overlay)
         binding.update(enabled: true)
         return (overlay, renderer, binding, window)

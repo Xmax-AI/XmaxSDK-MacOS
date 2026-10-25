@@ -10,103 +10,108 @@
 
 import Foundation
 
-/// Defines network quality and device performance alarm observation.
+/// An interface for quality and performance alarms.
 protocol QualityControlling: Sendable {
 
-    /// The current connection's transport tiers; nil before preparation.
-    var qualityConfiguration: QualityConfiguration? { get }
+    /// The connection quality configuration, if prepared.
+    var qualityConfiguration: QualityConfiguration? {
+        get
+    }
 
-    /// Prepares transport tiers from the media baseline and model history.
+    /// Prepares initial transport quality from the media baseline and model history.
     ///
     /// - Parameters:
-    ///   - baseline: The original local media output format, unchanged by tier adjustments.
-    ///   - model: The model identifier isolating tier history.
-    ///   - isAdaptiveQualityEnabled: Whether to restore and save automatic quality history; false starts at L1.
+    ///   - baseline: The resolved local media baseline, unchanged by adaptation.
+    ///   - model: The model identifier isolating quality history.
+    ///   - minimumInputPixels: The model's minimum uplink area, in pixels.
+    ///   - isAdaptiveQualityEnabled: Whether to adapt quality. Disabled connections start at L1
+    ///     without using history.
     ///
-    /// - Returns: The initial upstream and downstream configuration for this connection.
+    /// - Returns: The initial directional quality configuration.
     func prepareQuality(
         baseline: RealtimeVideoFormat,
         model: String,
+        minimumInputPixels: Int,
         isAdaptiveQualityEnabled: Bool
     ) -> QualityConfiguration
 
-    /// Sets the internal adaptive sample listener without replacing the caller's network listener.
+    /// Sets the internal adaptation listener independently of your app's network listener.
     ///
-    /// - Parameter listener: Receives network quality and monotonic sample time; nil removes it.
+    /// - Parameter listener: The quality and monotonic sample time handler, or `nil` to remove it.
     func setAdaptiveQualityListener(
         _ listener: (@Sendable (RealtimeNetworkQuality, TimeInterval) -> Void)?
     )
 
-    /// Calculates candidate tiers from a sample without committing them early.
+    /// Proposes quality levels without committing them.
     ///
     /// - Parameters:
-    ///   - quality: The current upstream and downstream network quality.
-    ///   - sampledAt: The monotonic sample time in seconds.
+    ///   - quality: The current directional network quality.
+    ///   - sampledAt: The monotonic sample time, in seconds.
     ///
-    /// - Returns: The candidate tiers meeting consecutive sample and cooldown requirements.
+    /// - Returns: The candidate levels satisfying sample and cooldown requirements.
     func proposeQuality(
         _ quality: RealtimeNetworkQuality,
         sampledAt: TimeInterval
     ) -> QualityChange
 
-    /// Commits one direction's outcome, saving tier history only on success.
+    /// Commits an adjustment result, persisting successful levels only.
     ///
     /// - Parameters:
-    ///   - downlink: true indicates downstream; false indicates upstream.
-    ///   - level: The attempted tier in 1...5.
-    ///   - success: Whether configuration applied successfully.
+    ///   - downlink: Whether this is downlink rather than uplink.
+    ///   - level: The attempted quality level.
+    ///   - success: Whether configuration succeeded.
     func completeQuality(
         downlink: Bool,
-        level: Int,
+        level: RealtimeQualityLevel,
         success: Bool
     )
 
-    /// Clears consecutive samples so busy-period history cannot trigger tier changes.
+    /// Clears consecutive samples collected while adaptation was unavailable.
     func resetQualitySamples()
 
-    /// Releases this connection's tier state and internal sample listener.
+    /// Releases connection quality state and its internal sample listener.
     func resetQuality()
 
-    /// Sets upstream statistics reception and notifies listeners to clear old metrics.
+    /// Updates uplink statistics availability and clears previous statistics.
     ///
     /// - Parameter enabled: Whether local video is published.
     func setUplinkVideoStatisticsEnabled(
         _ enabled: Bool
     )
 
-    /// Sets the downstream target user and notifies listeners to clear old metrics.
+    /// Changes the downlink statistics target and clears previous statistics.
     ///
-    /// - Parameter userID: The result stream user identifier; nil stops reception.
+    /// - Parameter userID: The result user identifier, or `nil` to stop delivery.
     func setDownlinkVideoStatisticsUser(
         _ userID: String?
     )
 
-    /// Sets the upstream video statistics listener.
+    /// Sets the uplink video statistics listener.
     ///
-    /// - Parameter listener: The main-thread callback; receives nil before publication or after disconnect. Pass nil to
-    ///   clear it.
+    /// - Parameter listener: The main-actor handler, receiving `nil` when unpublished or
+    ///   disconnected. Pass `nil` to remove it.
     func setUplinkVideoStatisticsListener(
         _ listener: UplinkVideoStatisticsListener?
     )
 
-    /// Sets the downstream video statistics listener.
+    /// Sets the downlink video statistics listener.
     ///
-    /// - Parameter listener: The main-thread callback; receives nil when the result stream is cleared. Pass nil to
-    ///   clear it.
+    /// - Parameter listener: The main-actor handler, receiving `nil` when the result stream clears.
+    ///   Pass `nil` to remove it.
     func setDownlinkVideoStatisticsListener(
         _ listener: DownlinkVideoStatisticsListener?
     )
 
-    /// Sets the upstream and downstream network quality listener.
+    /// Sets the network quality listener.
     ///
-    /// - Parameter listener: The main-thread network quality callback; `nil` clears it.
+    /// - Parameter listener: The main-actor quality handler, or `nil` to remove it.
     func setNetworkQualityListener(
         _ listener: RealtimeNetworkQualityListener?
     )
 
     /// Sets the device performance alarm listener.
     ///
-    /// - Parameter listener: The main-thread performance limitation or recovery callback; `nil` clears it.
+    /// - Parameter listener: The main-actor performance handler, or `nil` to remove it.
     func setPerformanceAlarmListener(
         _ listener: RealtimePerformanceAlarmListener?
     )

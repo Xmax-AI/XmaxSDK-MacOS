@@ -225,9 +225,11 @@ final class RenderController: RenderControlling {
     ///
     /// - Parameters:
     ///   - track: The remote video track to register.
+    ///   - resolvedMediaSize: The resolved local media dimensions retained for trajectory mapping.
     ///   - interactionListener: The asynchronous callback receiving view interaction samples.
     func registerRemoteTrack(
         _ track: RealtimeVideoTrack,
+        resolvedMediaSize: CGSize,
         interactionListener: @escaping RenderInteractionListener
     ) {
         if let previous = registeredRemoteTrack, previous !== track {
@@ -236,7 +238,10 @@ final class RenderController: RenderControlling {
         registeredRemoteTrack = track
         TrajectoryRegistry.register(
             track,
-            binding: TrajectoryBinding(listener: interactionListener)
+            binding: TrajectoryBinding(
+                listener: interactionListener,
+                resolvedMediaSize: resolvedMediaSize
+            )
         )
         refreshInteractionAvailability()
         VideoRenderRegistry.register(

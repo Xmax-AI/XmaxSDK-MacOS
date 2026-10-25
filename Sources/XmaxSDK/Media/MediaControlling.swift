@@ -42,6 +42,7 @@ protocol MediaControlling: Actor, InteractionControlling {
     /// - Parameters:
     ///   - videoFormat: The target camera capture video format.
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
+    ///   - mirror: Whether to mirror camera preview and upstream encoding.
     ///   - useMicrophone: Whether to use the microphone; permission is checked at creation and capture starts on
     ///     connection.
     ///
@@ -52,6 +53,7 @@ protocol MediaControlling: Actor, InteractionControlling {
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
+        mirror: Bool,
         useMicrophone: Bool
     ) async throws -> RealtimeMediaStream
 
@@ -94,6 +96,11 @@ protocol MediaControlling: Actor, InteractionControlling {
     /// Stops and releases the local media stream, preview binding, and RTC engine;
     /// does nothing without an active source.
     func stopLocalStream() async
+
+    /// Updates the disconnected camera while preserving its track and preview binding.
+    func updateCameraFormat(
+        _ videoFormat: RealtimeVideoFormat
+    ) async throws
 
     /// Checks whether the active media source owns the specified stream.
     ///

@@ -37,6 +37,19 @@ let package = Package(
             checksum: "e655a38c6f5cfd5ab7d0c06bb18a22c5b8ed32ebbee181584ca15fab492576f0"
         ),
         .testTarget(
+            name: "XLabRecordingTests",
+            dependencies: ["XLabRecording", "XmaxSDK"],
+            path: "Tests/XLabRecordingTests",
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../.."])
+            ]
+        ),
+        .target(
+            name: "XLabRecording",
+            dependencies: ["XmaxSDK"],
+            path: "Examples/XLab/Recording"
+        ),
+        .testTarget(
             name: "XmaxSDKTests",
             dependencies: ["XmaxSDK"],
             path: "Tests/XmaxSDKTests",

@@ -288,7 +288,7 @@ final class RealtimeSpinner: RealtimeCanvas {
 
 /// Native buttons retain their identity, loading animation, keyboard focus, and target action.
 final class RealtimeButton: NSButton {
-    enum Appearance { case pill, primary, destructive, statistics, interpolation, volume, tab, plain, dismiss }
+    enum Appearance { case pill, primary, destructive, statistics, interpolation, volume, recording, tab, plain, dismiss }
     var style = Appearance.pill { didSet { needsDisplay = true } }
     var selected = false { didSet { if selected != oldValue { needsDisplay = true } } }
     var icon: RealtimeWebIcon.Kind? { didSet { needsDisplay = true } }
@@ -352,7 +352,7 @@ final class RealtimeButton: NSButton {
         if style == .destructive { return NSColor(srgbRed: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1) }
         if selected && style == .statistics { return RealtimePalette.accent }
         if selected && style == .interpolation { return NSColor(srgbRed: 169 / 255, green: 102 / 255, blue: 8 / 255, alpha: 1) }
-        if style == .statistics || style == .interpolation || style == .volume {
+        if style == .statistics || style == .interpolation || style == .volume || style == .recording {
             return selected || (hovered && isEnabled) ? RealtimePalette.text :
                 NSColor(srgbRed: 139 / 255, green: 145 / 255, blue: 157 / 255, alpha: 1)
         }
@@ -416,6 +416,10 @@ final class RealtimeButton: NSButton {
             top = NSColor(srgbRed: 1, green: 250 / 255, blue: 240 / 255, alpha: 1)
             bottom = NSColor(srgbRed: 1, green: 240 / 255, blue: 202 / 255, alpha: 1)
             border = NSColor(srgbRed: 240 / 255, green: 207 / 255, blue: 136 / 255, alpha: 1)
+        case .recording where selected:
+            top = NSColor(srgbRed: 249 / 255, green: 250 / 255, blue: 251 / 255, alpha: 1)
+            bottom = NSColor(srgbRed: 235 / 255, green: 238 / 255, blue: 242 / 255, alpha: 1)
+            border = NSColor(srgbRed: 208 / 255, green: 213 / 255, blue: 221 / 255, alpha: 1)
         case .tab:
             top = selected ? .white : .white.withAlphaComponent(hot ? 0.65 : 0)
             bottom = top; border = .clear
@@ -425,7 +429,7 @@ final class RealtimeButton: NSButton {
         }
         if isHighlighted { bottom = bottom.blended(withFraction: 0.06, of: .black) ?? bottom }
         NSGradient(starting: top, ending: bottom)?.draw(in: path, angle: 90)
-        if style == .pill || style == .volume || style == .destructive || (!selected && (style == .statistics || style == .interpolation)) {
+        if style == .pill || style == .volume || style == .recording || style == .destructive || (!selected && (style == .statistics || style == .interpolation)) {
             let highlight = NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: rect.height / 2 - 1, yRadius: rect.height / 2 - 1)
             NSColor.white.withAlphaComponent(0.6).setStroke(); highlight.lineWidth = 1; highlight.stroke()
         }
@@ -437,7 +441,11 @@ final class RealtimeButton: NSButton {
         layer?.shadowOffset = CGSize(width: 0, height: style == .primary ? 10 : style == .tab ? 2 : hot ? 6 : 4)
         layer?.shadowPath = CGPath(roundedRect: rect, cornerWidth: rect.height / 2, cornerHeight: rect.height / 2, transform: nil)
         let (iconRect, textRect) = contentFrames()
-        if let icon, !loading { RealtimeWebIcon.draw(icon, in: iconRect, color: foreground) }
+        if let icon, !loading {
+            let iconColor = style == .recording && selected ?
+                NSColor(srgbRed: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1) : foreground
+            RealtimeWebIcon.draw(icon, in: iconRect, color: iconColor)
+        }
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [.font: font ?? NSFont.systemFont(ofSize: 13), .foregroundColor: foreground, .paragraphStyle: paragraph, .kern: tracking]
@@ -561,7 +569,6 @@ final class RealtimeVideoPanel: RealtimeCanvas {
     private let captionBackground = RealtimeCanvas(color: .black.withAlphaComponent(0.35), radius: 8)
     private let watermark = realtimeLabel("✦ Xmax", size: 13, color: .white.withAlphaComponent(0.8), weight: .semibold)
     private var panels: [RealtimeStatisticsPanel] = []
-    var mirrored = false { didSet { if oldValue != mirrored { needsLayout = true } } }
 
     init(title: String, statistics: [RealtimeStatisticsGroup], showsWatermark: Bool = false) {
         caption = realtimeLabel(title, size: 12, color: .white.withAlphaComponent(0.65))
@@ -588,8 +595,6 @@ final class RealtimeVideoPanel: RealtimeCanvas {
     override func layout() {
         super.layout()
         videoContainer.frame = bounds; video.frame = videoContainer.bounds
-        // Mirror the SDK video layer so pointer coordinates and trajectory visuals stay aligned.
-        video.isMirrored = mirrored
         placeholder.frame = NSRect(x: 20, y: bounds.midY - 10, width: bounds.width - 40, height: 20)
         let captionSize = RealtimeHeaderTypography.size(caption.stringValue, font: caption.font!)
         captionBackground.frame = NSRect(x: 14, y: bounds.height - 12 - captionSize.height - 6, width: ceil(captionSize.width) + 16, height: captionSize.height + 6)
@@ -613,7 +618,7 @@ extension RealtimeSessionController {
                 .init(id: "First frame latency", value: milliseconds(launchTiming.firstFrameMs),
                       help: "From generation signal submission to the first display-ready result frame"),
                 .init(id: "Total startup", value: milliseconds(launchTiming.totalMs),
-                      help: "From SDK startup to the first display-ready result. Includes camera preparation in combined startup; overlapping stages are measured directly, not added together.", total: true)
+                      help: "From generation startup to the first display-ready result and startup completion. Includes orchestration between stages; measured directly, not added together.", total: true)
             ]),
             .init(id: "Uplink video statistics", rows: [
                 .init(id: "Uplink resolution", value: resolution(uplinkStatistics?.width, uplinkStatistics?.height)),
@@ -663,7 +668,7 @@ extension RealtimeSessionController {
 /// Draws the existing Web icon coordinates directly into the AppKit graphics context.
 @MainActor
 enum RealtimeWebIcon {
-    enum Kind { case camera, microphone, statistics, muted, volume, volumeLow, lightning, plus, close, arrow, globe, socialX, wechat, key, stop }
+    enum Kind { case camera, microphone, statistics, muted, volume, volumeLow, lightning, plus, close, arrow, globe, socialX, wechat, key, stop, record }
 
     static func draw(_ kind: Kind, in rect: CGRect, color: NSColor) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
@@ -674,7 +679,7 @@ enum RealtimeWebIcon {
         context.setFillColor(color.cgColor); context.setStrokeColor(color.cgColor)
         context.setLineWidth(kind == .arrow || kind == .close ? 3 : kind == .plus || kind == .microphone ? 2 : 1.8)
         context.setLineCap(.round); context.setLineJoin(.round)
-        if kind == .lightning || kind == .socialX || kind == .wechat || kind == .stop { context.drawPath(using: .eoFill) }
+        if kind == .lightning || kind == .socialX || kind == .wechat || kind == .stop || kind == .record { context.drawPath(using: .eoFill) }
         else { context.strokePath() }
         context.restoreGState()
     }
@@ -690,6 +695,8 @@ enum RealtimeWebIcon {
         switch kind {
         case .stop:
             p.addRect(CGRect(x: 5, y: 5, width: 14, height: 14))
+        case .record:
+            p.addEllipse(in: CGRect(x: 4, y: 4, width: 16, height: 16))
         case .key:
             p.addEllipse(in: CGRect(x: 2, y: 10, width: 11, height: 11))
             line(points([(11.39,11.61),(21,2)]))

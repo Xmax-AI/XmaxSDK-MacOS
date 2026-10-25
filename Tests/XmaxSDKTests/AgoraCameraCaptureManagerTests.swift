@@ -4,6 +4,33 @@ import XCTest
 @testable import XmaxSDK
 
 final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
+    @MainActor
+    func testNativeFormatUpdateRetainsCanvasAndDoesNotRestartStreamOwnership() async throws {
+        let rtc = RtcManagingStub()
+        let devices = [CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)]
+        let controller = CameraController(
+            rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: MediaService(),
+            captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { devices })
+        )
+        let stream = try await controller.createLocalCameraStream(
+            videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil, mirror: true
+        )
+        let track = try XCTUnwrap(stream.videoTrack)
+        let view = XmaxVideoView()
+        try VideoRenderRegistry.binding(for: track)?.attach(to: view, contentMode: .fit)
+        let canvas = try XCTUnwrap(view.subviews.first)
+        try await controller.updateVideoFormat(RealtimeVideoFormat(width: 1024, height: 1920, fps: 24))
+        XCTAssertTrue(controller.currentTrack === track)
+        XCTAssertTrue(view.subviews.first === canvas)
+        XCTAssertEqual(rtc.calls.last, .updateCameraCapture(
+            try VideoFormat(width: 1024, height: 1920, pixelFormat: .nv12), 24
+        ))
+        XCTAssertFalse(rtc.calls.contains(.stopCameraCapture))
+        XCTAssertFalse(rtc.calls.contains(.detachCameraPreview))
+        XCTAssertEqual(rtc.cameraMirrors, [true])
+        await controller.stopLocalCameraStream()
+    }
+
     func testNativeStartupCanBeCancelledWhileWaitingForCaptureMetadata() async throws {
         let rtc = RtcManagingStub()
         rtc.reportsCameraReadyOnStart = false
@@ -51,14 +78,15 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
         try VideoRenderRegistry.binding(for: track)?.attach(to: view, contentMode: .fit)
         XCTAssertEqual(view.subviews.count, 1)
         XCTAssertFalse(view.layer?.sublayers?.contains { $0 is AVSampleBufferDisplayLayer } ?? false)
-        XCTAssertEqual(rtc.calls.last, .attachCameraPreview(.fit, mirrored: true))
+        XCTAssertEqual(rtc.calls.last, .attachCameraPreview(.fit, mirrored: false))
+        XCTAssertEqual(rtc.cameraMirrors, [false])
         let ready = expectation(description: "Native camera frame and bound preview become ready")
         controller.setPreviewReadyHandler { _ in ready.fulfill() }
         rtc.emitCameraPreviewReady()
         await fulfillment(of: [ready], timeout: 2)
         XCTAssertEqual(rtc.calls, [.startCameraCapture(RtcCameraConfiguration(
             deviceID: "builtin", width: 1920, height: 1024, frameRate: 30
-        )), .attachCameraPreview(.fit, mirrored: true)])
+        )), .attachCameraPreview(.fit, mirrored: false)])
         await controller.stopLocalCameraStream()
         XCTAssertEqual(Array(rtc.calls.suffix(2)), [.stopCameraCapture, .detachCameraPreview])
         XCTAssertTrue(view.subviews.isEmpty)
@@ -67,7 +95,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
     }
 
     @MainActor
-    func testNativeCameraSwitchPreservesTrackAndUpdatesPreviewMirror() async throws {
+    func testNativeCameraSwitchPreservesTrackAndExplicitPreviewMirror() async throws {
         let rtc = RtcManagingStub()
         let devices = [
             CameraDevice(id: "builtin", name: "Camera", isDefault: true, position: .front),
@@ -158,7 +186,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
         try binding.attach(to: next, contentMode: .fit)
         XCTAssertTrue(old.subviews.isEmpty)
         XCTAssertEqual(next.subviews.count, 1)
-        XCTAssertEqual(Array(rtc.calls.suffix(2)), [.detachCameraPreview, .attachCameraPreview(.fit, mirrored: true)])
+        XCTAssertEqual(Array(rtc.calls.suffix(2)), [.detachCameraPreview, .attachCameraPreview(.fit, mirrored: false)])
         XCTAssertFalse(rtc.calls.contains(.stopCameraCapture))
         await controller.stopLocalCameraStream()
     }

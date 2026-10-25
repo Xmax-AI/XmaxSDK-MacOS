@@ -388,7 +388,12 @@ actor XmaxRealtimeLifecycleManager {
         isCurrent: @Sendable () -> Bool
     ) async {
         guard state.connectionState == .preparing, isCurrent() else { return }
-        await setState(RealtimeState(connectionState: .ready))
+        let ready = RealtimeState(connectionState: .ready)
+        if let activeOperation {
+            activeOperation.completionState = ready
+        } else {
+            await setState(ready)
+        }
     }
 
     /// Disconnects realtime and waits for connection operations and resource cleanup.

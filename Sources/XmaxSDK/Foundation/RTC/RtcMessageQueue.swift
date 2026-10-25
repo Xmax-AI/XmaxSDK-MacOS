@@ -10,16 +10,16 @@
 
 import Foundation
 
-/// Splits room JSON signals into Agora DataStream fragments matching the server protocol.
+/// Encodes signaling into Agora data-stream packets for server reassembly.
 enum RtcMessageCodec {
 
-    /// Encodes UTF-8 signals as single packets or reassemblable JSON fragments.
+    /// Encodes UTF-8 signaling as one packet or reassemblable JSON fragments.
     ///
-    /// - Parameter message: The complete room signal.
+    /// - Parameter message: The complete room message.
     ///
     /// - Returns: The packets in send order.
     ///
-    /// - Throws: An error on empty signals, size or fragment count limits, or JSON encoding failure.
+    /// - Throws: An error if the message is empty, exceeds limits, or cannot be encoded.
     static func encode(
         _ message: String
     ) throws -> [Data] {
@@ -30,7 +30,9 @@ enum RtcMessageCodec {
                 message: "RTC room message must contain between 1 and 262144 bytes"
             )
         }
-        if bytes.count <= 800 { return [bytes] }
+        if bytes.count <= 800 {
+            return [bytes]
+        }
 
         var chunks: [String] = []
         var chunk = ""
@@ -46,7 +48,11 @@ enum RtcMessageCodec {
             chunk += value
             length += encoded
         }
-        if !chunk.isEmpty { chunks.append(chunk) }
+
+        if !chunk.isEmpty {
+            chunks.append(chunk)
+        }
+
         guard chunks.count <= 512 else {
             throw XmaxError(
                 code: .invalidConfiguration,
@@ -70,7 +76,7 @@ enum RtcMessageCodec {
         }
     }
 
-    /// A large signal fragment with reassembly information.
+    /// A signaling fragment with reassembly metadata.
     private struct Fragment: Encodable {
 
         /// The signaling fragmentation event name.
@@ -90,7 +96,7 @@ enum RtcMessageCodec {
     }
 }
 
-/// Sends complete signal groups serially and limits DataStream packets and bytes per second.
+/// An ordered signaling queue respecting data-stream packet and byte limits.
 final class RtcMessageQueue: @unchecked Sendable {
 
     /// The operation submitting one packet.
@@ -117,7 +123,10 @@ final class RtcMessageQueue: @unchecked Sendable {
     /// Whether failure of the last queued message blocks later messages.
     private var lastFailureIsFatal = true
 
-    /// Creates a serial, rate-limited room signaling queue.
+    /// The latest unsent message for each coalescing key.
+    private var pendingMessages: [String: PendingMessage] = [:]
+
+    /// Creates an ordered, rate-limited signaling queue.
     init(
         send: @escaping @Sendable (Data) throws -> Void,
         onFailure: @escaping @Sendable (XmaxError) -> Void
@@ -126,23 +135,36 @@ final class RtcMessageQueue: @unchecked Sendable {
         self.onFailure = onFailure
     }
 
-    /// Enqueues a complete signal for serial sending.
+    /// Enqueues a complete signaling message.
     ///
     /// - Parameters:
-    ///   - message: The complete signal to send.
-    ///   - reportFailure: Whether asynchronous send failure invokes the fault callback.
+    ///   - message: The complete message to send.
+    ///   - reportFailure: Whether asynchronous send failure triggers the failure handler.
+    ///   - key: The key replacing older messages that have not started sending.
     ///
-    /// - Returns: A task for independently awaiting this signal's send result.
+    /// - Returns: The send task. Coalesced calls share a task sending the latest retained message.
     ///
-    /// - Throws: An error on encoding failure, closed queue, or full queue.
+    /// - Throws: An error if encoding fails or the queue is closed or full.
     @discardableResult
     func enqueue(
         _ message: String,
-        reportFailure: Bool = true
+        reportFailure: Bool = true,
+        replacingPendingMessage key: String? = nil
     ) throws -> Task<Void, any Error> {
         let packets = try RtcMessageCodec.encode(message)
         return try lock.withLock {
-            guard !closed else { throw CancellationError() }
+            guard !closed else {
+                throw CancellationError()
+            }
+
+            if let key, let pending = pendingMessages[key], let task = tasks[pending.id] {
+                pendingMessages[key] = PendingMessage(
+                    id: pending.id,
+                    packets: packets
+                )
+                return task
+            }
+
             guard tasks.count < 64 else {
                 throw XmaxError(
                     code: .rtcError,
@@ -153,21 +175,62 @@ final class RtcMessageQueue: @unchecked Sendable {
             let previous = lastTask
             let previousFailureIsFatal = lastFailureIsFatal
             let id = UUID()
+            if let key {
+                pendingMessages[key] = PendingMessage(
+                    id: id,
+                    packets: packets
+                )
+            }
+
             let task = Task { [self] in
-                defer { _ = lock.withLock { tasks.removeValue(forKey: id) } }
+                defer {
+                    lock.withLock {
+                        tasks.removeValue(forKey: id)
+                        if let key, pendingMessages[key]?.id == id {
+                            pendingMessages.removeValue(forKey: key)
+                        }
+                    }
+                }
+
                 do {
                     if previousFailureIsFatal {
                         try await previous?.value
                     } else {
                         _ = try? await previous?.value
                     }
-                    for packet in packets {
+
+                    try Task.checkCancellation()
+                    let currentPackets: [Data]
+                    if let key {
+                        currentPackets = try await takePendingPackets(
+                            key: key,
+                            id: id
+                        )
+                    } else {
+                        currentPackets = packets
+                    }
+
+                    for packet in currentPackets {
                         try await limiter.wait(byteCount: packet.count)
                         try Task.checkCancellation()
                         try send(packet)
+                        await limiter.record(byteCount: packet.count)
                     }
                 } catch {
-                    if !Task.isCancelled, !lock.withLock({ closed }) {
+                    // Discarding an unsent message must not block subsequent control messages.
+                    if Task.isCancelled, key != nil,
+                        !lock.withLock({
+                            closed
+                        })
+                    {
+                        return
+                    }
+
+                    if !Task.isCancelled,
+                        !lock.withLock({
+                            closed
+                        })
+                    {
                         if reportFailure {
                             onFailure(XmaxError.from(error))
                         } else {
@@ -180,6 +243,7 @@ final class RtcMessageQueue: @unchecked Sendable {
                     throw error
                 }
             }
+
             tasks[id] = task
             lastTask = task
             lastFailureIsFatal = reportFailure
@@ -187,17 +251,38 @@ final class RtcMessageQueue: @unchecked Sendable {
         }
     }
 
-    /// Waits for signals already queued at call time to finish sending.
+    /// Drops unsent coalescible messages without affecting active fragments or control messages.
     ///
-    /// - Throws: An error on send failure or cancelled waiting.
+    /// - Parameter key: The coalescing key, or `nil` for all coalescible messages.
+    func discardPendingMessages(
+        key: String? = nil
+    ) {
+        lock.withLock {
+            let keys =
+                key.map {
+                    [$0]
+                } ?? Array(pendingMessages.keys)
+            for key in keys {
+                if let pending = pendingMessages.removeValue(forKey: key) {
+                    tasks[pending.id]?.cancel()
+                }
+            }
+        }
+    }
+
+    /// Waits for messages already queued at the time of the call.
+    ///
+    /// - Throws: An error if sending fails or waiting is cancelled.
     func flush() async throws {
-        let pending = lock.withLock { lastTask }
+        let pending = lock.withLock {
+            lastTask
+        }
         try await Self.waitForCompletion(of: pending)
     }
 
-    /// Waits for a specific signal, unaffected by later messages.
+    /// Waits for a specific message independently of subsequently queued messages.
     ///
-    /// - Parameter pending: The send task to await; `nil` requires no wait.
+    /// - Parameter pending: The send task to await, or `nil` if nothing is pending.
     ///
     /// - Throws: An error if the task fails or waiting is cancelled.
     static func waitForCompletion(
@@ -213,55 +298,127 @@ final class RtcMessageQueue: @unchecked Sendable {
                     continuation.finish(throwing: error)
                 }
             }
-            continuation.onTermination = { _ in observer.cancel() }
+
+            continuation.onTermination = { _ in
+                observer.cancel()
+            }
         }
-        for try await _ in completion {}
+
+        for try await _ in completion {
+        }
+
         try Task.checkCancellation()
     }
 
-    /// Closes the send queue and cancels unfinished signals.
+    /// Closes the queue and cancels incomplete messages.
     func close() {
         lock.withLock {
             closed = true
-            tasks.values.forEach { $0.cancel() }
+            tasks.values.forEach {
+                $0.cancel()
+            }
             tasks.removeAll()
             lastTask = nil
+            pendingMessages.removeAll()
         }
     }
 }
 
 private extension RtcMessageQueue {
 
-    /// Limits packet count and total bytes using a sliding time window.
+    /// The latest contents of an unsent message.
+    struct PendingMessage {
+
+        /// The pending message task identifier.
+        let id: UUID
+
+        /// The message fragments within packet size limits.
+        let packets: [Data]
+    }
+
+    /// Claims the latest message contents when send quota becomes available.
+    ///
+    /// - Parameters:
+    ///   - key: The message coalescing key.
+    ///   - id: The send task identifier.
+    ///
+    /// - Returns: The complete fragments to begin sending.
+    ///
+    /// - Throws: A cancellation error if the queue is closed or the message was discarded.
+    func takePendingPackets(
+        key: String,
+        id: UUID
+    ) async throws -> [Data] {
+        while true {
+            try Task.checkCancellation()
+            let byteCount = try lock.withLock {
+                guard let pending = pendingMessages[key], pending.id == id else {
+                    throw CancellationError()
+                }
+                return pending.packets[0].count
+            }
+
+            try await limiter.wait(byteCount: byteCount)
+            let packets: [Data]? = try lock.withLock {
+                guard !closed, let pending = pendingMessages[key], pending.id == id else {
+                    throw CancellationError()
+                }
+                guard pending.packets[0].count <= byteCount else {
+                    return nil
+                }
+                pendingMessages.removeValue(forKey: key)
+                return pending.packets
+            }
+            if let packets {
+                return packets
+            }
+        }
+    }
+
+    /// A sliding-window limiter for signaling packets and bytes. Allows headroom below the
+    /// per-channel 60 packets/s and client-wide 30 KB/s limits.
     actor RateLimiter {
 
         /// The send timestamps and byte counts in the current window.
         var sent: [(time: UInt64, bytes: Int)] = []
 
-        /// Waits for sufficient packet and byte budget in the send window.
+        /// Waits for sufficient packet and byte quota.
         ///
-        /// - Parameter byteCount: The byte count of the packet to send.
+        /// - Parameter byteCount: The packet size, in bytes.
         ///
-        /// - Throws: Cancellation if waiting is cancelled.
+        /// - Throws: A cancellation error if waiting is cancelled.
         func wait(
             byteCount: Int
         ) async throws {
             while true {
                 try Task.checkCancellation()
                 let now = DispatchTime.now().uptimeNanoseconds
-                sent.removeAll { now - $0.time >= 1000000000 }
-                if sent.count < 28,
+                sent.removeAll {
+                    now - $0.time >= 1000000000
+                }
+                if sent.count < 58,
                     sent.reduce(
                         0,
-                        { $0 + $1.bytes }
-                    ) + byteCount <= 5800
+                        {
+                            $0 + $1.bytes
+                        }
+                    ) + byteCount <= 29000
                 {
-                    sent.append((now, byteCount))
                     return
                 }
+
                 let elapsed = now - sent[0].time
                 try await Task.sleep(nanoseconds: 1000000000 - elapsed)
             }
+        }
+
+        /// Accounts for a submitted packet in the current send window.
+        ///
+        /// - Parameter byteCount: The submitted packet size, in bytes.
+        func record(
+            byteCount: Int
+        ) {
+            sent.append((DispatchTime.now().uptimeNanoseconds, byteCount))
         }
     }
 }

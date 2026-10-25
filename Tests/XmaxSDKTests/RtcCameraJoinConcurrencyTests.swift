@@ -5,6 +5,42 @@ import XCTest
 
 /// Exercises both real SDK adapter layers, blocking only the vendor camera call.
 final class RtcCameraJoinConcurrencyTests: XCTestCase, @unchecked Sendable {
+    func testAgoraEncoderRetainsExplicitMirrorAcrossQualityUpdatesAndReconnection() async throws {
+        let engine = BlockingCameraAgoraEngine(onCameraStart: {})
+        let manager = makeManager(engine)
+        try await manager.initialize()
+        try manager.configureLocalVideoMirror(true)
+        try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 4, height: 4, frameRate: 30))
+        XCTAssertEqual(engine.encodedMirrors, [.enabled])
+        try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 8, height: 4, frameRate: 24))
+        XCTAssertEqual(engine.encodedMirrors.last, .enabled)
+        let configuration = RoomJoinConfiguration(roomID: "room", userID: "host", token: "test")
+        try await manager.joinRoom(configuration: configuration)
+        XCTAssertEqual(engine.encodedMirrors.last, .enabled)
+        await manager.leaveRoom()
+        try await manager.joinRoom(configuration: configuration)
+        XCTAssertEqual(engine.encodedMirrors.last, .enabled)
+        try manager.configureLocalVideoMirror(false)
+        XCTAssertEqual(engine.encodedMirrors.last, .disabled)
+        try manager.configureLocalVideoMirror(true)
+        try manager.useExternalVideoSource()
+        XCTAssertEqual(engine.encodedMirrors.last, .disabled, "External input must not inherit the camera mirror")
+        try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 12, height: 8, frameRate: 30))
+        XCTAssertEqual(engine.encodedMirrors.last, .disabled)
+        await manager.destroy()
+    }
+
+    func testFailedAgoraMirrorUpdateRestoresPreviousSettingForSubsequentEncoding() async throws {
+        let engine = BlockingCameraAgoraEngine(onCameraStart: {}, failingEncoderCalls: [2])
+        let manager = makeManager(engine)
+        try await manager.initialize()
+        try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 4, height: 4, frameRate: 30))
+        XCTAssertThrowsError(try manager.configureLocalVideoMirror(true))
+        try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 8, height: 4, frameRate: 30))
+        XCTAssertEqual(engine.encodedMirrors, [.disabled, .enabled, .disabled])
+        await manager.destroy()
+    }
+
     func testNativeCameraCanStartWhileVendorJoinCallIsBlocked() async throws {
         let entered = expectation(description: "Vendor join call entered")
         let captured = expectation(description: "Camera starts before vendor join returns")
@@ -109,6 +145,79 @@ final class RtcCameraJoinConcurrencyTests: XCTestCase, @unchecked Sendable {
         await manager.destroy()
     }
 
+    @MainActor
+    func testFormatRestartPreservesEngineDeviceAndBoundCanvas() async throws {
+        let engine = BlockingCameraAgoraEngine(onCameraStart: {})
+        let destroyed = CameraEngineDestruction()
+        let manager = makeManager(engine, destroy: { destroyed.record() })
+        try await manager.initialize()
+        try startCamera(manager)
+        let view = NSView()
+        try manager.attachCameraPreview(to: view, contentMode: .fit, mirrored: true)
+        let updated = try VideoFormat(width: 8, height: 4, pixelFormat: .nv12)
+        try manager.updateCameraCapture(videoFormat: updated, frameRate: 24)
+        XCTAssertEqual(engine.configurations, [
+            RtcCameraConfiguration(deviceID: "camera", width: 4, height: 4, frameRate: 30),
+            RtcCameraConfiguration(deviceID: "camera", width: 8, height: 4, frameRate: 24)
+        ])
+        XCTAssertEqual(engine.canvasUpdates, 1, "Format changes must retain the existing canvas")
+        XCTAssertEqual(destroyed.count, 0)
+        // Updating encoding preferences without capture changes must not restart the camera.
+        try manager.updateCameraCapture(videoFormat: updated, frameRate: 24)
+        XCTAssertEqual(engine.configurations.count, 2)
+        await manager.destroy()
+        XCTAssertEqual(destroyed.count, 1)
+    }
+
+    func testFailedFormatRestartRestoresPreviousCaptureAndAllowsRetry() async throws {
+        let engine = BlockingCameraAgoraEngine(onCameraStart: {}, failingStarts: [2])
+        let manager = makeManager(engine)
+        try await manager.initialize()
+        try startCamera(manager)
+        let format = try VideoFormat(width: 8, height: 4, pixelFormat: .nv12)
+        XCTAssertThrowsError(try manager.updateCameraCapture(videoFormat: format, frameRate: 24))
+        XCTAssertEqual(engine.configurations.map { $0.width }, [4, 8, 4])
+        XCTAssertEqual(engine.configurations.map { $0.frameRate }, [30, 24, 30])
+        try manager.updateCameraCapture(videoFormat: format, frameRate: 24)
+        XCTAssertEqual(engine.configurations.map { $0.width }, [4, 8, 4, 8])
+        await manager.destroy()
+    }
+
+    func testFailedFormatRestorationReportsRuntimeFailure() async throws {
+        let engine = BlockingCameraAgoraEngine(onCameraStart: {}, failingStarts: [2, 3])
+        let failed = expectation(description: "Unusable camera reports runtime failure")
+        let manager = makeManager(engine)
+        try await manager.initialize()
+        try manager.startCameraCapture(
+            configuration: RtcCameraConfiguration(deviceID: "camera", width: 4, height: 4, frameRate: 30),
+            previewReadyListener: {}, errorListener: { _ in failed.fulfill() }
+        )
+        XCTAssertThrowsError(try manager.updateCameraCapture(
+            videoFormat: VideoFormat(width: 8, height: 4, pixelFormat: .nv12), frameRate: 24
+        ))
+        await fulfillment(of: [failed], timeout: 2)
+        await manager.destroy()
+    }
+
+    func testInvalidCaptureUpdateDoesNotInterruptActiveCamera() async throws {
+        let engine = BlockingCameraAgoraEngine(onCameraStart: {})
+        let manager = makeManager(engine)
+        try await manager.initialize()
+        try startCamera(manager)
+        for (format, fps) in [
+            (try VideoFormat(width: 8, height: 4, pixelFormat: .bgra), 30),
+            (try VideoFormat(width: 7, height: 4, pixelFormat: .nv12), 30),
+            (try VideoFormat(width: 8, height: 4, pixelFormat: .nv12), 0),
+            (try VideoFormat(width: 8, height: 4, pixelFormat: .nv12), Int(Int32.max) + 1)
+        ] {
+            XCTAssertThrowsError(try manager.updateCameraCapture(videoFormat: format, frameRate: fps)) {
+                XCTAssertEqual(($0 as? XmaxError)?.code, .invalidConfiguration)
+            }
+        }
+        XCTAssertEqual(engine.configurations.count, 1)
+        await manager.destroy()
+    }
+
     private func makeManager(
         _ engine: BlockingCameraAgoraEngine, destroy: @escaping @Sendable () -> Void = {}
     ) -> RtcManager {
@@ -141,12 +250,33 @@ private final class BlockingCameraAgoraEngine: AgoraRtcCameraEngine, AgoraRtcRoo
     private let onJoin: @Sendable () -> Void
     private let stateLock = NSLock()
     private var returned = false
+    private var storedConfigurations: [RtcCameraConfiguration] = []
+    private var storedCanvasUpdates = 0
+    private let failingStarts: Set<Int>
+    private let failingEncoderCalls: Set<Int>
+    var configurations: [RtcCameraConfiguration] { stateLock.withLock { storedConfigurations } }
+    var canvasUpdates: Int { stateLock.withLock { storedCanvasUpdates } }
     var cameraReturned: Bool { stateLock.withLock { returned } }
+    private var storedEncodedMirrors: [AgoraVideoMirrorMode] = []
+    var encodedMirrors: [AgoraVideoMirrorMode] { stateLock.withLock { storedEncodedMirrors } }
+
+    func setVideoEncoderConfiguration(_ config: AgoraVideoEncoderConfiguration) -> Int32 {
+        stateLock.withLock {
+            storedEncodedMirrors.append(config.mirrorMode)
+            return failingEncoderCalls.contains(storedEncodedMirrors.count) ? -1 : 0
+        }
+    }
+    func setVideoEncoderConfigurationEx(_ config: AgoraVideoEncoderConfiguration, connection: AgoraRtcConnection) -> Int32 {
+        setVideoEncoderConfiguration(config)
+    }
 
     init(onCameraStart: @escaping @Sendable () -> Void,
          onLeave: @escaping @Sendable () -> Void = {},
          onPreview: @escaping @Sendable () -> Void = {},
-         onJoin: @escaping @Sendable () -> Void = {}) {
+         onJoin: @escaping @Sendable () -> Void = {},
+         failingStarts: Set<Int> = [], failingEncoderCalls: Set<Int> = []) {
+        self.failingStarts = failingStarts
+        self.failingEncoderCalls = failingEncoderCalls
         self.onCameraStart = onCameraStart
         self.onLeave = onLeave
         self.onPreview = onPreview
@@ -156,13 +286,22 @@ private final class BlockingCameraAgoraEngine: AgoraRtcCameraEngine, AgoraRtcRoo
     func enableLocalVideo(_ enabled: Bool) -> Int32 { 0 }
     func startCameraCapture(_ sourceType: AgoraVideoSourceType, config: AgoraCameraCapturerConfiguration?) -> Int32 {
         onCameraStart()
-        stateLock.withLock { returned = true }
-        return 0
+        return stateLock.withLock {
+            returned = true
+            if let config {
+                storedConfigurations.append(RtcCameraConfiguration(
+                    deviceID: config.deviceId ?? "", width: Int(config.dimensions.width),
+                    height: Int(config.dimensions.height), frameRate: Int(config.frameRate)
+                ))
+            }
+            return failingStarts.contains(storedConfigurations.count) ? -1 : 0
+        }
     }
     func stopCameraCapture(_ sourceType: AgoraVideoSourceType) -> Int32 { 0 }
     func startPreview(_ sourceType: AgoraVideoSourceType) -> Int32 { 0 }
     func stopPreview(_ sourceType: AgoraVideoSourceType) -> Int32 { 0 }
     func setupLocalVideo(_ local: AgoraRtcVideoCanvas?) -> Int32 {
+        stateLock.withLock { storedCanvasUpdates += 1 }
         if local?.view != nil { onPreview() }
         return 0
     }

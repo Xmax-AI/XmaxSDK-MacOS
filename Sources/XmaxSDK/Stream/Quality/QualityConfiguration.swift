@@ -10,17 +10,17 @@
 
 import Foundation
 
-/// The current connection's media baseline and transport tiers in both directions.
+/// The media baseline and directional quality levels for a connection.
 struct QualityConfiguration: Sendable {
 
     /// The resolved media baseline, unchanged by quality adaptation.
     let baseline: RealtimeVideoFormat
 
-    /// The currently applied uplink tier.
-    let uplinkLevel: Int
+    /// The current uplink quality level.
+    let uplinkLevel: RealtimeQualityLevel
 
-    /// The currently submitted downlink tier.
-    let downlinkLevel: Int
+    /// The target downlink quality level.
+    let downlinkLevel: RealtimeQualityLevel
 
     /// The minimum uplink area, in pixels.
     let minimumInputPixels: Int
@@ -45,12 +45,12 @@ struct QualityConfiguration: Sendable {
     }
 }
 
-/// Upstream and downstream candidate tiers from one sample; nil leaves that direction unchanged.
+/// The directional quality proposals for one sample; `nil` leaves a direction unchanged.
 struct QualityChange: Sendable {
 
-    /// The proposed uplink tier; `nil` keeps the current tier.
-    let uplink: Int?
+    /// The proposed uplink level.
+    let uplink: RealtimeQualityLevel?
 
-    /// The proposed downlink tier; `nil` keeps the current tier.
-    let downlink: Int?
+    /// The proposed downlink level.
+    let downlink: RealtimeQualityLevel?
 }

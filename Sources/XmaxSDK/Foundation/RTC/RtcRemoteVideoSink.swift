@@ -58,7 +58,7 @@ final class RtcRemoteVideoSink: NSObject, AgoraVideoFrameDelegate, @unchecked Se
     /// - Returns: Always returns `true`.
     func getRotationApplied() -> Bool { true }
 
-    /// Requests unmirrored decoded frames from RTC.
+    /// Requests decoded pixels without an additional RTC rendering mirror transform.
     ///
     /// - Returns: Always returns `false`.
     func getMirrorApplied() -> Bool { false }

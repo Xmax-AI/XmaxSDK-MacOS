@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AB0123456789ABCDEF000001 /* RealtimeMediaRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0123456789ABCDEF000002 /* RealtimeMediaRecorder.swift */; };
 		AA0123456789ABCDEF000001 /* RealtimeReferenceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0123456789ABCDEF000002 /* RealtimeReferenceViews.swift */; };
 		068DD710767D275A362CF1EA /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 9024EE048665F6BE0006CC11 /* Kingfisher */; };
 		1C5ADE15981992EF7502F356 /* RealtimePresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C90C03ACF0D5C4002662A1D /* RealtimePresets.swift */; };
@@ -22,6 +23,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		AB0123456789ABCDEF000002 /* RealtimeMediaRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RealtimeMediaRecorder.swift; path = ../Recording/RealtimeMediaRecorder.swift; sourceTree = "<group>"; };
 		AA0123456789ABCDEF000002 /* RealtimeReferenceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeReferenceViews.swift; sourceTree = "<group>"; };
 		27270E9D49719B4C4E95860A /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		36E3C4A5FF8289133401A01F /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -60,6 +62,7 @@
 		5248FD8D46F0D3DC1016B850 /* XLab */ = {
 			isa = PBXGroup;
 			children = (
+				AB0123456789ABCDEF000002 /* RealtimeMediaRecorder.swift */,
 				77356DA9FD252880FEFF294C /* RealtimeSessionController.swift */,
 				501AAEB78BA4EA3003EC92DB /* RealtimeViewController.swift */,
 				9FA9D53EB98D4B342D2949AD /* XLabApp.swift */,
@@ -183,6 +186,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AB0123456789ABCDEF000001 /* RealtimeMediaRecorder.swift in Sources */,
 				C2ACB832134F712FA61CFE36 /* RealtimeSessionController.swift in Sources */,
 				D702308119484BAA6DC18EE8 /* RealtimeViewController.swift in Sources */,
 				DC67A9F7CE5DD8755A622623 /* XLabApp.swift in Sources */,

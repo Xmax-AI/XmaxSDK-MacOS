@@ -16,6 +16,15 @@ typealias RtcRemoteVideoFrameListener = @Sendable (RealtimeVideoFrame) -> Void
 /// Isolates third-party RTC capabilities from connection waits, timeouts, and lease management.
 protocol RtcPlatform: AnyObject, RtcCameraCapturing {
 
+    /// Sets camera upstream mirroring, retaining the setting across encoder reconfiguration.
+    ///
+    /// - Parameter mirror: Whether to mirror the encoded camera stream.
+    ///
+    /// - Throws: An error if the vendor encoder rejects the setting.
+    func configureLocalVideoMirror(
+        _ mirror: Bool
+    ) throws
+
     /// Applies upstream video encoding configuration.
     ///
     /// - Parameter configuration: Dimensions, frame rate, bitrate, and encoding preferences.

@@ -59,10 +59,11 @@ public final class XmaxClient: Sendable {
     /// Creates a component managing local media, realtime connections, and generation tasks.
     ///
     /// Component creation and local preview do not validate the API key; server access validates credentials.
+    /// Realtime requests use the client's environment independently of the selected model.
     ///
     /// - Parameter options: Business configuration including the realtime generation model.
     ///
-    /// - Returns: The component managing camera, image, and video input and realtime generation.
+    /// - Returns: The component managing local camera or external media and realtime generation.
     @MainActor
     public func createRealtimeManager(
         options: RealtimeConfiguration
@@ -72,7 +73,7 @@ public final class XmaxClient: Sendable {
             apiService: realtimeApiOverride
                 ?? ApiService(
                     apiKey: configuration.apiKey,
-                    baseURL: options.model.apiBaseURL
+                    baseURL: configuration.environment.realtimeApiBaseURL
                 )
         )
     }

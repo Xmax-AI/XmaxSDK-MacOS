@@ -48,9 +48,11 @@ protocol RenderControlling: AnyObject, Sendable {
     ///
     /// - Parameters:
     ///   - track: The remote video track to register.
+    ///   - resolvedMediaSize: The resolved local media dimensions retained for trajectory mapping.
     ///   - interactionListener: The asynchronous callback receiving view interaction samples.
     func registerRemoteTrack(
         _ track: RealtimeVideoTrack,
+        resolvedMediaSize: CGSize,
         interactionListener: @escaping RenderInteractionListener
     )
 

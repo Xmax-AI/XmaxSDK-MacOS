@@ -182,6 +182,8 @@ final class RoomControllerTests: XCTestCase {
         XCTAssertTrue(
             events.allSatisfy { $0["user_id"] as? String == "user-id" }
         )
+        XCTAssertEqual(rtcManager.replacementKeys, [nil, nil, "tracks:task-id", nil])
+        XCTAssertEqual(rtcManager.discardedKeys, [nil, nil, nil])
         XCTAssertEqual(events[2]["tracks"] as? [[Double]], [[0.431231, 0.56931]])
         await controller.leave()
     }

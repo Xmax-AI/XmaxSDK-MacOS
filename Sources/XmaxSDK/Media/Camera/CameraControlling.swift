@@ -43,6 +43,7 @@ protocol CameraControlling: Sendable {
     ///   - videoFormat: The requested dimensions, frame rate, and encoding configuration; dimensions follow model
     ///     rules.
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
+    ///   - mirror: Whether to mirror camera preview and upstream encoding.
     ///   - useMicrophone: Whether to request microphone permission and allow capture when realtime connects.
     ///
     /// - Returns: The media stream containing the local camera video track.
@@ -52,6 +53,7 @@ protocol CameraControlling: Sendable {
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
+        mirror: Bool,
         useMicrophone: Bool
     ) async throws -> RealtimeMediaStream
 
@@ -67,6 +69,11 @@ protocol CameraControlling: Sendable {
 
     /// Stops camera and microphone capture and releases the track and local preview resources.
     func stopLocalCameraStream() async
+
+    /// Updates camera dimensions, frame rate, and encoding settings without replacing its track.
+    func updateVideoFormat(
+        _ videoFormat: RealtimeVideoFormat
+    ) async throws
 
     /// Switches to the specified camera device while retaining the current video track.
     ///

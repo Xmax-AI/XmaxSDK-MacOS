@@ -359,6 +359,250 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertEqual(source.stopCount, 1)
     }
 
+    func testCameraFormatRequiresReadyDisconnectedCameraAndRetainsTrackAcrossUpdates() async throws {
+        let rtc = RtcManagingStub()
+        let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
+        let service = MediaService()
+        let camera = CameraController(
+            rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: service,
+            captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { [device] })
+        )
+        let components = makeComponents(rtc: rtc, camera: camera, mediaService: service)
+        let manager: any XmaxRealtimeManaging = components.manager
+        let initial = RealtimeModel.x2_1_1_preview_cn.defaultCameraVideoFormat
+        let missing = await manager.currentCameraVideoFormat
+        XCTAssertNil(missing)
+        let local = try await manager.createLocalCameraStream(videoFormat: initial, deviceID: nil)
+        let track = try XCTUnwrap(local.videoTrack)
+        let next = RealtimeVideoFormat(width: 1024, height: 1920, fps: 24)
+        do { try await manager.updateCameraFormat(next); XCTFail("Expected preview readiness requirement") }
+        catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
+        let view = XmaxVideoView()
+        try VideoRenderRegistry.binding(for: track)?.attach(to: view, contentMode: .fit)
+        try await waitUntil { await manager.currentState.connectionState == .ready }
+        try await manager.updateCameraFormat(next)
+        let applied = await manager.currentCameraVideoFormat
+        let preset = await manager.currentCameraPreset
+        XCTAssertEqual(applied, next)
+        XCTAssertNil(preset, "The model dimensions do not match the shared resolution presets")
+        XCTAssertTrue(camera.currentTrack === track)
+        do { try await manager.updateCameraFormat(.resolution1920x1080); XCTFail("Expected unsupported preset") }
+        catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
+        XCTAssertEqual(track.videoFormat, next)
+        _ = try await manager.connect(localStream: local)
+        let callsBefore = rtc.calls.count
+        do { try await manager.updateCameraFormat(initial); XCTFail("Expected connected format rejection") }
+        catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
+        XCTAssertEqual(rtc.calls.count, callsBefore)
+        await manager.disconnect()
+        try await manager.updateCameraFormat(initial)
+        XCTAssertEqual(track.videoFormat, initial)
+        XCTAssertTrue(camera.currentTrack === track)
+        await manager.close()
+        let stopped = await manager.currentCameraVideoFormat
+        XCTAssertNil(stopped)
+    }
+
+    func testExternalInputDoesNotExposeOrAcceptCameraFormatControls() async throws {
+        let components = makeComponents()
+        _ = try await components.manager.createExternalVideoStream(source: ExternalSourceStub())
+        let format = await components.manager.currentCameraVideoFormat
+        let preset = await components.manager.currentCameraPreset
+        XCTAssertNil(format)
+        XCTAssertNil(preset)
+        do {
+            try await components.manager.updateCameraFormat(.resolution1920x1080)
+            XCTFail("Expected camera-only format control")
+        } catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
+        await components.manager.close()
+    }
+
+    func testCameraCreationForwardsMirrorThroughPublicConvenienceOverloads() async throws {
+        for variant in 0..<4 {
+            let rtc = RtcManagingStub()
+            let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
+            let camera = CameraController(
+                rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: MediaService(),
+                captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { [device] })
+            )
+            let components = makeComponents(rtc: rtc, camera: camera)
+            let manager: any XmaxRealtimeManaging = components.manager
+            let format = RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
+            switch variant {
+            case 0: _ = try await manager.createLocalCameraStream(mirror: true)
+            case 1: _ = try await manager.createLocalCameraStream(videoFormat: format, mirror: true)
+            case 2: _ = try await manager.createLocalCameraStream(videoFormat: format, deviceID: "usb", mirror: true)
+            default: _ = try await manager.createLocalCameraStream(videoFormat: format, deviceID: "usb", mirror: true, useMicrophone: true)
+            }
+            XCTAssertEqual(rtc.cameraMirrors, [true])
+            await manager.close()
+        }
+    }
+
+    func testPresetCreationRejectsUnsupportedSizesBeforeCaptureAndKeepsLandscapeDefault() async throws {
+        for model in RealtimeModel.allCases {
+            let rtc = RtcManagingStub()
+            let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
+            let camera = CameraController(
+                rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: MediaService(model: model),
+                captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { [device] })
+            )
+            let components = makeComponents(rtc: rtc, camera: camera, options: RealtimeConfiguration(model: model))
+            let manager: any XmaxRealtimeManaging = components.manager
+            for preset in RealtimeCameraPreset.allCases {
+                XCTAssertFalse(model.supportedVideoFormats.contains { $0.size == preset.size })
+                do {
+                    _ = try await manager.createLocalCameraStream(preset: preset, deviceID: "usb", useMicrophone: true)
+                    XCTFail("Expected preset/model compatibility validation")
+                } catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
+            }
+            XCTAssertTrue(rtc.calls.isEmpty, "Unsupported presets must not initialize RTC or start capture")
+            XCTAssertNil(camera.currentTrack)
+            let idle = await manager.currentState
+            XCTAssertEqual(idle.connectionState, .idle)
+            let local = try await manager.createLocalCameraStream()
+            XCTAssertEqual(local.videoTrack?.videoFormat, RealtimeVideoFormat(width: 1920, height: 1024, fps: 30))
+            XCTAssertEqual(local.videoTrack?.device, device)
+            await manager.close()
+        }
+    }
+
+    func testStateCallbacksCanChainReadyConnectionGenerationAndConfiguration() async throws {
+        let components = makeComponents()
+        let manager = components.manager
+        let source = ExternalSourceStub()
+        var connection: Task<RealtimeMediaStream, any Error>?
+        var generation: Task<Void, any Error>?
+        var configuration: Task<Void, any Error>?
+        var states: [RealtimeConnectionState] = []
+        await manager.setStateListener { snapshot in
+            states.append(snapshot.connectionState)
+            switch snapshot.connectionState {
+            case .ready where connection == nil:
+                connection = Task {
+                    let current = await components.media.currentTrack
+                    let local = RealtimeMediaStream(id: StreamID.local.rawValue, videoTrack: try XCTUnwrap(current))
+                    return try await manager.connect(localStream: local)
+                }
+            case .connected where generation == nil:
+                generation = Task { try await manager.startGeneration(context: RealtimeContext(prompt: "callback chain")) }
+            case .generating where configuration == nil:
+                configuration = Task { try await manager.setFrameInterpolationEnabled(false) }
+            default: break
+            }
+        }
+        _ = try await manager.createExternalVideoStream(source: source)
+        try await waitUntil { !self.roomMessages(components.rtc, event: "start").isEmpty || (generation?.isCancelled ?? false) }
+        components.rtc.emitRemoteVideoAvailable(stream: RemoteStream(roomID: "room", userID: "bot"))
+        try await waitUntil {
+            components.rtc.calls.contains(.setRemoteVideoFrameListener(RemoteStream(roomID: "room", userID: "bot"), enabled: true))
+        }
+        try components.rtc.emitRemoteVideoFrame(width: 4, height: 4)
+        _ = try await XCTUnwrap(connection).value
+        try await XCTUnwrap(generation).value
+        try await XCTUnwrap(configuration).value
+        XCTAssertEqual(states, [.idle, .preparing, .ready, .connecting, .connected, .generating])
+        XCTAssertEqual(components.rtc.calls.filter { if case .joinRoom = $0 { true } else { false } }.count, 1)
+        XCTAssertEqual(source.stops, 0)
+        await manager.setStateListener(nil)
+        await manager.close()
+    }
+
+    func testExternalStopCallbackCanImmediatelyCreateAnotherInput() async throws {
+        let components = makeComponents()
+        let manager = components.manager
+        let first = ExternalSourceStub()
+        let next = ExternalSourceStub()
+        _ = try await manager.createExternalVideoStream(source: first)
+        var replacement: Task<RealtimeMediaStream, any Error>?
+        await manager.setStateListener { state in
+            if state.connectionState == .idle, replacement == nil {
+                replacement = Task { try await manager.createExternalVideoStream(source: next) }
+            }
+        }
+        try await manager.stopExternalVideoStream()
+        _ = try await XCTUnwrap(replacement).value
+        XCTAssertEqual(first.stops, 1)
+        XCTAssertEqual(next.stops, 0)
+        let ready = await manager.currentState
+        XCTAssertEqual(ready.connectionState, .ready)
+        await manager.setStateListener(nil)
+        await manager.close()
+    }
+
+    func testCameraConvenienceAndStopCallbackRetainDeviceSelectionAndMicrophoneOptions() async throws {
+        let rtc = RtcManagingStub()
+        let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
+        let camera = CameraController(
+            rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: MediaService(),
+            captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { [device] })
+        )
+        let components = makeComponents(rtc: rtc, camera: camera)
+        let manager: any XmaxRealtimeManaging = components.manager
+        let format = RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
+        let first = try await manager.createLocalCameraStream(videoFormat: format, useMicrophone: true)
+        XCTAssertEqual(first.videoTrack?.device, device)
+        XCTAssertEqual(first.videoTrack?.videoFormat, format)
+        XCTAssertTrue(camera.useMicrophone)
+        XCTAssertFalse(rtc.calls.contains(.startAudioCapture), "Microphone capture starts on connection")
+        var replacement: Task<RealtimeMediaStream, any Error>?
+        await manager.setStateListener { state in
+            if state.connectionState == .idle, replacement == nil {
+                replacement = Task { try await manager.createLocalCameraStream(videoFormat: format, deviceID: "usb") }
+            }
+        }
+        try await manager.stopLocalCameraStream()
+        let second = try await XCTUnwrap(replacement).value
+        XCTAssertFalse(first.videoTrack === second.videoTrack)
+        XCTAssertEqual(second.videoTrack?.device, device)
+        XCTAssertFalse(camera.useMicrophone)
+        await manager.setStateListener(nil)
+        await manager.close()
+    }
+
+    func testCameraPreparationDoesNotPublishGenerationTimingBeforeGenerationBegins() async throws {
+        let rtc = RtcManagingStub()
+        let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
+        let camera = CameraController(
+            rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: MediaService(),
+            captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { [device] })
+        )
+        let components = makeComponents(rtc: rtc, camera: camera)
+        let manager = components.manager
+        var snapshots: [RealtimeLaunchTiming] = []
+        let initial = expectation(description: "Initial empty timing snapshot")
+        await manager.setLaunchTimingListener { snapshot in
+            snapshots.append(snapshot)
+            if snapshots.count == 1 { initial.fulfill() }
+        }
+        await fulfillment(of: [initial], timeout: 2)
+        let local = try await manager.createLocalCameraStream()
+        let view = XmaxVideoView()
+        try VideoRenderRegistry.binding(for: XCTUnwrap(local.videoTrack))?.attach(to: view, contentMode: .fit)
+        try await waitUntil { await manager.currentState.connectionState == .ready }
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        XCTAssertEqual(snapshots, [RealtimeLaunchTiming()], "Camera preparation must not emit generation measurements")
+
+        let generation = Task {
+            try await manager.startGeneration(localStream: local, context: RealtimeContext(prompt: "timed generation"))
+        }
+        try await waitUntil { !self.roomMessages(rtc, event: "start").isEmpty }
+        let remote = RemoteStream(roomID: "room", userID: "bot")
+        rtc.emitRemoteVideoAvailable(stream: remote)
+        try await waitUntil { rtc.calls.contains(.setRemoteVideoFrameListener(remote, enabled: true)) }
+        try rtc.emitRemoteVideoFrame(width: 4, height: 4)
+        _ = try await generation.value
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        let finished = try XCTUnwrap(snapshots.last)
+        XCTAssertNotNil(finished.sessionMs)
+        XCTAssertNotNil(finished.rtcJoinMs)
+        XCTAssertNotNil(finished.publishMs)
+        XCTAssertNotNil(finished.firstFrameMs)
+        XCTAssertNotNil(finished.totalMs)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(finished.totalMs), try XCTUnwrap(finished.firstFrameMs))
+        await manager.close()
+    }
+
     private func roomMessages(_ rtc: RtcManagingStub, event: String) -> [[String: Any]] {
         rtc.calls.compactMap { call in
             guard case .sendRoomMessage(let text) = call,

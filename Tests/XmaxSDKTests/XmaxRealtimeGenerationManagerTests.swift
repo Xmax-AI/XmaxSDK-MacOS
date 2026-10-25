@@ -73,6 +73,111 @@ final class XmaxRealtimeGenerationManagerTests: XCTestCase {
         await components.roomController.leave()
     }
 
+    func testFirstFrameFailureDoesNotCacheConditions() async throws {
+        let components = try await makeComponents(
+            automaticallyDeliversFrame: false, firstFrameTimeout: 20_000_000
+        )
+        let start = Task {
+            try await components.manager.start(
+                videoFormat: videoFormat,
+                context: RealtimeContext(prompt: "must not be cached"),
+                faceRestoration: true, ensureCurrent: {}
+            )
+        }
+        await waitForEvent("start", rtcManager: components.rtcManager)
+        components.rtcManager.emitRemoteVideoAvailable(stream: remoteStream)
+        do { _ = try await start.value; XCTFail("Expected first-frame timeout") }
+        catch { XCTAssertEqual((error as? XmaxError)?.code, .timeout) }
+        await assertNoCachedConditions(components.manager)
+        XCTAssertTrue(decodedEvents(components.rtcManager).contains { $0["event"] as? String == "stop" })
+        await components.roomController.leave()
+    }
+
+    func testAudioActivationFailureDoesNotCacheConditions() async throws {
+        let failure = XmaxError(code: .rtcError, message: "Audio activation failed")
+        let components = try await makeComponents(rtcManager: RtcManagingStub(subscribeRemoteAudioError: failure))
+        let start = Task {
+            try await components.manager.start(
+                videoFormat: videoFormat, context: RealtimeContext(prompt: "failed audio"),
+                faceRestoration: true, ensureCurrent: {}
+            )
+        }
+        await waitForEvent("start", rtcManager: components.rtcManager)
+        components.rtcManager.emitRemoteVideoAvailable(stream: remoteStream)
+        do { _ = try await start.value; XCTFail("Expected audio activation failure") }
+        catch { XCTAssertEqual(error as? XmaxError, failure) }
+        await assertNoCachedConditions(components.manager)
+        await components.roomController.leave()
+    }
+
+    func testInvalidationAfterAudioActivationDoesNotCacheConditions() async throws {
+        let components = try await makeComponents()
+        let rtc = components.rtcManager
+        let start = Task {
+            try await components.manager.start(
+                videoFormat: videoFormat, context: RealtimeContext(prompt: "invalidated at commit"),
+                faceRestoration: true,
+                ensureCurrent: {
+                    if rtc.calls.contains(.subscribeRemoteAudio(userID: "bot-user", subscribe: true)) {
+                        throw XmaxError(code: .cancelled, message: "Generation was invalidated")
+                    }
+                }
+            )
+        }
+        await waitForEvent("start", rtcManager: rtc)
+        rtc.emitRemoteVideoAvailable(stream: remoteStream)
+        do { _ = try await start.value; XCTFail("Expected invalidation after audio activation") }
+        catch { XCTAssertEqual((error as? XmaxError)?.code, .cancelled) }
+        await assertNoCachedConditions(components.manager)
+        await components.roomController.leave()
+    }
+
+    func testFirstFrameFailurePreservesLastSuccessfulContextAndFaceRestoration() async throws {
+        let components = try await makeComponents(
+            automaticallyDeliversFrame: false, firstFrameTimeout: 500_000_000
+        )
+        let first = Task {
+            try await components.manager.start(
+                videoFormat: videoFormat,
+                context: RealtimeContext(prompt: "successful prompt", referencePath: "successful.png"),
+                faceRestoration: true, ensureCurrent: {}
+            )
+        }
+        await waitForEvent("start", rtcManager: components.rtcManager)
+        try await deliverFirstFrame(components.rtcManager)
+        try await components.manager.stop(taskID: first.value)
+
+        let failing = Task {
+            try await components.manager.start(
+                videoFormat: videoFormat,
+                context: RealtimeContext(prompt: "failed replacement", referencePath: "failed.png"),
+                faceRestoration: false, ensureCurrent: {}
+            )
+        }
+        await waitForEventCount("start", count: 2, rtcManager: components.rtcManager)
+        components.rtcManager.emitRemoteVideoAvailable(stream: remoteStream)
+        do { _ = try await failing.value; XCTFail("Expected replacement first-frame failure") }
+        catch { XCTAssertEqual((error as? XmaxError)?.code, .timeout) }
+        let restoration = await components.manager.cachedFaceRestoration
+        XCTAssertTrue(restoration)
+        let retry = Task {
+            try await components.manager.start(
+                videoFormat: videoFormat, context: nil,
+                faceRestoration: restoration, ensureCurrent: {}
+            )
+        }
+        await waitForEventCount("start", count: 3, rtcManager: components.rtcManager)
+        try await deliverFirstFrame(components.rtcManager)
+        let taskID = try await retry.value
+        let event = try XCTUnwrap(decodedEvents(components.rtcManager).last { $0["event"] as? String == "start" })
+        let parameters = try XCTUnwrap(event["params"] as? [String: Any])
+        XCTAssertEqual(parameters["prompt"] as? String, "successful prompt")
+        XCTAssertEqual(parameters["ref_image_path"] as? String, "successful.png")
+        XCTAssertEqual(parameters["face_replace"] as? Bool, true)
+        try await components.manager.stop(taskID: taskID)
+        await components.roomController.leave()
+    }
+
     func testAllMediaSourcesKeepTrajectoryBasisAcrossReturnSizeAndConditionChanges() async throws {
         for source in RealtimeMediaSource.allCases {
             let components = try await makeComponents()
@@ -105,8 +210,7 @@ final class XmaxRealtimeGenerationManagerTests: XCTestCase {
                 await components.interactionController.submitInteraction(InteractionFrame(
                     points: [CGPoint(x: 90, y: 160)],
                     viewportSize: CGSize(width: 360, height: 640),
-                    contentMode: .fit,
-                    displayedVideoSize: displayedSize
+                    contentMode: .fit
                 ))
                 await waitForEventCount("tracks", count: index + 1, rtcManager: components.rtcManager)
                 let event = try XCTUnwrap(decodedEvents(components.rtcManager).last { $0["event"] as? String == "tracks" })
@@ -476,9 +580,10 @@ private extension XmaxRealtimeGenerationManagerTests {
         timing: StreamGenerationTiming = StreamGenerationTiming(
             timeoutNanoseconds: 1_000_000_000
         ),
-        automaticallyDeliversFrame: Bool = true
+        automaticallyDeliversFrame: Bool = true,
+        firstFrameTimeout: UInt64 = 10_000_000_000,
+        rtcManager: RtcManagingStub = RtcManagingStub()
     ) async throws -> Components {
-        let rtcManager = RtcManagingStub()
         let roomController = RoomController(rtcManager: rtcManager)
         try await roomController.join(
             connection: RealtimeSessionConnection(
@@ -490,7 +595,9 @@ private extension XmaxRealtimeGenerationManagerTests {
             ensureActive: {}
         )
         let remoteStreams = RemoteStreamRecorder()
-        let renderController = RenderController(rtcManager: rtcManager)
+        let renderController = RenderController(
+            rtcManager: rtcManager, remoteFrameReadyTimeoutNanoseconds: firstFrameTimeout
+        )
         let startupTiming = RealtimeTiming()
         startupTiming.begin()
         let streamController = StreamController(
@@ -534,6 +641,28 @@ private extension XmaxRealtimeGenerationManagerTests {
             renderController: renderController,
             timing: startupTiming
         )
+    }
+
+    func assertNoCachedConditions(_ manager: XmaxRealtimeGenerationManager) async {
+        let restoration = await manager.cachedFaceRestoration
+        XCTAssertFalse(restoration)
+        do { try await manager.validateContext(nil); XCTFail("Failed generation must not cache conditions") }
+        catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
+    }
+
+    func deliverFirstFrame(_ rtc: RtcManagingStub) async throws {
+        rtc.emitRemoteVideoAvailable(stream: remoteStream)
+        let deadline = ContinuousClock.now + .seconds(2)
+        while rtc.calls.last(where: {
+            if case .setRemoteVideoFrameListener(let stream, _) = $0 { return stream == remoteStream }
+            return false
+        }) != .setRemoteVideoFrameListener(remoteStream, enabled: true) {
+            guard ContinuousClock.now < deadline else {
+                throw XmaxError(code: .timeout, message: "Remote frame listener was not installed")
+            }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        try rtc.emitRemoteVideoFrame(width: 4, height: 4)
     }
 
     func waitForEvent(

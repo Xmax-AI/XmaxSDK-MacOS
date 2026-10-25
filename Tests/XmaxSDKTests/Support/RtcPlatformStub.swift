@@ -28,6 +28,7 @@ final class RtcPlatformStub: RtcPlatform, @unchecked Sendable {
     }
 
     func configureVideoEncoding(_ configuration: VideoEncodingConfiguration) throws {}
+    func configureLocalVideoMirror(_ mirror: Bool) throws {}
     func useExternalVideoSource() throws {}
     func startCameraCapture(
         configuration: RtcCameraConfiguration,
@@ -35,6 +36,7 @@ final class RtcPlatformStub: RtcPlatform, @unchecked Sendable {
         errorListener: @escaping XmaxErrorListener
     ) throws {}
     func switchCameraCapture(to deviceID: String) throws {}
+    func updateCameraCapture(videoFormat: VideoFormat, frameRate: Int) throws {}
     func stopCameraCapture() throws {}
     @MainActor func attachCameraPreview(to view: NSView, contentMode: VideoContentMode, mirrored: Bool) throws { onPreviewAttach(view) }
     @MainActor func detachCameraPreview(from view: NSView) throws {}
@@ -134,10 +136,12 @@ final class RtcRoomStub: RtcRoom, @unchecked Sendable {
     }
 
     @discardableResult
-    func sendRoomMessage(_ message: String, reportFailure: Bool = true) throws -> Task<Void, any Error> {
+    func sendRoomMessage(_ message: String, reportFailure: Bool = true, replacingPendingMessage key: String? = nil) throws -> Task<Void, any Error> {
         lock.withLock { sentMessages.append(message) }
         return Task {}
     }
+
+    func discardPendingMessages(key: String?) {}
 
     func awaitPendingMessages() async throws {
         try await onFlush()

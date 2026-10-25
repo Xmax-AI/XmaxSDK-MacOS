@@ -380,20 +380,22 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
         }
     }
 
-    /// Enqueues a signal for the room.
+    /// Enqueues room signaling.
     ///
     /// - Parameters:
-    ///   - message: The complete JSON signal.
-    ///   - reportFailure: Whether asynchronous send failure reports a room fault; false only logs and throws to the
-    ///     awaiting caller.
+    ///   - message: The complete JSON message.
+    ///   - reportFailure: Whether asynchronous send failure is fatal. When `false`, failure is
+    ///     logged and thrown to the waiting caller.
+    ///   - key: The key replacing older, unsent messages with the same key.
     ///
-    /// - Returns: The send task for this signal.
+    /// - Returns: The message's send task.
     ///
-    /// - Throws: An error if the signal is invalid or the queue unavailable.
+    /// - Throws: An error if the message is invalid or the queue is unavailable.
     @discardableResult
     func sendRoomMessage(
         _ message: String,
-        reportFailure: Bool = true
+        reportFailure: Bool = true,
+        replacingPendingMessage key: String? = nil
     ) throws -> Task<Void, any Error> {
         try platform.lock.withLock {
             try requireJoined()
@@ -403,10 +405,23 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
                     message: "RTC signaling is unavailable"
                 )
             }
+
             return try sender.enqueue(
                 message,
-                reportFailure: reportFailure
+                reportFailure: reportFailure,
+                replacingPendingMessage: key
             )
+        }
+    }
+
+    /// Drops coalescible messages that have not started sending.
+    ///
+    /// - Parameter key: The coalescing key, or `nil` for all coalescible messages.
+    func discardPendingMessages(
+        key: String?
+    ) {
+        platform.lock.withLock {
+            sender?.discardPendingMessages(key: key)
         }
     }
 

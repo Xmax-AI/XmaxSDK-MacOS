@@ -29,8 +29,8 @@ final class TrajectoryOverlayView: NSView {
     /// The fitting or cropping mode used for coordinate mapping.
     private var contentMode: VideoContentMode = .fill
 
-    /// The current media dimensions used for coordinate mapping.
-    private var displayedSize: CGSize?
+    /// The resolved media dimensions retained independently of returned frame dimensions.
+    private var resolvedMediaSize: CGSize?
 
     /// The viewport size used to detect gesture-invalidating layout changes.
     private var previousViewport: CGSize = .zero
@@ -107,18 +107,24 @@ final class TrajectoryOverlayView: NSView {
     func configure(
         contentMode: VideoContentMode,
         mirrored: Bool,
-        requested: Bool,
-        displayedSize: CGSize?
+        requested: Bool
     ) {
         guard
             self.contentMode != contentMode || self.mirrored != mirrored || self.requested != requested
-                || self.displayedSize != displayedSize
         else { return }
         cancelInteraction()
         self.contentMode = contentMode
         self.mirrored = mirrored
         self.requested = requested
-        self.displayedSize = displayedSize
+    }
+
+    /// Updates the media reference when the overlay attaches to a different track binding.
+    func setResolvedMediaSize(
+        _ size: CGSize?
+    ) {
+        guard resolvedMediaSize != size else { return }
+        cancelInteraction()
+        resolvedMediaSize = size
     }
 
     /// Replaces trajectory visuals and resets the current gesture.
@@ -251,10 +257,10 @@ final class TrajectoryOverlayView: NSView {
 
     /// The complete displayed video rectangle before viewport clipping.
     private var displayedFrame: CGRect? {
-        guard let displayedSize else { return nil }
+        guard let resolvedMediaSize else { return nil }
         return InteractionCoordinateMapper.displayedFrame(
             viewportSize: bounds.size,
-            videoSize: displayedSize,
+            resolvedMediaSize: resolvedMediaSize,
             contentMode: contentMode
         )
     }
@@ -300,8 +306,7 @@ final class TrajectoryOverlayView: NSView {
             InteractionFrame(
                 points: [point.location],
                 viewportSize: bounds.size,
-                contentMode: contentMode,
-                displayedVideoSize: displayedSize
+                contentMode: contentMode
             ),
             from: self
         )

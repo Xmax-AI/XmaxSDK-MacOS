@@ -13,6 +13,15 @@ import Foundation
 /// Defines RTC engine, room, media transport, and remote frame output capabilities.
 protocol RtcManaging: RtcCameraCapturing {
 
+    /// Sets camera upstream mirroring, retaining the setting across encoder reconfiguration.
+    ///
+    /// - Parameter mirror: Whether to mirror the encoded camera stream.
+    ///
+    /// - Throws: An error if the engine is unavailable or rejects the setting.
+    func configureLocalVideoMirror(
+        _ mirror: Bool
+    ) throws
+
     /// Acquires an exclusive RTC engine lease and completes initialization.
     ///
     /// - Throws: An error if lease waiting is cancelled or engine initialization fails.
@@ -158,6 +167,7 @@ protocol RtcManaging: RtcCameraCapturing {
     /// - Parameters:
     ///   - message: The complete JSON signal.
     ///   - reportFailure: Whether asynchronous send failures report room faults.
+    ///   - key: The key replacing older, unsent messages with the same key.
     ///
     /// - Returns: The signal send task for awaiting this message's result independently.
     ///
@@ -165,8 +175,16 @@ protocol RtcManaging: RtcCameraCapturing {
     @discardableResult
     func sendRoomMessage(
         _ message: String,
-        reportFailure: Bool
+        reportFailure: Bool,
+        replacingPendingMessage key: String?
     ) throws -> Task<Void, any Error>
+
+    /// Drops coalescible messages that have not started sending.
+    ///
+    /// - Parameter key: The coalescing key, or `nil` for all coalescible messages.
+    func discardPendingMessages(
+        key: String?
+    )
 
     /// Waits for queued room signals to finish sending.
     ///
@@ -213,7 +231,8 @@ extension RtcManaging {
     ) throws {
         try sendRoomMessage(
             message,
-            reportFailure: true
+            reportFailure: true,
+            replacingPendingMessage: nil
         )
     }
 }

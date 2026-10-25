@@ -263,50 +263,19 @@ final class RealtimeTimingTests: XCTestCase {
         XCTAssertEqual(snapshots.last, RealtimeLaunchTiming(sessionMs: 15))
     }
 
-    @MainActor
-    func testCameraTimingPublishesBeforeGenerationAndSurvivesItsStart() async {
-        let clock = TimingClock()
-        let timing = RealtimeTiming(now: { clock.now })
-        var snapshots: [RealtimeLaunchTiming] = []
-        timing.setListener { snapshots.append($0) }
-        clock.set(milliseconds: 100)
-        timing.beginCameraPreparation()
-        await drainCallbacks()
-        XCTAssertNil(snapshots.last?.cameraMs)
-        clock.set(milliseconds: 450)
-        timing.finishCameraPreparation()
-        await drainCallbacks()
-        XCTAssertEqual(snapshots.last, RealtimeLaunchTiming(cameraMs: 350))
-
-        clock.set(milliseconds: 1_000)
-        timing.begin(preservingCameraPreparation: true)
-        timing.beginSignal(taskID: "task")
-        clock.set(milliseconds: 1_100)
-        timing.finishFirstFrame(taskID: "task")
-        timing.finish(taskID: "task")
-        await drainCallbacks()
-        XCTAssertEqual(snapshots.last, RealtimeLaunchTiming(cameraMs: 350, firstFrameMs: 100, totalMs: 100))
-
-        timing.begin()
-        await drainCallbacks()
-        XCTAssertEqual(snapshots.last, RealtimeLaunchTiming(), "External input must not inherit camera startup timing")
-    }
 
     @MainActor
-    func testOverlappingCameraAndCloudTimingDoesNotAddCameraToTotal() async {
+    func testTotalIncludesOrchestrationInsteadOfSummingStages() async {
         let clock = TimingClock()
         let timing = RealtimeTiming(now: { clock.now })
         var snapshots: [RealtimeLaunchTiming] = []
         timing.setListener { snapshots.append($0) }
         timing.begin()
-        timing.beginCameraPreparation()
         clock.set(milliseconds: 10)
         timing.beginSessionCreation()
         clock.set(milliseconds: 30)
         timing.finishSessionCreation()
         timing.beginRoomJoin()
-        clock.set(milliseconds: 200)
-        timing.finishCameraPreparation()
         clock.set(milliseconds: 300)
         timing.finishRoomJoin()
         timing.beginSignal(taskID: "task")
@@ -315,8 +284,9 @@ final class RealtimeTimingTests: XCTestCase {
         timing.finish(taskID: "task")
         await drainCallbacks()
         XCTAssertEqual(snapshots.last, RealtimeLaunchTiming(
-            cameraMs: 200, sessionMs: 20, rtcJoinMs: 270, firstFrameMs: 100, totalMs: 400
+            sessionMs: 20, rtcJoinMs: 270, firstFrameMs: 100, totalMs: 400
         ))
+        XCTAssertNotEqual(snapshots.last?.totalMs, 20 + 270 + 100)
     }
 
     @MainActor
@@ -327,7 +297,6 @@ final class RealtimeTimingTests: XCTestCase {
     }
 
 }
-
 
 private final class TimingClock: @unchecked Sendable {
     private let lock = NSLock()

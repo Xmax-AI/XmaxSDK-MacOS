@@ -42,6 +42,9 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     /// The most recently applied encoder configuration.
     private var videoConfiguration: VideoEncodingConfiguration?
 
+    /// The upstream mirror mode retained independently of adaptive encoding dimensions.
+    private var videoMirrorMode = AgoraVideoMirrorMode.disabled
+
     /// The observer forwarding remote pixels to the active room sink.
     private let videoObserver = RtcVideoFrameObserver()
 
@@ -133,7 +136,26 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
         }
     }
 
-    /// Enables external video input.
+    /// Sets upstream mirroring through Agora's video encoder.
+    ///
+    /// - Parameter mirror: Whether to mirror the encoded camera stream.
+    ///
+    /// - Throws: An error if Agora rejects the encoder configuration.
+    func configureLocalVideoMirror(
+        _ mirror: Bool
+    ) throws {
+        try lock.withLock {
+            let previous = videoMirrorMode
+            videoMirrorMode = mirror ? .enabled : .disabled
+            do { try reapplyVideoConfiguration() }
+            catch {
+                videoMirrorMode = previous
+                throw error
+            }
+        }
+    }
+
+    /// Enables external video input without applying camera mirroring to caller-owned pixels.
     ///
     /// - Throws: An error if video source configuration fails.
     func useExternalVideoSource() throws {
@@ -151,6 +173,7 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
                     useTexture: false,
                     sourceType: .videoFrame
                 )
+                videoMirrorMode = .disabled
                 try reapplyVideoConfiguration()
                 cameraStateLock.withLock { storedUsesCameraTrack = false }
             }
@@ -181,37 +204,103 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
                 ready: previewReadyListener,
                 failure: errorListener
             )
-            let config = AgoraCameraCapturerConfiguration()
-            config.deviceId = configuration.deviceID
-            config.dimensions = CGSize(
-                width: configuration.width,
-                height: configuration.height
-            )
-            config.frameRate = Int32(configuration.frameRate)
-            config.followEncodeDimensionRatio = true
             do {
                 try Self.checkResult(
                     cameraEngine.enableLocalVideo(true),
                     operation: "enableLocalVideo"
                 )
-                try Self.checkResult(
-                    cameraEngine.startCameraCapture(
-                        .camera,
-                        config: config
-                    ),
-                    operation: "startCameraCapture"
-                )
-                // Start native preview capture on the control queue. AppKit binds the visible canvas after capture is ready.
-                try Self.checkResult(
-                    cameraEngine.startPreview(.camera),
-                    operation: "startPreview"
-                )
-                cameraPreviewStarted = true
+                try restartCameraCapture(configuration: configuration)
             } catch {
                 try? stopCameraCapture()
                 throw error
             }
         }
+    }
+
+    /// Reconfigures native capture while preserving the engine, device, and local canvas.
+    ///
+    /// Restores the preceding capture configuration if restart fails. A failed restoration reports
+    /// a runtime camera failure so the lifecycle can release unusable media.
+    func updateCameraCapture(
+        videoFormat: VideoFormat,
+        frameRate: Int
+    ) throws {
+        try cameraControlLock.withLock {
+            guard let previous = cameraConfiguration else {
+                throw XmaxError(
+                    code: .mediaError,
+                    message: "Native camera capture is not running"
+                )
+            }
+            guard videoFormat.pixelFormat == .nv12,
+                videoFormat.width.isMultiple(of: 2), videoFormat.height.isMultiple(of: 2),
+                frameRate > 0, frameRate <= Int(Int32.max)
+            else {
+                throw XmaxError(
+                    code: .invalidConfiguration,
+                    message: "Native camera capture configuration is invalid"
+                )
+            }
+            let updated = RtcCameraConfiguration(
+                deviceID: previous.deviceID,
+                width: videoFormat.width,
+                height: videoFormat.height,
+                frameRate: frameRate
+            )
+            guard updated != previous else { return }
+            do {
+                // Agora applies capturer configuration at startup; retain the canvas during restart.
+                cameraPreviewStarted = false
+                let previewResult = cameraEngine.stopPreview(.camera)
+                let captureResult = cameraEngine.stopCameraCapture(.camera)
+                try Self.checkResult(
+                    previewResult,
+                    operation: "stopPreview"
+                )
+                try Self.checkResult(
+                    captureResult,
+                    operation: "stopCameraCapture"
+                )
+                try restartCameraCapture(configuration: updated)
+                cameraConfiguration = updated
+            } catch {
+                let failure = error
+                _ = cameraEngine.stopPreview(.camera)
+                _ = cameraEngine.stopCameraCapture(.camera)
+                do {
+                    try restartCameraCapture(configuration: previous)
+                } catch {
+                    cameraEvents.reportFailure(XmaxError.from(error))
+                }
+                throw failure
+            }
+        }
+    }
+
+    /// Starts capture and preview without replacing readiness observation or the attached canvas.
+    private func restartCameraCapture(
+        configuration: RtcCameraConfiguration
+    ) throws {
+        let config = AgoraCameraCapturerConfiguration()
+        config.deviceId = configuration.deviceID
+        config.dimensions = CGSize(
+            width: configuration.width,
+            height: configuration.height
+        )
+        config.frameRate = Int32(configuration.frameRate)
+        config.followEncodeDimensionRatio = true
+        try Self.checkResult(
+            cameraEngine.startCameraCapture(
+                .camera,
+                config: config
+            ),
+            operation: "startCameraCapture"
+        )
+        try Self.checkResult(
+            cameraEngine.startPreview(.camera),
+            operation: "startPreview"
+        )
+        cameraPreviewStarted = true
     }
 
     /// Switches the active native camera while preserving capture dimensions and frame rate.
@@ -473,7 +562,7 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
         }
     }
 
-    /// Reapplies saved encoding configuration with upstream mirroring disabled.
+    /// Reapplies saved encoding configuration and the current upstream mirror mode.
     ///
     /// - Throws: An error if Agora rejects encoding configuration.
     func reapplyVideoConfiguration() throws {
@@ -510,14 +599,15 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
         _ configuration: VideoEncodingConfiguration
     ) throws {
         let rtcConfiguration = RtcVideoConverter.makeEncoderConfiguration(configuration)
+        rtcConfiguration.mirrorMode = videoMirrorMode
         let result: Int32
         if let room, room.isJoined, !room.isClosed {
-            result = engine.setVideoEncoderConfigurationEx(
+            result = cameraEngine.setVideoEncoderConfigurationEx(
                 rtcConfiguration,
                 connection: room.connection
             )
         } else {
-            result = engine.setVideoEncoderConfiguration(rtcConfiguration)
+            result = cameraEngine.setVideoEncoderConfiguration(rtcConfiguration)
         }
         try Self.checkResult(
             result,

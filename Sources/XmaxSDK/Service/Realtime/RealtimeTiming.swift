@@ -59,36 +59,11 @@ final class RealtimeTiming: @unchecked Sendable {
         }
     }
 
-    /// Begins generation timing, optionally retaining startup timing for the existing camera.
-    func begin(
-        preservingCameraPreparation: Bool = false
-    ) {
+    /// Begins a new generation startup measurement.
+    func begin() {
         lock.withLock {
-            state = State(
-                startedAt: now(),
-                cameraStartedAt: preservingCameraPreparation ? state.cameraStartedAt : nil,
-                cameraFinishedAt: preservingCameraPreparation ? state.cameraFinishedAt : nil
-            )
+            state = State(startedAt: now())
             isMeasuring = true
-            publishLocked()
-        }
-    }
-
-    /// Begins camera preparation, including any required engine initialization and permissions.
-    func beginCameraPreparation() {
-        lock.withLock {
-            if !isMeasuring { state = State() }
-            state.cameraStartedAt = now()
-            state.cameraFinishedAt = nil
-            publishLocked()
-        }
-    }
-
-    /// Records capture readiness without waiting for a preview view to render.
-    func finishCameraPreparation() {
-        lock.withLock {
-            guard state.cameraStartedAt != nil, state.cameraFinishedAt == nil else { return }
-            state.cameraFinishedAt = now()
             publishLocked()
         }
     }
@@ -232,12 +207,6 @@ extension RealtimeTiming {
         /// The start of the generation startup request.
         var startedAt: UInt64?
 
-        /// Camera preparation, which can precede generation or overlap cloud connection.
-        var cameraStartedAt: UInt64?
-
-        /// The camera readiness time used to preserve completed preparation timing.
-        var cameraFinishedAt: UInt64?
-
         /// The start of server session creation.
         var sessionStartedAt: UInt64?
 
@@ -276,7 +245,7 @@ extension RealtimeTiming {
     ///
     /// - Parameter state: The startup record; returns an empty snapshot before startup begins.
     ///
-    /// - Returns: Camera startup, four generation stages, and total duration; incomplete stages are `nil`.
+    /// - Returns: Four generation stages and total duration; incomplete stages are `nil`.
     static func snapshot(
         _ state: State
     ) -> RealtimeLaunchTiming {
@@ -289,13 +258,8 @@ extension RealtimeTiming {
             guard let start, let end, end >= start else { return nil }
             return Double(end - start) / 1_000_000
         }
-        let cameraMs = milliseconds(
-            state.cameraStartedAt,
-            state.cameraFinishedAt
-        )
-        guard state.startedAt != nil else { return RealtimeLaunchTiming(cameraMs: cameraMs) }
+        guard state.startedAt != nil else { return RealtimeLaunchTiming() }
         return RealtimeLaunchTiming(
-            cameraMs: cameraMs,
             sessionMs: milliseconds(
                 state.sessionStartedAt,
                 state.sessionFinishedAt
@@ -397,59 +361,47 @@ private extension RealtimeTiming {
         }
     }
 
-    /// Formats camera startup when present, followed by the four generation stages.
+    /// Formats the startup stage durations.
     ///
     /// - Parameters:
-    ///   - state: The startup stage timestamps.
-    ///   - failureAt: The startup failure time; used to calculate incomplete stage durations when non-`nil`.
+    ///   - state: The recorded startup timestamps.
+    ///   - failureAt: The failure timestamp used as the end of unfinished stages, if supplied.
     ///
-    /// - Returns: The stage details for inclusion in the summary log.
+    /// - Returns: The stage detail lines for the timing summary.
     static func stageDetails(
         _ state: State,
         failureAt: UInt64? = nil
     ) -> [String] {
-        let camera: [(String, UInt64?, UInt64?)] =
-            state.cameraStartedAt == nil
-            ? []
-            : [
-                (
-                    XmaxLogger.localized(
-                        "摄像头启动：",
-                        "Camera Startup: "
-                    ), state.cameraStartedAt, state.cameraFinishedAt
-                )
-            ]
-        let stages: [(String, UInt64?, UInt64?)] =
-            camera + [
-                (
-                    XmaxLogger.localized(
-                        "创建会话：",
-                        "Session Creation: "
-                    ),
-                    state.sessionStartedAt, state.sessionFinishedAt
+        let stages: [(String, UInt64?, UInt64?)] = [
+            (
+                XmaxLogger.localized(
+                    "创建会话：",
+                    "Session Creation: "
                 ),
-                (
-                    XmaxLogger.localized(
-                        "RTC 进房：",
-                        "RTC Room Join: "
-                    ),
-                    state.roomJoinStartedAt, state.roomJoinFinishedAt
+                state.sessionStartedAt, state.sessionFinishedAt
+            ),
+            (
+                XmaxLogger.localized(
+                    "RTC 进房：",
+                    "RTC Room Join: "
                 ),
-                (
-                    XmaxLogger.localized(
-                        "发布本地流：",
-                        "Local Stream Publication: "
-                    ),
-                    state.publicationStartedAt, state.publicationFinishedAt
+                state.roomJoinStartedAt, state.roomJoinFinishedAt
+            ),
+            (
+                XmaxLogger.localized(
+                    "发布本地流：",
+                    "Local Stream Publication: "
                 ),
-                (
-                    XmaxLogger.localized(
-                        "首帧到达：",
-                        "First Frame Arrival: "
-                    ),
-                    state.signalStartedAt, state.firstFrameAt
-                )
-            ]
+                state.publicationStartedAt, state.publicationFinishedAt
+            ),
+            (
+                XmaxLogger.localized(
+                    "首帧到达：",
+                    "First Frame Arrival: "
+                ),
+                state.signalStartedAt, state.firstFrameAt
+            )
+        ]
 
         return stages.enumerated().map { index, stage in
             let indent = failureAt == nil ? "   " : "│  "

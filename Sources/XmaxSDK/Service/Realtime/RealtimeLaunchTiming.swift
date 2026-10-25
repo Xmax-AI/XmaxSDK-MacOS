@@ -8,16 +8,12 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-/// Realtime startup timing in milliseconds: camera startup and the four generation stages.
+/// Realtime generation startup timing in milliseconds for four stages and the total duration.
 ///
 /// Stages that have not completed are `nil`. Total timing begins when generation enters the business flow
-/// and ends after the first frame is ready and generation state is committed. Camera preparation is measured
-/// separately and is excluded from the generation total. Total timing is measured directly, not by adding stage durations.
+/// and ends after the first frame is ready and generation startup completes. Total timing is measured
+/// directly, not by adding stage durations.
 public struct RealtimeLaunchTiming: Equatable, Sendable {
-
-    /// Time from camera preparation to capture readiness, including permissions and RTC initialization when needed.
-    /// Excludes preview binding and display; nil for external input or before camera startup completes.
-    public let cameraMs: Double?
 
     /// The time spent creating the server session.
     public let sessionMs: Double?
@@ -36,14 +32,12 @@ public struct RealtimeLaunchTiming: Equatable, Sendable {
 
     /// Creates a startup timing snapshot with incomplete stages set to `nil`.
     public init(
-        cameraMs: Double? = nil,
         sessionMs: Double? = nil,
         rtcJoinMs: Double? = nil,
         publishMs: Double? = nil,
         firstFrameMs: Double? = nil,
         totalMs: Double? = nil
     ) {
-        self.cameraMs = cameraMs
         self.sessionMs = sessionMs
         self.rtcJoinMs = rtcJoinMs
         self.publishMs = publishMs
@@ -52,6 +46,5 @@ public struct RealtimeLaunchTiming: Equatable, Sendable {
     }
 }
 
-/// Main-thread startup timing callback; resets generation stages for each startup and retains timing for an existing
-/// camera.
+/// Main-thread startup timing callback; all stages reset for each generation startup.
 public typealias RealtimeLaunchTimingListener = @MainActor @Sendable (RealtimeLaunchTiming) -> Void

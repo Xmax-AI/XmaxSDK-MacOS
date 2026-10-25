@@ -10,6 +10,16 @@ import XCTest
 
 final class CameraCaptureManagerTests: XCTestCase {
 
+    @MainActor
+    func testUpdatingInactiveCaptureDoesNotStartCamera() async throws {
+        let capture = CameraCaptureManager()
+        do {
+            try await capture.updateFormat(VideoFormat(width: 4, height: 4, pixelFormat: .nv12), frameRate: 30)
+            XCTFail("Expected inactive capture rejection")
+        } catch { XCTAssertEqual((error as? XmaxError)?.code, .mediaError) }
+        await capture.stop()
+    }
+
     private var externalDeviceType: AVCaptureDevice.DeviceType {
         if #available(macOS 14.0, *) {
             return .external

@@ -143,17 +143,17 @@ actor RoomController: RoomControlling {
         await task.value
     }
 
-    /// Enqueues a generation start signal for the room.
+    /// Enqueues a generation start signal.
     ///
     /// - Parameters:
-    ///   - taskID: The current generation task identifier.
-    ///   - videoFormat: The server generation video format.
-    ///   - targetSize: The returned pixel dimensions; `nil` preserves generation dimensions.
-    ///   - context: The current generation conditions.
+    ///   - taskID: The generation task identifier.
+    ///   - videoFormat: The server generation format.
+    ///   - targetSize: The returned dimensions, or `nil` to retain generation dimensions.
+    ///   - context: The generation conditions.
     ///   - faceRestoration: Whether to restore the original face.
-    ///   - paddingContain: Whether to preserve source aspect ratio and pad the generation canvas.
+    ///   - paddingContain: Whether to preserve input aspect ratio within the canvas.
     ///
-    /// - Throws: An error if the room is unready or signal encoding or enqueueing fails.
+    /// - Throws: An error if the room is not ready or signaling encoding or enqueueing fails.
     func startGeneration(
         taskID: String,
         videoFormat: RealtimeVideoFormat,
@@ -171,21 +171,23 @@ actor RoomController: RoomControlling {
                 context: context,
                 faceRestoration: faceRestoration,
                 paddingContain: paddingContain
-            )
+            ),
+            discardPending: true
         )
     }
 
-    /// Enqueues a generation condition update signal for the room.
+    /// Enqueues a generation condition update.
     ///
     /// - Parameters:
-    ///   - taskID: The current generation task identifier.
-    ///   - videoFormat: The server generation video format.
-    ///   - targetSize: The returned pixel dimensions; `nil` preserves generation dimensions.
-    ///   - context: The current generation conditions.
+    ///   - taskID: The generation task identifier.
+    ///   - videoFormat: The server generation format.
+    ///   - targetSize: The returned dimensions, or `nil` to retain generation dimensions.
+    ///   - context: The generation conditions.
     ///   - faceRestoration: Whether to restore the original face.
-    ///   - paddingContain: Whether to preserve source aspect ratio and pad the generation canvas.
+    ///   - paddingContain: Whether to preserve input aspect ratio within the canvas.
     ///
-    /// - Throws: An error on unready room, cancellation, signal encoding failure, or enqueueing failure.
+    /// - Throws: An error if the room is not ready, the call is cancelled, or encoding or
+    ///   enqueueing fails.
     func changeGenerationCondition(
         taskID: String,
         videoFormat: RealtimeVideoFormat,
@@ -204,7 +206,8 @@ actor RoomController: RoomControlling {
                 context: context,
                 faceRestoration: faceRestoration,
                 paddingContain: paddingContain
-            )
+            ),
+            discardPending: true
         )
     }
 
@@ -233,11 +236,11 @@ actor RoomController: RoomControlling {
         try await RtcMessageQueue.waitForCompletion(of: sending)
     }
 
-    /// Enqueues a stop signal; ignores an unjoined room or empty task.
+    /// Enqueues a stop signal if the room and task are active.
     ///
-    /// - Parameter taskID: The generation task identifier to stop.
+    /// - Parameter taskID: The generation task to stop.
     ///
-    /// - Throws: An error if stop signal encoding or enqueueing fails.
+    /// - Throws: An error if stop signaling cannot be encoded or enqueued.
     func stopGeneration(
         taskID: String
     ) throws {
@@ -251,21 +254,23 @@ actor RoomController: RoomControlling {
             RoomEvent.stop(
                 userID: userID,
                 taskID: taskID
-            )
+            ),
+            discardPending: true
         )
     }
 
-    /// Submits an interaction trajectory for the current generation task.
+    /// Submits a generation task's trajectory.
     ///
     /// - Parameters:
-    ///   - taskID: The destination task identifier; empty values are not sent.
-    ///   - points: Media-normalized points in `[0, 1]`; empty arrays are not sent.
+    ///   - taskID: The receiving task identifier. Empty identifiers are ignored.
+    ///   - points: The normalized media points in `[0, 1]`. Empty arrays are ignored.
     ///
-    /// - Throws: An error on unready room, trajectory encoding failure, or signal enqueueing failure.
+    /// - Throws: An error if the room is not ready or trajectory encoding or enqueueing fails.
     func sendTracks(
         taskID: String,
         points: [RealtimePoint]
     ) throws {
+        try Task.checkCancellation()
         guard !taskID.isEmpty, !points.isEmpty else {
             return
         }
@@ -275,7 +280,8 @@ actor RoomController: RoomControlling {
                 userID: try requireUserID(),
                 taskID: taskID,
                 points: points
-            )
+            ),
+            replacingPendingMessage: "tracks:\(taskID)"
         )
     }
 }
@@ -333,29 +339,38 @@ private extension RoomController {
         }
     }
 
-    /// Submits a unified room signal and logs it in readable form.
+    /// Submits room signaling and logs its contents.
     ///
     /// - Parameters:
-    ///   - message: The complete room JSON signal.
-    ///   - reportFailure: Whether asynchronous send failure invokes the RTC fault callback.
+    ///   - message: The complete JSON room message.
+    ///   - reportFailure: Whether asynchronous send failure triggers the RTC failure handler.
+    ///   - key: The key replacing older, unsent messages with the same key.
+    ///   - discardPending: Whether to first discard unsent trajectories.
     ///
-    /// - Returns: The send task for this signal.
+    /// - Returns: The message's send task.
     ///
-    /// - Throws: An SDK error if signal submission fails.
+    /// - Throws: An SDK error if signaling submission fails.
     @discardableResult
     func send(
         _ message: String,
-        reportFailure: Bool = true
+        reportFailure: Bool = true,
+        replacingPendingMessage key: String? = nil,
+        discardPending: Bool = false
     ) throws -> Task<Void, any Error> {
         let sending: Task<Void, any Error>
         do {
+            if discardPending {
+                rtcManager.discardPendingMessages(key: nil)
+            }
             sending = try rtcManager.sendRoomMessage(
                 message,
-                reportFailure: reportFailure
+                reportFailure: reportFailure,
+                replacingPendingMessage: key
             )
         } catch {
             throw XmaxError.from(error)
         }
+
         XmaxLogger.room.debug(
             message: formatSignalLog(message)
         )
