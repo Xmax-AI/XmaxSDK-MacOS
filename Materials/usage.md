@@ -164,9 +164,6 @@ binding. Audio is uploaded only while published, without local playback, microph
 permission requests, or a queue for reconnection. Invalid timestamps and overlapping
 buffers are ignored; gaps begin a new segment without inserted silence.
 
-See the [complete external source adapter](../Examples/ExternalVideo/README.md)
-for lifecycle, threading, preview, and buffer ownership details.
-
 ## Reference images
 
 `RealtimeContext.referencePath` accepts a remote image URL. Upload local image
