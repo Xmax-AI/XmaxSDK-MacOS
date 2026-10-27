@@ -263,7 +263,7 @@ await realtime.close()
 
 ## Dependencies
 
-- <ins><strong>Agora RTC SDK for macOS</strong></ins> enables low-latency, real-time audio and video communication.
+- <ins><strong>Agora RTC SDK</strong></ins> enables low-latency, real-time audio and video communication.
 - <ins><strong>Tencent Cloud COS SDK</strong></ins> handles media upload and download via object storage.
 
 <br>
