@@ -90,11 +90,11 @@ public final class XmaxClient: Sendable {
 
     /// Creates a media processing and capability query service.
     ///
-    /// - Parameter model: The model defining media input rules; defaults to `x2.1.1-preview-cn`.
+    /// - Parameter model: The model defining media input rules; defaults to `x2.1`.
     ///
     /// - Returns: The service calculating model input dimensions and querying platform media capabilities.
     public func createMediaService(
-        model: RealtimeModel = .x2_1_1_preview_cn
+        model: RealtimeModel = .x2_1
     ) -> any MediaServicing {
         MediaService(model: model)
     }

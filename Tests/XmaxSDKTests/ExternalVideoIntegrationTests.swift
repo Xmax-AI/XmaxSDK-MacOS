@@ -277,7 +277,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
     func testExternalAspectRatioUsesSeparateGenerationCanvasAndContainPadding() async throws {
         let service = MediaService()
         let components = makeComponents(mediaService: service)
-        let source = ExternalSourceStub(videoFormat: RealtimeVideoFormat(width: 640, height: 480, fps: 30))
+        let source = ExternalSourceStub(videoFormat: RealtimeVideoFormat(width: 640, height: 500, fps: 30))
         let local = try await components.manager.createExternalVideoStream(source: source)
         let generation = Task {
             try await components.manager.startGeneration(localStream: local, context: RealtimeContext(prompt: "test"))
@@ -285,8 +285,8 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         try await waitUntil { !self.roomMessages(components.rtc, event: "start").isEmpty }
         let event = try XCTUnwrap(roomMessages(components.rtc, event: "start").first)
         let params = try XCTUnwrap(event["params"] as? [String: Any])
-        XCTAssertEqual(local.videoTrack?.videoFormat?.size, CGSize(width: 640, height: 480))
-        XCTAssertEqual(params["size"] as? [Int], [1920, 1024])
+        XCTAssertEqual(local.videoTrack?.videoFormat?.size, CGSize(width: 640, height: 500))
+        XCTAssertEqual(params["size"] as? [Int], [1536, 1152])
         XCTAssertEqual(params["padding"] as? String, "contain")
         await components.manager.close()
         do { _ = try await generation.value; XCTFail("Expected close cancellation") }
@@ -297,7 +297,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let baseline = RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
         let components = makeComponents(
             mediaService: MediaServicingStub(resolvedSize: baseline.size),
-            options: RealtimeConfiguration(model: .x2_1_1_preview_cn, isAdaptiveQualityEnabled: false)
+            options: RealtimeConfiguration(model: .x2_1, isAdaptiveQualityEnabled: false)
         )
         let manager: any XmaxRealtimeManaging = components.manager
         let before = await manager.uplinkQualityLevel
@@ -369,12 +369,12 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         let components = makeComponents(rtc: rtc, camera: camera, mediaService: service)
         let manager: any XmaxRealtimeManaging = components.manager
-        let initial = RealtimeModel.x2_1_1_preview_cn.defaultCameraVideoFormat
+        let initial = RealtimeModel.x2_1.defaultCameraVideoFormat
         let missing = await manager.currentCameraVideoFormat
         XCTAssertNil(missing)
         let local = try await manager.createLocalCameraStream(videoFormat: initial, deviceID: nil)
         let track = try XCTUnwrap(local.videoTrack)
-        let next = RealtimeVideoFormat(width: 1024, height: 1920, fps: 24)
+        let next = RealtimeVideoFormat(width: 1080, height: 1920, fps: 24)
         do { try await manager.updateCameraFormat(next); XCTFail("Expected preview readiness requirement") }
         catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
         let view = XmaxRealtimeVideoView()
@@ -384,11 +384,16 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let applied = await manager.currentCameraVideoFormat
         let preset = await manager.currentCameraPreset
         XCTAssertEqual(applied, next)
-        XCTAssertNil(preset, "The model dimensions do not match the shared resolution presets")
+        XCTAssertEqual(preset, .resolution1080x1920)
         XCTAssertTrue(camera.currentTrack === track)
-        do { try await manager.updateCameraFormat(.resolution1920x1080); XCTFail("Expected unsupported preset") }
+        do {
+            try await manager.updateCameraFormat(RealtimeVideoFormat(width: 1920, height: 1024, fps: 30))
+            XCTFail("Expected unsupported camera dimensions")
+        }
         catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
         XCTAssertEqual(track.videoFormat, next)
+        try await manager.updateCameraFormat(.resolution1408x1408)
+        XCTAssertEqual(track.videoFormat, RealtimeVideoFormat(width: 1408, height: 1408, fps: 24))
         _ = try await manager.connect(localStream: local)
         let callsBefore = rtc.calls.count
         do { try await manager.updateCameraFormat(initial); XCTFail("Expected connected format rejection") }
@@ -427,7 +432,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             )
             let components = makeComponents(rtc: rtc, camera: camera)
             let manager: any XmaxRealtimeManaging = components.manager
-            let format = RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
+            let format = RealtimeVideoFormat(width: 1920, height: 1080, fps: 30)
             switch variant {
             case 0: _ = try await manager.createLocalCameraStream(mirror: true)
             case 1: _ = try await manager.createLocalCameraStream(videoFormat: format, mirror: true)
@@ -439,7 +444,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         }
     }
 
-    func testPresetCreationRejectsUnsupportedSizesBeforeCaptureAndKeepsLandscapeDefault() async throws {
+    func testPresetCreationSupportsEveryModelFormatAndKeepsLandscapeDefault() async throws {
         for model in RealtimeModel.allCases {
             let rtc = RtcManagingStub()
             let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
@@ -450,18 +455,31 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             let components = makeComponents(rtc: rtc, camera: camera, options: RealtimeConfiguration(model: model))
             let manager: any XmaxRealtimeManaging = components.manager
             for preset in RealtimeCameraPreset.allCases {
-                XCTAssertFalse(model.supportedVideoFormats.contains { $0.size == preset.size })
-                do {
-                    _ = try await manager.createLocalCameraStream(preset: preset, deviceID: "usb", useMicrophone: true)
-                    XCTFail("Expected preset/model compatibility validation")
-                } catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
+                let expected = try XCTUnwrap(model.supportedVideoFormats.first { $0.size == preset.size })
+                let local = try await manager.createLocalCameraStream(
+                    preset: preset, deviceID: "usb", useMicrophone: true
+                )
+                XCTAssertEqual(local.videoTrack?.videoFormat, expected)
+                XCTAssertEqual(local.videoTrack?.device, device)
+                XCTAssertTrue(camera.useMicrophone)
+                try await manager.stopLocalCameraStream()
             }
-            XCTAssertTrue(rtc.calls.isEmpty, "Unsupported presets must not initialize RTC or start capture")
+            let callsBefore = rtc.calls.count
+            do {
+                _ = try await manager.createLocalCameraStream(
+                    videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
+                )
+                XCTFail("Expected unsupported camera dimensions")
+            } catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
+            XCTAssertFalse(rtc.calls.dropFirst(callsBefore).contains {
+                if case .startCameraCapture = $0 { return true }
+                return false
+            }, "Unsupported dimensions must not start capture")
             XCTAssertNil(camera.currentTrack)
             let idle = await manager.currentState
             XCTAssertEqual(idle.connectionState, .idle)
             let local = try await manager.createLocalCameraStream()
-            XCTAssertEqual(local.videoTrack?.videoFormat, RealtimeVideoFormat(width: 1920, height: 1024, fps: 30))
+            XCTAssertEqual(local.videoTrack?.videoFormat, RealtimeVideoFormat(width: 1920, height: 1080, fps: 30))
             XCTAssertEqual(local.videoTrack?.device, device)
             await manager.close()
         }
@@ -539,7 +557,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         let manager: any XmaxRealtimeManaging = components.manager
-        let format = RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
+        let format = RealtimeVideoFormat(width: 1920, height: 1080, fps: 30)
         let first = try await manager.createLocalCameraStream(videoFormat: format, useMicrophone: true)
         XCTAssertEqual(first.videoTrack?.device, device)
         XCTAssertEqual(first.videoTrack?.videoFormat, format)
@@ -627,7 +645,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         rtc: RtcManagingStub = RtcManagingStub(),
         camera: (any CameraControlling)? = nil,
         mediaService: (any MediaServicing)? = nil,
-        options: RealtimeConfiguration = RealtimeConfiguration(model: .x2_1_1_preview_cn)
+        options: RealtimeConfiguration = RealtimeConfiguration(model: .x2_1)
     ) -> (manager: XmaxRealtimeManager, media: MediaController, rtc: RtcManagingStub) {
         let errors = XmaxRealtimeErrorManager()
         let timing = RealtimeTiming()

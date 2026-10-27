@@ -444,10 +444,10 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         let height = scroll.contentSize.height
         let contentWidth = max(0, width - 56)
         let panelWidth = (contentWidth - 24) / 2
-        let panelHeight = panelWidth * 1024 / 1920
+        let panelHeight = panelWidth * 1080 / 1920
         let workspaceHeight = panelHeight + 34 + 42 + 28 + 190
         let stageWidth = min(contentWidth, min(940, max(580, width * 0.45)))
-        let stageHeight = stageWidth * 1024 / 1920
+        let stageHeight = stageWidth * 1080 / 1920
         let titleSize = min(45, max(27, width * 0.01 + 18))
         let titleGap = min(40, max(26, width * 0.011 + 17))
         let titleFont = RealtimeHeaderTypography.font(size: titleSize, weight: .medium)

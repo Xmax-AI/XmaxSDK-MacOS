@@ -22,7 +22,7 @@ final class MediaService: MediaServicing, Sendable {
 
     /// Creates a media service for a model.
     init(
-        model: RealtimeModel = .x2_1_1_preview_cn
+        model: RealtimeModel = .x2_1
     ) {
         self.model = model
     }
@@ -51,7 +51,7 @@ final class MediaService: MediaServicing, Sendable {
             )
         }
 
-        let buckets = model.resolutionBuckets
+        let buckets = model.supportedVideoFormats.map(\.size)
         if source == .camera, !buckets.isEmpty, !buckets.contains(sourceMediaSize) {
             let supportedSizes = buckets.map {
                 "\(Int($0.width))×\(Int($0.height))"
@@ -96,7 +96,7 @@ final class MediaService: MediaServicing, Sendable {
         }
 
         let aspect = resolvedMediaSize.width / resolvedMediaSize.height
-        if let bucket = model.resolutionBuckets.min(
+        if let bucket = model.supportedVideoFormats.map(\.size).min(
             by: {
                 abs(log(aspect / ($0.width / $0.height)))
                     < abs(log(aspect / ($1.width / $1.height)))

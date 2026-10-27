@@ -16,7 +16,7 @@ import XCTest
 final class XmaxRealtimeFactoryTests: XCTestCase {
     func testDefaultAssemblySharesLifecycleAndFailureRoutingWithoutStartingServices() async throws {
         let api = FactoryAPIRecorder()
-        let options = RealtimeConfiguration(model: .x2_1_1_preview_cn)
+        let options = RealtimeConfiguration(model: .x2_1)
         let components = XmaxRealtimeFactory.make(options: options, apiService: api)
         let manager = XmaxRealtimeManager(options: options, components: components)
         let initial = await manager.currentState
@@ -60,7 +60,7 @@ final class XmaxRealtimeFactoryTests: XCTestCase {
         let baseline = RealtimeVideoFormat(width: 640, height: 480, fps: 30)
         let prepared = try await connection.prepareQuality(
             baseline: baseline,
-            options: RealtimeConfiguration(model: .x2_1_1_preview_cn),
+            options: RealtimeConfiguration(model: .x2_1),
             ensureCurrent: {}
         )
         XCTAssertEqual(prepared.configuration.minimumInputPixels, 200000)

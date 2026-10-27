@@ -249,7 +249,7 @@ let client = XmaxClient(
 )
 
 let realtime = client.createRealtimeManager(
-    options: RealtimeConfiguration(model: .x2_1_1_preview_cn)
+    options: RealtimeConfiguration(model: .x2_1)
 )
 
 let localStream = try await realtime.createLocalCameraStream()
@@ -259,6 +259,11 @@ let videoView = XmaxRealtimeDualVideoView(
     videoContentMode: .fill
 )
 ```
+
+The supported model is `x2.1` (`.x2_1`). Its camera formats are 1920×1080,
+1080×1920, 1408×1408, 1152×1536, and 1536×1152, with a recommended frame rate
+of 30 fps. On macOS, the default capture format is 1920×1080 at 30 fps. Pass a
+`preset` to `createLocalCameraStream` to select another format.
 
 Add the video view to your window and wait for the input to enter `ready`, then
 start generation:

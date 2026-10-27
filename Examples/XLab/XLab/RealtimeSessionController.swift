@@ -19,7 +19,7 @@ final class RealtimeSessionController: ObservableObject {
         didSet { UserDefaults.standard.set(apiKey, forKey: "xmax.xlab.apiKey") }
     }
     @Published var prompt = ""
-    @Published var model = RealtimeModel.x2_1_1_preview_cn
+    @Published var model = RealtimeModel.x2_1
     @Published var statisticsVisible = true
     @Published var activeMode = RealtimeExampleMode.charx {
         didSet {
@@ -159,7 +159,9 @@ final class RealtimeSessionController: ObservableObject {
         }
         pendingInitialReference = RealtimeExampleMode.charx.presets.first
         do {
-            let stream = try await manager.createLocalCameraStream(mirror: true, useMicrophone: useMicrophone)
+            let stream = try await manager.createLocalCameraStream(
+                preset: .resolution1920x1080, mirror: true, useMicrophone: useMicrophone
+            )
             guard lifecycleID == operation else { await manager.close(); return }
             localStream = stream
             try await manager.setRemoteAudioVolume(remoteAudioVolume)

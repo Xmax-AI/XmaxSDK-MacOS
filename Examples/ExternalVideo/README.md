@@ -67,12 +67,12 @@ Create the client, manager, and source on the main actor:
 ```swift
 let client = XmaxClient(configuration: XmaxConfiguration(apiKey: apiKey))
 let manager = client.createRealtimeManager(
-    options: RealtimeConfiguration(model: .x2_1_1_preview_cn)
+    options: RealtimeConfiguration(model: .x2_1)
 )
 let source = CameraSource()
 let localStream = try await manager.createExternalVideoStream(
     source: source,
-    videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
+    videoFormat: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30)
 )
 ```
 

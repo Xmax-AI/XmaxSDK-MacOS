@@ -11,21 +11,15 @@
 import Foundation
 import CoreGraphics
 
-/// Realtime generation models currently supported by the SDK.
+/// A realtime generation model supported by XmaxSDK.
 public enum RealtimeModel: String, CaseIterable, Sendable {
 
-    /// The domestic Agora realtime generation model.
-    case x2_1_1_preview_cn = "x2.1.1-preview-cn"
+    /// The X2.1 realtime generation model.
+    case x2_1 = "x2.1"
 
-    /// The overseas Agora realtime generation model.
-    case x2_1_1_preview_us = "x2.1.1-preview-us"
-
-    /// The model display name.
+    /// The model's display name.
     public var displayName: String {
-        switch self {
-        case .x2_1_1_preview_cn: "X2.1.1-preview-cn"
-        case .x2_1_1_preview_us: "X2.1.1-preview-us"
-        }
+        "X2.1"
     }
 
     /// The supported frame dimensions and recommended frame rates.
@@ -34,48 +28,60 @@ public enum RealtimeModel: String, CaseIterable, Sendable {
     /// ratio and use the closest generation canvas. An empty array allows variable canvas
     /// dimensions, resolved using pixel limits and alignment.
     public var supportedVideoFormats: [RealtimeVideoFormat] {
-        switch self {
-        case .x2_1_1_preview_cn, .x2_1_1_preview_us:
-            [
-                RealtimeVideoFormat(
-                    width: 1024,
-                    height: 1920,
-                    fps: defaultFrameRate
-                ),
-                RealtimeVideoFormat(
-                    width: 1920,
-                    height: 1024,
-                    fps: defaultFrameRate
-                )
-            ]
-        }
+        [
+            RealtimeVideoFormat(
+                width: 1920,
+                height: 1080,
+                fps: defaultFrameRate
+            ),
+            RealtimeVideoFormat(
+                width: 1080,
+                height: 1920,
+                fps: defaultFrameRate
+            ),
+            RealtimeVideoFormat(
+                width: 1408,
+                height: 1408,
+                fps: defaultFrameRate
+            ),
+            RealtimeVideoFormat(
+                width: 1152,
+                height: 1536,
+                fps: defaultFrameRate
+            ),
+            RealtimeVideoFormat(
+                width: 1536,
+                height: 1152,
+                fps: defaultFrameRate
+            )
+        ]
     }
 
-    /// Supported generation resolution buckets; camera input must match exactly.
-    /// Images and videos retain their aspect ratio and use the closest generation canvas.
-    /// An empty array permits calculated canvas dimensions based on pixel area limits and alignment rules.
-    public var resolutionBuckets: [CGSize] {
-        supportedVideoFormats.map(\.size)
+    /// The minimum local media and uplink area, in pixels; also limits variable generation canvases.
+    public var minimumInputPixels: Int {
+        200000
     }
 
-    /// The minimum local media and uplink pixel area; also limits variable generation canvases.
-    public var minimumInputPixels: Int { 200000 }
+    /// The maximum local media area, in pixels; also limits variable generation canvases.
+    public var maximumInputPixels: Int {
+        2100000
+    }
 
-    /// The maximum local media frame pixel area; also limits the generation canvas when no resolution buckets are
-    /// defined.
-    public var maximumInputPixels: Int { 2100000 }
+    /// The dimension alignment, in pixels, used to resolve variable generation canvases.
+    public var inputSizeAlignment: Int {
+        32
+    }
 
-    /// The pixel alignment multiple for input dimensions; used only when no resolution buckets are defined.
-    public var inputSizeAlignment: Int { 32 }
+    /// The frame rate used for image and video output and the default camera format.
+    public var defaultFrameRate: Int {
+        30
+    }
 
-    /// The frame rate for image and video output and default camera configuration.
-    public var defaultFrameRate: Int { 30 }
-
-    /// The default video format for camera capture.
+    /// The default landscape camera capture format.
     public var defaultCameraVideoFormat: RealtimeVideoFormat {
         RealtimeVideoFormat(
             width: 1920,
-            height: 1024,
+            height: 1080,
             fps: defaultFrameRate
         )
     }

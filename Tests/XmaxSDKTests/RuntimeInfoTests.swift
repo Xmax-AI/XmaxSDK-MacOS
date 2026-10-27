@@ -17,9 +17,9 @@ final class RuntimeInfoTests: XCTestCase {
     }
 
     func testDefaultCameraFormatUsesModelSupportedLandscapeBucket() {
-        let model = RealtimeModel.x2_1_1_preview_cn
+        let model = RealtimeModel.x2_1
         let format = model.defaultCameraVideoFormat
         XCTAssertGreaterThan(format.width, format.height)
-        XCTAssertTrue(model.resolutionBuckets.contains(format.size))
+        XCTAssertTrue(model.supportedVideoFormats.map(\.size).contains(format.size))
     }
 }

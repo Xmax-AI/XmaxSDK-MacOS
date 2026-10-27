@@ -13,17 +13,17 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
             captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { devices })
         )
         let stream = try await controller.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil, mirror: true
+            videoFormat: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30), deviceID: nil, mirror: true
         )
         let track = try XCTUnwrap(stream.videoTrack)
         let view = XmaxRealtimeVideoView()
         try VideoRenderRegistry.binding(for: track)?.attach(to: view, contentMode: .fit)
         let canvas = try XCTUnwrap(view.subviews.first)
-        try await controller.updateVideoFormat(RealtimeVideoFormat(width: 1024, height: 1920, fps: 24))
+        try await controller.updateVideoFormat(RealtimeVideoFormat(width: 1080, height: 1920, fps: 24))
         XCTAssertTrue(controller.currentTrack === track)
         XCTAssertTrue(view.subviews.first === canvas)
         XCTAssertEqual(rtc.calls.last, .updateCameraCapture(
-            try VideoFormat(width: 1024, height: 1920, pixelFormat: .nv12), 24
+            try VideoFormat(width: 1080, height: 1920, pixelFormat: .nv12), 24
         ))
         XCTAssertFalse(rtc.calls.contains(.stopCameraCapture))
         XCTAssertFalse(rtc.calls.contains(.detachCameraPreview))
@@ -71,7 +71,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
             videoFrameListener: { _ in XCTFail("Native camera frames must not be republished as external video") }
         )
         let stream = try await controller.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil
+            videoFormat: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30), deviceID: nil
         )
         let track = try XCTUnwrap(stream.videoTrack)
         let view = XmaxRealtimeVideoView()
@@ -85,7 +85,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
         rtc.emitCameraPreviewReady()
         await fulfillment(of: [ready], timeout: 2)
         XCTAssertEqual(rtc.calls, [.startCameraCapture(RtcCameraConfiguration(
-            deviceID: "builtin", width: 1920, height: 1024, frameRate: 30
+            deviceID: "builtin", width: 1920, height: 1080, frameRate: 30
         )), .attachCameraPreview(.fit, mirrored: false)])
         await controller.stopLocalCameraStream()
         XCTAssertEqual(Array(rtc.calls.suffix(2)), [.stopCameraCapture, .detachCameraPreview])
@@ -106,7 +106,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
             captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { devices })
         )
         let stream = try await controller.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil
+            videoFormat: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30), deviceID: nil
         )
         let track = try XCTUnwrap(stream.videoTrack)
         let view = XmaxRealtimeVideoView()
@@ -129,7 +129,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
             captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { devices })
         )
         _ = try await controller.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil, useMicrophone: true
+            videoFormat: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30), deviceID: nil, useMicrophone: true
         )
         rtc.audioControlHandler = {
             let returned = DispatchSemaphore(value: 0)
@@ -154,7 +154,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
             captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { devices })
         )
         let stream = try await controller.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil
+            videoFormat: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30), deviceID: nil
         )
         let view = XmaxRealtimeVideoView()
         try VideoRenderRegistry.binding(for: XCTUnwrap(stream.videoTrack))?.attach(to: view, contentMode: .fill)
@@ -177,7 +177,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
             captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { devices })
         )
         let stream = try await controller.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30), deviceID: nil
+            videoFormat: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30), deviceID: nil
         )
         let binding = try XCTUnwrap(VideoRenderRegistry.binding(for: XCTUnwrap(stream.videoTrack)))
         let old = XmaxRealtimeVideoView()

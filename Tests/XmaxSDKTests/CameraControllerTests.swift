@@ -13,7 +13,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
 
     private let builtIn = CameraDevice(id: "builtin", name: "Built-in", isDefault: true, position: .front)
     private let external = CameraDevice(id: "usb", name: "USB", isDefault: false, position: .back)
-    private let format = RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
+    private let format = RealtimeVideoFormat(width: 1920, height: 1080, fps: 30)
 
     func testDefaultCameraUsesSystemDefaultInsteadOfFirstDevice() async throws {
         let capture = CameraCaptureManagingStub(devices: [external, builtIn])
@@ -155,7 +155,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
         let view = XmaxRealtimeVideoView()
         try binding.attach(to: view, contentMode: .fit)
         let layer = try XCTUnwrap(view.layer?.sublayers?.first { $0 is AVSampleBufferDisplayLayer })
-        let updated = RealtimeVideoFormat(width: 1024, height: 1920, fps: 24, maximumBitrate: 1200)
+        let updated = RealtimeVideoFormat(width: 1080, height: 1920, fps: 24, maximumBitrate: 1200)
         try await controller.updateVideoFormat(updated)
         XCTAssertTrue(controller.currentTrack === track)
         XCTAssertEqual(track.videoFormat, updated)
@@ -163,7 +163,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(view.layer?.sublayers?.contains { $0 === layer } ?? false)
         XCTAssertNotNil(VideoRenderRegistry.binding(for: track))
         XCTAssertEqual(capture.calls, [.start("builtin"), .updateFormat(
-            try VideoFormat(width: 1024, height: 1920, pixelFormat: .nv12), 24
+            try VideoFormat(width: 1080, height: 1920, pixelFormat: .nv12), 24
         )])
         await controller.stopLocalCameraStream()
     }
@@ -173,7 +173,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
         let controller = makeController(capture)
         let local = try await controller.createLocalCameraStream(videoFormat: format, deviceID: nil)
         do {
-            try await controller.updateVideoFormat(RealtimeVideoFormat(width: 1920, height: 1080, fps: 30))
+            try await controller.updateVideoFormat(RealtimeVideoFormat(width: 1920, height: 1024, fps: 30))
             XCTFail("Expected unsupported model dimensions")
         } catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
         XCTAssertEqual(local.videoTrack?.videoFormat, format)
@@ -186,7 +186,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
         capture.updateError = XmaxError(code: .mediaError, message: "Reconfiguration failed")
         let controller = makeController(capture)
         let local = try await controller.createLocalCameraStream(videoFormat: format, deviceID: nil)
-        let updated = RealtimeVideoFormat(width: 1024, height: 1920, fps: 24)
+        let updated = RealtimeVideoFormat(width: 1080, height: 1920, fps: 24)
         do {
             try await controller.updateVideoFormat(updated)
             XCTFail("Expected capture failure")
@@ -206,7 +206,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
         let controller = makeController(capture)
         let local = try await controller.createLocalCameraStream(videoFormat: format, deviceID: nil)
         let update = Task { try await controller.updateVideoFormat(
-            RealtimeVideoFormat(width: 1024, height: 1920, fps: 24)
+            RealtimeVideoFormat(width: 1080, height: 1920, fps: 24)
         ) }
         let deadline = ContinuousClock.now + .seconds(2)
         while !(await gate.isWaiting) {

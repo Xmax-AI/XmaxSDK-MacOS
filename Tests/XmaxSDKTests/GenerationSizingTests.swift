@@ -21,15 +21,23 @@ final class GenerationSizingTests: XCTestCase {
         XCTAssertEqual(mediaSize, CGSize(width: 1920, height: 1080))
         XCTAssertEqual(QualityVideoFormat.resolve(baseline, level: .l2, downlink: false).size, CGSize(width: 1728, height: 972))
         XCTAssertEqual(QualityVideoFormat.resolve(baseline, level: .l5, downlink: false).size, CGSize(width: 960, height: 540))
-        XCTAssertEqual(try service.resolveGenerationSize(mediaSize), CGSize(width: 1920, height: 1024))
+        XCTAssertEqual(try service.resolveGenerationSize(mediaSize), CGSize(width: 1920, height: 1080))
     }
 
     func testGenerationCanvasUsesNearestBucketWithoutValidatingMediaAsBucket() throws {
         let service = MediaService()
-        XCTAssertEqual(try service.resolveGenerationSize(CGSize(width: 1080, height: 1920)), CGSize(width: 1024, height: 1920))
-        XCTAssertEqual(try service.resolveGenerationSize(CGSize(width: 3840, height: 2160)), CGSize(width: 1920, height: 1024))
-        XCTAssertEqual(try service.resolveGenerationSize(CGSize(width: 640, height: 480)), CGSize(width: 1920, height: 1024))
-        XCTAssertThrowsError(try service.resolveMediaSize(CGSize(width: 1080, height: 1920), source: .camera))
+        let cases = [
+            (CGSize(width: 3840, height: 2160), CGSize(width: 1920, height: 1080)),
+            (CGSize(width: 2160, height: 3840), CGSize(width: 1080, height: 1920)),
+            (CGSize(width: 640, height: 640), CGSize(width: 1408, height: 1408)),
+            (CGSize(width: 480, height: 640), CGSize(width: 1152, height: 1536)),
+            (CGSize(width: 640, height: 480), CGSize(width: 1536, height: 1152))
+        ]
+        for (source, expected) in cases {
+            XCTAssertEqual(try service.resolveGenerationSize(source), expected)
+            XCTAssertEqual(try service.resolveMediaSize(expected, source: .camera), expected)
+        }
+        XCTAssertThrowsError(try service.resolveMediaSize(CGSize(width: 1024, height: 1920), source: .camera))
         XCTAssertThrowsError(try service.resolveGenerationSize(.zero))
     }
 
@@ -50,12 +58,12 @@ final class GenerationSizingTests: XCTestCase {
     }
 
     func testReturnSizeUsesVideoSourceNotGenerationCanvas() throws {
-        let source = RealtimeVideoFormat(width: 1080, height: 1920, fps: 30)
+        let source = RealtimeVideoFormat(width: 1008, height: 1792, fps: 30)
         let service = MediaService()
         let canvas = try service.resolveGenerationSize(source.size)
-        XCTAssertEqual(canvas.width, 1024)
+        XCTAssertEqual(canvas, CGSize(width: 1080, height: 1920))
         let normal = try targetFormat(source, level: .l2, interpolation: false)
-        XCTAssertEqual(normal.size, CGSize(width: 972, height: 1728))
+        XCTAssertEqual(normal.size, CGSize(width: 900, height: 1600))
         let interpolated = try targetFormat(source, level: .l2, interpolation: true)
         XCTAssertEqual(interpolated.size, CGSize(width: 684, height: 1216))
         XCTAssertEqual(interpolated.width * 16, interpolated.height * 9)
@@ -123,7 +131,7 @@ final class GenerationSizingTests: XCTestCase {
 
     func testUplinkTiersPreserveMinimumAreaAndFourPixelAlignment() throws {
         let minimum = 200000
-        XCTAssertEqual(RealtimeModel.x2_1_1_preview_cn.minimumInputPixels, minimum)
+        XCTAssertEqual(RealtimeModel.x2_1.minimumInputPixels, minimum)
         for (width, height) in [(1024, 1920), (1920, 1024), (1000, 600), (640, 480), (448, 448), (500, 400)] {
             let baseline = RealtimeVideoFormat(width: width, height: height, fps: 30)
             for level in RealtimeQualityLevel.allCases {
