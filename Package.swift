@@ -47,7 +47,7 @@ let package = Package(
         .target(
             name: "XLabRecording",
             dependencies: ["XmaxSDK"],
-            path: "Examples/XLab/Recording"
+            path: "Examples/XLab/XLab/Recording"
         ),
         .testTarget(
             name: "XmaxSDKTests",

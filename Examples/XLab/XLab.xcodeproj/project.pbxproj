@@ -23,7 +23,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		AB0123456789ABCDEF000002 /* RealtimeMediaRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RealtimeMediaRecorder.swift; path = ../Recording/RealtimeMediaRecorder.swift; sourceTree = "<group>"; };
+		AB0123456789ABCDEF000002 /* RealtimeMediaRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RealtimeMediaRecorder.swift; path = Recording/RealtimeMediaRecorder.swift; sourceTree = "<group>"; };
 		AA0123456789ABCDEF000002 /* RealtimeReferenceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeReferenceViews.swift; sourceTree = "<group>"; };
 		27270E9D49719B4C4E95860A /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		36E3C4A5FF8289133401A01F /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
