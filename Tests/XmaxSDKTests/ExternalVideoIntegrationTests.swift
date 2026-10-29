@@ -24,7 +24,9 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let local = try await components.manager.createLocalCameraStream(
             videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), deviceID: nil, useMicrophone: true
         )
+        let connecting = ContinuousClock.now
         _ = try await components.manager.connect(localStream: local)
+        XCTAssertGreaterThanOrEqual(connecting.duration(to: .now), .milliseconds(500))
         let close = Task { await components.manager.close() }
         try await waitUntil { await gate.isWaiting }
         XCTAssertEqual(capture.calls, [.start("camera"), .stop])
@@ -67,6 +69,34 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertNil(capture.currentFrameListener)
         let state = await components.manager.currentState
         XCTAssertEqual(state.connectionState, .idle)
+    }
+
+    func testCloseDuringCameraWarmupPreventsLocalPublication() async throws {
+        let rtc = RtcManagingStub()
+        let capture = CameraCaptureManagingStub(devices: [
+            CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
+        ])
+        let camera = CameraController(
+            rtcManager: rtc, permissionManager: PermissionManagingStub(),
+            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), captureManager: capture
+        )
+        let components = makeComponents(rtc: rtc, camera: camera)
+        let local = try await components.manager.createLocalCameraStream(
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), deviceID: nil, useMicrophone: true
+        )
+        let connect = Task { try await components.manager.connect(localStream: local) }
+        try await waitUntil { await components.manager.currentState.connectionState == .connecting }
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertFalse(rtc.calls.contains(.startAudioCapture))
+        XCTAssertFalse(rtc.calls.contains(.publishLocalVideo))
+        await components.manager.close()
+        do {
+            _ = try await connect.value
+            XCTFail("Closing during warm-up must cancel the connection")
+        } catch { XCTAssertEqual((error as? XmaxError)?.code, .cancelled) }
+        XCTAssertFalse(rtc.calls.contains(.publishLocalVideo))
+        XCTAssertFalse(rtc.calls.contains(.publishLocalAudio))
+        XCTAssertTrue(capture.calls.contains(.stop))
     }
 
     func testEarlyCaptureStopReleasesCameraWithoutDestroyingRTCAndFinalStopIsIdempotent() async throws {

@@ -45,6 +45,12 @@ Bind the returned track to a preview view in a window. Camera input enters `read
 when native camera capture has started and the preview is bound. Agora renders
 the local preview directly; hidden preview views do not delay capture readiness.
 
+Before each new camera connection, the SDK waits an additional 500 ms to give
+startup exposure time to settle while capture and local preview continue.
+Reconnection repeats this cancellable wait; generation condition updates on an
+existing connection and external video input skip it. This fixed delay does not
+measure brightness or guarantee that camera exposure has settled.
+
 `mirror` defaults to `false`. Enable it to mirror both Agora's native local preview
 and the encoded camera video sent for generation. The setting is retained across
 camera switches, format changes, quality updates, and reconnects. It changes the
