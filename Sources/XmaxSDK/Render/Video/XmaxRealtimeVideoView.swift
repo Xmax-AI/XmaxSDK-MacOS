@@ -39,6 +39,7 @@ public final class XmaxRealtimeVideoView: NSView {
     /// The first frame's fade-in duration, in seconds. The default is 0.3.
     ///
     /// The animation begins when a decoded frame is submitted or native preview is attached.
+    /// It waits while the view or an ancestor is hidden.
     /// Zero, negative, or nonfinite values and Reduce Motion disable the animation.
     /// Changes apply to the next track binding; subsequent frames do not restart the fade-in.
     /// The animation affects view presentation only; frame callbacks retain the video pixels.
@@ -80,6 +81,9 @@ public final class XmaxRealtimeVideoView: NSView {
 
     /// Whether the current binding is waiting for its first submitted frame or native preview.
     private var isWaitingForFirstFrame = true
+
+    /// Whether a frame or native preview is ready, even while its container remains hidden.
+    private var hasSubmittedFirstFrame = false
 
     /// The internal handler after a valid frame is submitted.
     var frameDisplayHandler: (() -> Void)?
@@ -164,6 +168,20 @@ public final class XmaxRealtimeVideoView: NSView {
         }
     }
 
+    /// Starts a pending first-frame transition when a hidden view or ancestor becomes visible.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        startFadeInIfReady()
+    }
+
+    /// Defers an interrupted first-frame transition until the view becomes visible again.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        guard layer?.animation(forKey: "videoFadeIn") != nil else { return }
+        layer?.removeAnimation(forKey: "videoFadeIn")
+        isWaitingForFirstFrame = true
+    }
+
     /// Updates layer layout without changing media format or realtime connection.
     public override func layout() {
         super.layout()
@@ -188,32 +206,39 @@ public final class XmaxRealtimeVideoView: NSView {
 
 extension XmaxRealtimeVideoView {
 
-    /// Starts the binding's fade-in once and preserves the internal frame notification.
+    /// Records preview readiness independently of visibility and preserves frame notifications.
     func notifyVideoFrameSubmitted() {
-        if isWaitingForFirstFrame {
-            isWaitingForFirstFrame = false
-            let duration = fadeInDuration
-            if duration.isFinite, duration > 0,
-                !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            {
-                let fade = CABasicAnimation(keyPath: "opacity")
-                fade.fromValue = 0
-                fade.toValue = 1
-                fade.duration = duration
-                fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                layer?.add(
-                    fade,
-                    forKey: "videoFadeIn"
-                )
-            }
-        }
+        hasSubmittedFirstFrame = true
+        startFadeInIfReady()
         frameDisplayHandler?()
+    }
+
+    /// Plays the first-frame transition once its ready content is no longer hidden.
+    private func startFadeInIfReady() {
+        guard isWaitingForFirstFrame, hasSubmittedFirstFrame,
+            !isHiddenOrHasHiddenAncestor
+        else { return }
+        isWaitingForFirstFrame = false
+        let duration = fadeInDuration
+        guard duration.isFinite, duration > 0,
+            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = duration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer?.add(
+            fade,
+            forKey: "videoFadeIn"
+        )
     }
 
     /// Cancels this view's fade-in and prepares the next render binding.
     private func resetFadeIn() {
         layer?.removeAnimation(forKey: "videoFadeIn")
         isWaitingForFirstFrame = true
+        hasSubmittedFirstFrame = false
     }
 
     /// Agora owns rendering inside this child view; SDK sample-buffer rendering is bypassed.
