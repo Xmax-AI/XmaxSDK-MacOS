@@ -36,13 +36,13 @@ public final class XmaxRealtimeVideoView: NSView {
         }
     }
 
-    /// The first frame's fade-in duration, in seconds. The default is zero.
+    /// The first frame's fade-in duration, in seconds. The default is 0.3.
     ///
     /// The animation begins when a decoded frame is submitted or native preview is attached.
     /// Zero, negative, or nonfinite values and Reduce Motion disable the animation.
     /// Changes apply to the next track binding; subsequent frames do not restart the fade-in.
     /// The animation affects view presentation only; frame callbacks retain the video pixels.
-    public var fadeInDuration: TimeInterval = 0
+    public var fadeInDuration: TimeInterval = 0.3
 
     /// Enables pointer trajectories on a ready remote generation track.
     public var isInteractionEnabled = true {
@@ -118,7 +118,7 @@ public final class XmaxRealtimeVideoView: NSView {
     public init(
         track: RealtimeVideoTrack? = nil,
         videoContentMode: VideoContentMode = .fill,
-        fadeInDuration: TimeInterval = 0,
+        fadeInDuration: TimeInterval = 0.3,
         isInteractionEnabled: Bool = true
     ) {
         self.track = track

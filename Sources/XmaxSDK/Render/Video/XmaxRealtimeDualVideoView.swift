@@ -62,11 +62,11 @@ public final class XmaxRealtimeDualVideoView: NSView {
         set { remoteVideoView.trajectoryRenderer = newValue }
     }
 
-    /// The video view retaining local preview beneath the result.
-    private let localVideoView = XmaxRealtimeVideoView()
+    /// The video view retaining local preview beneath the result without an independent fade-in.
+    private let localVideoView = XmaxRealtimeVideoView(fadeInDuration: 0)
 
-    /// The video view displaying the generated result.
-    private let remoteVideoView = XmaxRealtimeVideoView()
+    /// The result video view whose fade-in is owned by this container.
+    private let remoteVideoView = XmaxRealtimeVideoView(fadeInDuration: 0)
 
     /// Creates a dual video container with local preview beneath remote generation.
     ///

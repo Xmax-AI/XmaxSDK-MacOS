@@ -20,7 +20,7 @@ public struct XmaxRealtimeVideo: NSViewRepresentable {
     /// The video content display mode in its container.
     public let videoContentMode: VideoContentMode
 
-    /// The first-frame fade-in duration, in seconds; zero disables animation by default.
+    /// The first-frame fade-in duration, in seconds. The default is 0.3; zero disables animation.
     public let fadeInDuration: TimeInterval
 
     /// Whether a ready remote track accepts pointer trajectories.
@@ -36,7 +36,7 @@ public struct XmaxRealtimeVideo: NSViewRepresentable {
     public init(
         track: RealtimeVideoTrack?,
         videoContentMode: VideoContentMode = .fill,
-        fadeInDuration: TimeInterval = 0,
+        fadeInDuration: TimeInterval = 0.3,
         isInteractionEnabled: Bool = true,
         isMirrored: Bool = false,
         trajectoryRenderer: (any TrajectoryEffectRendering)? = nil

@@ -13,15 +13,15 @@ import XCTest
 
 @MainActor
 final class XmaxRealtimeVideoViewFadeInTests: XCTestCase {
-    func testFadeIsDisabledByDefaultInAppKitAndSwiftUI() throws {
+    func testFadeIsEnabledByDefaultInAppKitAndSwiftUI() throws {
         let view = XmaxRealtimeVideoView()
-        XCTAssertEqual(view.fadeInDuration, 0)
-        XCTAssertEqual(XmaxRealtimeVideo(track: nil).fadeInDuration, 0)
-        XCTAssertEqual(XmaxRealtimeVideo(track: nil, fadeInDuration: 0.3).fadeInDuration, 0.3)
+        XCTAssertEqual(view.fadeInDuration, 0.3)
+        XCTAssertEqual(XmaxRealtimeVideo(track: nil).fadeInDuration, 0.3)
+        XCTAssertEqual(XmaxRealtimeVideo(track: nil, fadeInDuration: 0).fadeInDuration, 0)
 
         view.displayRemoteVideoFrame(try frame(), contentMode: .fit)
 
-        XCTAssertNil(fade(in: view))
+        try assertFade(in: view, duration: 0.3)
         XCTAssertEqual(view.alphaValue, 1)
     }
 
@@ -115,7 +115,9 @@ final class XmaxRealtimeVideoViewFadeInTests: XCTestCase {
 
     func testSingleTrackFadeDoesNotAddASecondAnimationToDualViews() throws {
         let view = XmaxRealtimeDualVideoView(remoteTrack: RealtimeVideoTrack(id: "remote"))
+        let local = try XCTUnwrap(view.subviews.first as? XmaxRealtimeVideoView)
         let remote = try XCTUnwrap(view.subviews.last as? XmaxRealtimeVideoView)
+        XCTAssertEqual(local.fadeInDuration, 0)
         XCTAssertEqual(remote.fadeInDuration, 0)
 
         remote.displayRemoteVideoFrame(try frame(), contentMode: .fit)

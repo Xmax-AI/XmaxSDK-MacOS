@@ -234,8 +234,8 @@ frame, and restore local preview when `remoteTrack` is nil. All four types accep
 `isInteractionEnabled` during initialization.
 
 The single-track `XmaxRealtimeVideoView` and `XmaxRealtimeVideo` expose
-`fadeInDuration`, in seconds, disabled by default (`0`). Set it to `0.3` to fade
-in the first submitted frame or attached native preview. The fade plays once per
+`fadeInDuration`, in seconds, enabled by default (`0.3`). The first submitted
+frame or attached native preview fades in. The fade plays once per
 binding; subsequent frames, display settings, and quality changes do not restart
 it. Clearing or replacing the track cancels the fade. Zero, negative, or nonfinite
 durations and Reduce Motion disable the animation. It affects the view only;
