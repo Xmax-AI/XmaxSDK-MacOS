@@ -235,9 +235,7 @@ frame, and restore local preview when `remoteTrack` is nil. All four types accep
 
 The single-track `XmaxRealtimeVideoView` and `XmaxRealtimeVideo` expose
 `fadeInDuration`, in seconds, enabled by default (`0.3`). The first submitted
-frame or attached native preview fades in. While the view or an ancestor is
-hidden, preview readiness is reported immediately and the fade waits until the
-view becomes visible. The fade plays once per
+frame or attached native preview fades in. The fade plays once per
 binding; subsequent frames, display settings, and quality changes do not restart
 it. Clearing or replacing the track cancels the fade. Zero, negative, or nonfinite
 durations and Reduce Motion disable the animation. It affects the view only;
