@@ -91,5 +91,6 @@ final class RtcCameraPreviewPresenter {
             contentMode: contentMode,
             mirrored: sourceMirrored || view.isMirrored
         )
+        view.notifyVideoFrameSubmitted()
     }
 }

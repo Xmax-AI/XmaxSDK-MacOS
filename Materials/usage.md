@@ -233,7 +233,15 @@ retain local preview beneath generated output, reveal the result after its first
 frame, and restore local preview when `remoteTrack` is nil. All four types accept
 `isInteractionEnabled` during initialization.
 
-Only the Dual types expose `remoteVideoFadeInDuration`, in seconds. The default is
+The single-track `XmaxRealtimeVideoView` and `XmaxRealtimeVideo` expose
+`fadeInDuration`, in seconds, disabled by default (`0`). Set it to `0.3` to fade
+in the first submitted frame or attached native preview. The fade plays once per
+binding; subsequent frames, display settings, and quality changes do not restart
+it. Clearing or replacing the track cancels the fade. Zero, negative, or nonfinite
+durations and Reduce Motion disable the animation. It affects the view only;
+frame callbacks, recordings, and virtual-camera output retain the video pixels.
+
+The Dual types expose `remoteVideoFadeInDuration`, in seconds. The default is
 `0.3`: remote video fades in after its first frame while local preview stays below
 it. Set it to `0` to switch immediately; negative and nonfinite values also disable
 the animation. A new value applies to the next fade-in. Clearing `remoteTrack`

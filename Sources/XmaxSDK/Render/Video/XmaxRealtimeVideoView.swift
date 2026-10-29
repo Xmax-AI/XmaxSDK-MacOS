@@ -12,6 +12,7 @@
 import AppKit
 import CoreMedia
 import CoreVideo
+import QuartzCore
 
 /// An AppKit view rendering one local or remote realtime video track.
 @MainActor
@@ -34,6 +35,14 @@ public final class XmaxRealtimeVideoView: NSView {
             updateTrajectoryConfiguration()
         }
     }
+
+    /// The first frame's fade-in duration, in seconds. The default is zero.
+    ///
+    /// The animation begins when a decoded frame is submitted or native preview is attached.
+    /// Zero, negative, or nonfinite values and Reduce Motion disable the animation.
+    /// Changes apply to the next track binding; subsequent frames do not restart the fade-in.
+    /// The animation affects view presentation only; frame callbacks retain the video pixels.
+    public var fadeInDuration: TimeInterval = 0
 
     /// Enables pointer trajectories on a ready remote generation track.
     public var isInteractionEnabled = true {
@@ -69,6 +78,9 @@ public final class XmaxRealtimeVideoView: NSView {
     /// The track attached for rendering.
     private weak var attachedTrack: RealtimeVideoTrack?
 
+    /// Whether the current binding is waiting for its first submitted frame or native preview.
+    private var isWaitingForFirstFrame = true
+
     /// The internal handler after a valid frame is submitted.
     var frameDisplayHandler: (() -> Void)?
 
@@ -101,14 +113,17 @@ public final class XmaxRealtimeVideoView: NSView {
     /// - Parameters:
     ///   - track: The video track to display; may be assigned later.
     ///   - videoContentMode: The video content scaling and cropping mode.
+    ///   - fadeInDuration: The first-frame fade-in duration, in seconds; zero disables animation.
     ///   - isInteractionEnabled: Whether to accept pointer trajectories on a ready result.
     public init(
         track: RealtimeVideoTrack? = nil,
         videoContentMode: VideoContentMode = .fill,
+        fadeInDuration: TimeInterval = 0,
         isInteractionEnabled: Bool = true
     ) {
         self.track = track
         self.videoContentMode = videoContentMode
+        self.fadeInDuration = fadeInDuration
         self.isInteractionEnabled = isInteractionEnabled
         super.init(frame: .zero)
         configureView()
@@ -173,6 +188,34 @@ public final class XmaxRealtimeVideoView: NSView {
 
 extension XmaxRealtimeVideoView {
 
+    /// Starts the binding's fade-in once and preserves the internal frame notification.
+    func notifyVideoFrameSubmitted() {
+        if isWaitingForFirstFrame {
+            isWaitingForFirstFrame = false
+            let duration = fadeInDuration
+            if duration.isFinite, duration > 0,
+                !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            {
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = 0
+                fade.toValue = 1
+                fade.duration = duration
+                fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                layer?.add(
+                    fade,
+                    forKey: "videoFadeIn"
+                )
+            }
+        }
+        frameDisplayHandler?()
+    }
+
+    /// Cancels this view's fade-in and prepares the next render binding.
+    private func resetFadeIn() {
+        layer?.removeAnimation(forKey: "videoFadeIn")
+        isWaitingForFirstFrame = true
+    }
+
     /// Agora owns rendering inside this child view; SDK sample-buffer rendering is bypassed.
     func prepareNativeVideoPreview() -> NSView {
         if let nativeVideoPreview { return nativeVideoPreview }
@@ -192,6 +235,7 @@ extension XmaxRealtimeVideoView {
 
     /// Removes the native canvas and its update callback.
     func clearNativeVideoPreview() {
+        resetFadeIn()
         nativePreviewUpdateHandler = nil
         nativeVideoPreview?.removeFromSuperview()
         nativeVideoPreview = nil
@@ -349,7 +393,7 @@ extension XmaxRealtimeVideoView {
                 attachmentMode: kCMAttachmentMode_ShouldPropagate
             )
             decodedVideoLayer.enqueue(sampleBuffer)
-            frameDisplayHandler?()
+            notifyVideoFrameSubmitted()
         } catch {
             Self.logRenderingFailure(
                 title: "显示本地视频帧失败 (Failed to Display Local Video Frame)",
@@ -429,11 +473,12 @@ extension XmaxRealtimeVideoView {
         }
         decodedVideoLayer.enqueue(sampleBuffer)
         nextDecodedVideoPresentationTime = presentationTime + duration
-        frameDisplayHandler?()
+        notifyVideoFrameSubmitted()
     }
 
     /// Removes video layers and releases display clock and preview buffers.
     func clearDecodedVideoPreview() {
+        resetFadeIn()
         decodedVideoLayer?.flushAndRemoveImage()
         decodedVideoLayer?.controlTimebase = nil
         decodedVideoLayer?.removeFromSuperlayer()
@@ -486,6 +531,7 @@ extension XmaxRealtimeVideoView {
     func detach(
         track: RealtimeVideoTrack?
     ) {
+        resetFadeIn()
         guard let track, attachedTrack === track else { return }
         if let trajectoryOverlay {
             trajectoryBinding?.detach(from: trajectoryOverlay)
