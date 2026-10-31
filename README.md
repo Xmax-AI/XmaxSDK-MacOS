@@ -260,6 +260,38 @@ await realtime.close()
 
 <br>
 
+## Generated-result beauty
+
+Result beauty is disabled by default. Configure it before connection or while generating:
+
+```swift
+await manager.setRemoteVideoBeautyErrorListener { error in
+    // Beauty has been disabled; generation and original result output continue.
+    showRecoverableError(error.message)
+}
+try await manager.setRemoteVideoBeauty(
+    RealtimeVideoBeautyOptions(smoothness: 0.3, lightening: 0.2, sharpness: 0.2, redness: 0.1)
+)
+try await manager.setRemoteVideoBeauty(nil)
+```
+
+Strengths must be finite values in `0...1`. Processing runs after optional interpolation, before result preview and `setRemoteMediaFrameListener` output. Input camera pixels and upstream publication are unchanged. The processed frame retains the original PTS, duration, dimensions, and orientation. Treat callback buffers as read-only. The first implementation supports SDR BT.709, full/video-range NV12 and BGRA result buffers backed by IOSurface.
+
+Beauty requires a private **XPC service**, isolated from the app's realtime Agora engine:
+
+1. Add a macOS XPC Service target named `XmaxVideoBeautyWorker`, with bundle identifier `ai.xmax.sdk.video-beauty` and deployment target macOS 13 or later.
+2. Link the package product `XmaxVideoBeautyWorkerSupport` to that target. Its main entry point is:
+
+   ```swift
+   import XmaxVideoBeautyWorkerSupport
+   XmaxVideoBeautyWorker.run()
+   ```
+
+3. Use an XPC service Info.plist with `CFBundlePackageType = XPC!`, `XPCService.ServiceType = Application`, and `XPCService.RunLoopType = dispatch_main`. Enable App Sandbox with no camera or microphone entitlement. The service owns its sandbox; do not set `com.apple.security.inherit`.
+4. Embed and sign the service in `YourApp.app/Contents/XPCServices/XmaxVideoBeautyWorker.xpc` with the app's signing team. Include the package's Agora/ClearVision dynamic frameworks. If frameworks are shared in the outer app's `Contents/Frameworks`, add `@executable_path/../../../../Frameworks` to the service's runtime search paths.
+
+The SDK opens an app-private XPC connection and transfers IOSurface handles, with one frame request in flight per pipeline. Explicit output leases prevent native pool buffers from being reused while preview, virtual-camera output, or recording still owns them. Missing services, processing failures, and bounded-request timeouts are recoverable errors. Options survive reconnects; `close()` clears beauty options and its listener. No service is activated until beauty is requested.
+
 ## Dependencies
 
 - <ins><strong>Agora RTC SDK</strong></ins> enables low-latency, real-time audio and video communication.

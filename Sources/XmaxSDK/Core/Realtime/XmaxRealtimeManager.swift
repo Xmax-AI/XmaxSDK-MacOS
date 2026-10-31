@@ -176,6 +176,20 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         }
     }
 
+    /// Configures shared generated-result beauty without changing input media or generation state.
+    func setRemoteVideoBeauty(
+        _ options: RealtimeVideoBeautyOptions?
+    ) async throws {
+        try await renderController.setRemoteVideoBeauty(options)
+    }
+
+    /// Sets independent, recoverable processing failures on the main actor.
+    func setRemoteVideoBeautyErrorListener(
+        _ listener: RealtimeVideoBeautyErrorListener?
+    ) async {
+        await renderController.setRemoteVideoBeautyErrorListener(listener)
+    }
+
     /// The remote generated audio playback volume in `0...1`.
     var remoteAudioVolume: Float {
         streamController.remoteAudioVolume
@@ -638,6 +652,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         await lifecycleManager.terminate(
             .all
         )
+        await renderController.closeBeauty()
     }
 
     /// Starts generation, or updates current conditions if generation is already active.

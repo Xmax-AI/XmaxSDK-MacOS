@@ -23,6 +23,19 @@ protocol RenderControlling: AnyObject, Sendable {
     /// Whether remote video interpolation is currently enabled.
     var isFrameInterpolationEnabled: Bool { get async }
 
+    /// Sets shared result beauty before preview and public frame delivery.
+    func setRemoteVideoBeauty(
+        _ options: RealtimeVideoBeautyOptions?
+    ) async throws
+
+    /// Registers recoverable beauty failures independently of terminal session state.
+    func setRemoteVideoBeautyErrorListener(
+        _ listener: RealtimeVideoBeautyErrorListener?
+    ) async
+
+    /// Releases beauty settings and resources during full manager shutdown.
+    func closeBeauty() async
+
     /// Enables interaction only after generation confirmation; false cancels active gestures.
     func setInteractionEnabled(
         _ enabled: Bool

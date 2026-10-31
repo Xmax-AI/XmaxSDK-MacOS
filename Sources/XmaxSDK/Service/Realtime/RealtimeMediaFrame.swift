@@ -70,7 +70,7 @@ public struct RealtimeMediaFrame: Sendable {
         /// PCM belonging to the result stream's remote user, before remote-user mixing.
         case audio(RealtimeAudioFrame)
 
-        /// A remote video frame after optional interpolation.
+        /// A remote video frame after optional interpolation and result beauty, shared with preview.
         case video(RealtimeVideoFrame)
     }
 

@@ -47,6 +47,24 @@ actor RemoteVideoFramePipeline {
     /// The interpolation failure and fallback handler.
     private let errorListener: XmaxErrorListener
 
+    /// Creates an isolated beauty processor only when the effect is requested.
+    typealias BeautyProcessorFactory = @Sendable (RealtimeVideoBeautyOptions) async throws -> any VideoBeautyProcessing
+
+    /// The injectable offline beauty graph factory.
+    private let beautyProcessorFactory: BeautyProcessorFactory
+
+    /// Reports recoverable beauty fallback separately from interpolation and session failures.
+    private var beautyErrorListener: RealtimeVideoBeautyErrorListener?
+
+    /// The requested result strengths, retained across result stream replacement.
+    private var beautyOptions: RealtimeVideoBeautyOptions?
+
+    /// The processor for the current result stream.
+    private var beautyProcessor: (any VideoBeautyProcessing)?
+
+    /// Invalidates asynchronous configuration and frames after newer beauty requests.
+    private var beautyRevision: UInt64 = 0
+
     /// The active remote interpolation processor.
     private var interpolationManager: (any FrameInterpolationManaging)?
 
@@ -101,6 +119,7 @@ actor RemoteVideoFramePipeline {
                 }
             #endif
         },
+        beautyProcessorFactory: @escaping BeautyProcessorFactory = OfflineVideoBeautyProcessor.make,
         outputListener: @escaping OutputListener,
         errorListener: @escaping XmaxErrorListener
     ) {
@@ -111,6 +130,52 @@ actor RemoteVideoFramePipeline {
         self.interpolationManagerFactory = interpolationManagerFactory
         self.outputListener = outputListener
         self.errorListener = errorListener
+        self.beautyProcessorFactory = beautyProcessorFactory
+    }
+
+    /// Applies beauty to final result pixels without changing camera input or restarting generation.
+    ///
+    /// - Parameter options: Strengths to apply; nil disables beauty and releases its resources.
+    ///
+    /// - Throws: An invalid-configuration, processor initialization, update, or superseded-request error.
+    func setRemoteVideoBeauty(
+        _ options: RealtimeVideoBeautyOptions?
+    ) async throws {
+        try options?.validate()
+        beautyRevision &+= 1
+        let revision = beautyRevision
+        guard let options else {
+            beautyOptions = nil
+            let previous = beautyProcessor
+            beautyProcessor = nil
+            await previous?.close()
+            return
+        }
+        if let processor = beautyProcessor {
+            try await processor.update(options)
+            guard beautyRevision == revision else { throw CancellationError() }
+        } else {
+            let processor = try await beautyProcessorFactory(options)
+            guard beautyRevision == revision else {
+                await processor.close()
+                throw CancellationError()
+            }
+            beautyProcessor = processor
+        }
+        beautyOptions = options
+    }
+
+    /// Replaces the main-actor callback for runtime beauty fallback.
+    func setRemoteVideoBeautyErrorListener(
+        _ listener: RealtimeVideoBeautyErrorListener?
+    ) {
+        beautyErrorListener = listener
+    }
+
+    /// Clears user settings and native processing at full manager shutdown.
+    func closeBeauty() async {
+        try? await setRemoteVideoBeauty(nil)
+        beautyErrorListener = nil
     }
 
     /// Whether interpolation is requested.
@@ -244,6 +309,9 @@ private extension RemoteVideoFramePipeline {
         let previousDrainTask = drainTask
         let previousCleanupTask = cleanupTask
         let previousManager = interpolationManager
+        let previousBeauty = beautyProcessor
+        beautyProcessor = nil
+        beautyRevision &+= 1
         drainTask = nil
         pendingFrame = nil
         previousPresentationTimeStamp = nil
@@ -251,6 +319,7 @@ private extension RemoteVideoFramePipeline {
         cleanupTask = Task {
             await previousCleanupTask?.value
             await previousManager?.close()
+            await previousBeauty?.close()
             await previousDrainTask?.value
         }
     }
@@ -288,14 +357,56 @@ private extension RemoteVideoFramePipeline {
                 else {
                     break
                 }
+                guard let finalFrame = await processBeauty(outputFrame, generation: activeGeneration),
+                    !Task.isCancelled, generation == activeGeneration else { continue }
                 await outputListener(
-                    outputFrame,
+                    finalFrame,
                     activeOutputToken
                 )
             }
         }
         if generation == activeGeneration {
             drainTask = nil
+        }
+    }
+
+    /// Processes one interpolated frame; stale work is discarded and failures bypass only beauty.
+    func processBeauty(
+        _ frame: RealtimeVideoFrame,
+        generation activeGeneration: Int
+    ) async -> RealtimeVideoFrame? {
+        guard let options = beautyOptions else { return frame }
+        let revision = beautyRevision
+        do {
+            let processor: any VideoBeautyProcessing
+            if let current = beautyProcessor {
+                processor = current
+            } else {
+                processor = try await beautyProcessorFactory(options)
+                guard generation == activeGeneration, revision == beautyRevision, !Task.isCancelled else {
+                    await processor.close()
+                    return nil
+                }
+                beautyProcessor = processor
+            }
+            let result = try await processor.process(frame)
+            guard generation == activeGeneration, revision == beautyRevision, !Task.isCancelled else { return nil }
+            return result
+        } catch VideoBeautyProcessingError.outputBackpressure {
+            // Keep the graph and user settings; consumers will release capacity as pending frames drain.
+            return nil
+        } catch {
+            guard generation == activeGeneration, revision == beautyRevision, !Task.isCancelled else { return nil }
+            beautyOptions = nil
+            beautyRevision &+= 1
+            let fallbackRevision = beautyRevision
+            let processor = beautyProcessor
+            beautyProcessor = nil
+            await processor?.close()
+            guard generation == activeGeneration, beautyRevision == fallbackRevision else { return nil }
+            let resolved = XmaxError.from(error)
+            if let beautyErrorListener { await beautyErrorListener(resolved) }
+            return frame
         }
     }
 

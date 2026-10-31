@@ -99,6 +99,29 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// The effective remote video interpolation state.
     var isFrameInterpolationEnabled: Bool { get async }
 
+    /// Sets beauty on generated result frames shared by preview and `setRemoteMediaFrameListener`.
+    ///
+    /// Pass nil to disable. Can be configured before connection or changed during generation.
+    /// Options survive result replacement and reconnection, and reset on `close()`.
+    /// Runtime failures automatically disable beauty, retain generation, and notify the independent listener.
+    ///
+    /// - Parameter options: Finite strengths in `0...1`, or nil for unchanged result pixels.
+    ///
+    /// - Throws: An error for invalid strengths, unavailable processing, configuration failure, or cancellation.
+    func setRemoteVideoBeauty(
+        _ options: RealtimeVideoBeautyOptions?
+    ) async throws
+
+    /// Sets the recoverable beauty error callback, delivered on the main actor after beauty is disabled.
+    ///
+    /// Configuration errors are thrown by `setRemoteVideoBeauty`; this listener reports later frame failures.
+    /// It does not report terminal generation errors and is cleared on `close()`.
+    ///
+    /// - Parameter listener: The callback, or nil to remove it.
+    func setRemoteVideoBeautyErrorListener(
+        _ listener: RealtimeVideoBeautyErrorListener?
+    ) async
+
     /// The remote generated audio playback volume in `0...1`.
     /// Starts at 0 after camera stream creation; enable result audio when needed.
     var remoteAudioVolume: Float { get async }
@@ -119,7 +142,7 @@ public protocol XmaxRealtimeManaging: Sendable {
 
     /// Sets one listener for the result user's PCM and processed remote video.
     ///
-    /// Audio is copied before remote-user mixing; video includes optional interpolation. Both use
+    /// Audio is copied before remote-user mixing; video includes optional interpolation and beauty. Both use
     /// the receiver rendering timeline. Audio time advances by sample count between explicit
     /// discontinuities. Registration does not change playback volume or audio subscriptions.
     ///

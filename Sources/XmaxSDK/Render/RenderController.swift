@@ -155,6 +155,25 @@ final class RenderController: RenderControlling {
         }
     }
 
+    /// Updates result beauty before preview and public frame output.
+    func setRemoteVideoBeauty(
+        _ options: RealtimeVideoBeautyOptions?
+    ) async throws {
+        try await remoteFramePipeline.setRemoteVideoBeauty(options)
+    }
+
+    /// Sets the independent, main-actor callback used after beauty falls back to original result pixels.
+    func setRemoteVideoBeautyErrorListener(
+        _ listener: RealtimeVideoBeautyErrorListener?
+    ) async {
+        await remoteFramePipeline.setRemoteVideoBeautyErrorListener(listener)
+    }
+
+    /// Clears beauty settings after full media cleanup.
+    func closeBeauty() async {
+        await remoteFramePipeline.closeBeauty()
+    }
+
     /// Updates the decoded frame source and invalidates old stream caches and waits.
     ///
     /// - Parameter stream: The new remote stream; `nil` clears the source.

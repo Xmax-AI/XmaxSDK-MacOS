@@ -11,7 +11,8 @@ let package = Package(
     name: "XmaxSDK",
     platforms: [.macOS(.v13)],
     products: [
-        .library(name: "XmaxSDK", targets: ["XmaxSDK"])
+        .library(name: "XmaxSDK", targets: ["XmaxSDK"]),
+        .library(name: "XmaxVideoBeautyWorkerSupport", targets: ["XmaxVideoBeautyWorkerSupport"])
     ],
     dependencies: [
         .package(url: "https://github.com/AgoraIO/AgoraRtcEngine_macOS.git", exact: "4.6.2")
@@ -21,10 +22,27 @@ let package = Package(
             name: "XmaxSDK",
             dependencies: [
                 .product(name: "RtcBasic", package: "AgoraRtcEngine_macOS"),
+                "VideoBeautyIPC",
+                .product(name: "ClearVision", package: "AgoraRtcEngine_macOS"),
                 "QCloudCore",
                 "QCloudCOSXML"
             ],
             path: "Sources/XmaxSDK"
+        ),
+        .target(name: "VideoBeautyIPC", path: "Sources/VideoBeautyIPC"),
+        .target(
+            name: "XmaxVideoBeautyWorkerSupport",
+            dependencies: ["VideoBeautyIPC", "VideoBeautyBridge"],
+            path: "Sources/XmaxVideoBeautyWorkerSupport"
+        ),
+        .target(
+            name: "VideoBeautyBridge",
+            dependencies: [
+                .product(name: "RtcBasic", package: "AgoraRtcEngine_macOS"),
+                .product(name: "ClearVision", package: "AgoraRtcEngine_macOS")
+            ],
+            path: "Sources/VideoBeautyBridge",
+            publicHeadersPath: "include"
         ),
         .binaryTarget(
             name: "QCloudCore",
@@ -48,6 +66,12 @@ let package = Package(
             name: "XLabRecording",
             dependencies: ["XmaxSDK"],
             path: "Examples/XLab/XLab/Recording"
+        ),
+        .testTarget(
+            name: "VideoBeautyWorkerTests",
+            dependencies: ["VideoBeautyBridge"],
+            path: "Tests/VideoBeautyWorkerTests",
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../.."])]
         ),
         .testTarget(
             name: "XmaxSDKTests",
