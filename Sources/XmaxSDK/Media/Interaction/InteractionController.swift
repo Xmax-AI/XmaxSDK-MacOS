@@ -95,7 +95,8 @@ actor InteractionController: InteractionControlling {
                 $0,
                 viewportSize: frame.viewportSize,
                 resolvedMediaSize: activeInteraction.resolvedMediaSize,
-                contentMode: frame.contentMode
+                contentMode: frame.contentMode,
+                isMirrored: frame.isMirrored
             )
         }
         guard !points.isEmpty else {

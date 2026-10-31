@@ -32,7 +32,7 @@ public struct XmaxRealtimeDualVideo: NSViewRepresentable {
     /// Whether a ready remote track accepts pointer trajectories.
     public let isInteractionEnabled: Bool
 
-    /// Whether to mirror video; interaction coordinates remain in displayed orientation.
+    /// Whether to mirror video; sent interactions map back to the unmirrored media coordinates.
     public let isMirrored: Bool
 
     /// Custom trajectory visuals; nil uses the built-in green glow.

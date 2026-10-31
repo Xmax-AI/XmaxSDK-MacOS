@@ -23,7 +23,7 @@ final class TrajectoryOverlayView: NSView {
     /// Whether the hosting video view requests interaction.
     private var requested = true
 
-    /// The display mirroring state used to cancel gestures when presentation changes.
+    /// The display mirroring state captured with samples and cancelling gestures on changes.
     private var mirrored = false
 
     /// The fitting or cropping mode used for coordinate mapping.
@@ -306,7 +306,8 @@ final class TrajectoryOverlayView: NSView {
             InteractionFrame(
                 points: [point.location],
                 viewportSize: bounds.size,
-                contentMode: contentMode
+                contentMode: contentMode,
+                isMirrored: mirrored
             ),
             from: self
         )

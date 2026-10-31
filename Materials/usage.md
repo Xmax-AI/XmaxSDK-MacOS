@@ -264,6 +264,11 @@ discards the temporary clip. XLab creates its camera stream with `mirror: true`
 and records remote frame pixels as received. The result preview and recording
 apply no additional mirror transform.
 The macOS views support primary-button dragging for trajectory interaction during generation.
+With `isMirrored: true`, the video is mirrored horizontally and interaction coordinates
+are mapped back to the original media orientation before sending. The SDK first accounts
+for video scaling, fit margins, and fill cropping, then applies `x = 1 - x` to normalized
+coordinates; Y is unchanged. Pointer effects remain under the displayed cursor. Mirroring
+affects view presentation, not video frame callbacks or recordings.
 
 ## Remote audio volume
 

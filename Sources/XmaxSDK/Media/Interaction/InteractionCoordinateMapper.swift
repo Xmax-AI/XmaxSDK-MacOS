@@ -72,6 +72,7 @@ enum InteractionCoordinateMapper {
     ///   - viewportSize: The viewport dimensions, in points.
     ///   - resolvedMediaSize: The resolved media dimensions used for normalization.
     ///   - contentMode: The video content mode.
+    ///   - isMirrored: Whether to undo horizontal display mirroring after media normalization.
     ///
     /// - Returns: Coordinates in `[0, 1]`, or `nil` for invalid input or touches in aspect-fit
     ///   margins.
@@ -79,7 +80,8 @@ enum InteractionCoordinateMapper {
         _ point: CGPoint,
         viewportSize: CGSize,
         resolvedMediaSize: CGSize,
-        contentMode: VideoContentMode
+        contentMode: VideoContentMode,
+        isMirrored: Bool = false
     ) -> RealtimePoint? {
         guard point.x.isFinite,
             point.y.isFinite,
@@ -101,7 +103,7 @@ enum InteractionCoordinateMapper {
         return RealtimePoint(
             x: min(
                 max(
-                    normalizedX,
+                    isMirrored ? 1 - normalizedX : normalizedX,
                     0
                 ),
                 1

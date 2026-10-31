@@ -16,23 +16,25 @@ import XCTest
 
 @MainActor
 final class TrajectoryTests: XCTestCase {
-    func testTopLeftCoordinatesStayTopLeftWithAndWithoutDisplayMirroring() async throws {
+    func testMirroringReversesSentXWhileVisualsStayUnderThePointer() async throws {
         let recorder = TrajectoryFrameRecorder()
         let setup = makeOverlay(listener: { await recorder.append($0) })
         defer { setup.window.close() }
         for mirrored in [false, true] {
             setup.overlay.configure(contentMode: .fit, mirrored: mirrored, requested: true)
-        setup.overlay.setResolvedMediaSize(CGSize(width: 200, height: 200))
+            setup.overlay.setResolvedMediaSize(CGSize(width: 200, height: 200))
             setup.overlay.mouseDown(with: event(.leftMouseDown, x: 4, y: 6, in: setup.overlay))
             await drain()
             let last = await recorder.last()
             let frame = try XCTUnwrap(last)
             let mapped = try XCTUnwrap(InteractionCoordinateMapper.map(frame.points[0],
-                viewportSize: frame.viewportSize, resolvedMediaSize: CGSize(width: 200, height: 200), contentMode: frame.contentMode))
-            XCTAssertEqual(mapped.x, 0.02, accuracy: 0.0001)
+                viewportSize: frame.viewportSize, resolvedMediaSize: CGSize(width: 200, height: 200), contentMode: frame.contentMode, isMirrored: frame.isMirrored))
+            XCTAssertEqual(frame.isMirrored, mirrored)
+            XCTAssertEqual(mapped.x, mirrored ? 0.98 : 0.02, accuracy: 0.0001)
             XCTAssertEqual(mapped.y, 0.03, accuracy: 0.0001)
             let visual = try XCTUnwrap(setup.renderer.began.last)
-            XCTAssertEqual(visual.normalizedLocation.x, mapped.x, accuracy: 0.0001)
+            XCTAssertEqual(visual.normalizedLocation.x, 0.02, accuracy: 0.0001)
+            XCTAssertEqual(visual.location, CGPoint(x: 4, y: 6))
             XCTAssertEqual(visual.normalizedLocation.y, mapped.y, accuracy: 0.0001)
             setup.overlay.mouseUp(with: event(.leftMouseUp, x: 4, y: 6, in: setup.overlay))
         }
@@ -49,12 +51,33 @@ final class TrajectoryTests: XCTestCase {
         let last = await recorder.last()
         let frame = try XCTUnwrap(last)
         let mapped = try XCTUnwrap(InteractionCoordinateMapper.map(frame.points[0],
-            viewportSize: frame.viewportSize, resolvedMediaSize: CGSize(width: 400, height: 200), contentMode: .fit))
-        XCTAssertEqual(mapped.x, 0, accuracy: 0.001)
+            viewportSize: frame.viewportSize, resolvedMediaSize: CGSize(width: 400, height: 200), contentMode: .fit, isMirrored: frame.isMirrored))
+        XCTAssertEqual(mapped.x, 1, accuracy: 0.001)
         setup.overlay.configure(contentMode: .fill, mirrored: false, requested: true)
         setup.overlay.setResolvedMediaSize(CGSize(width: 400, height: 200))
         setup.overlay.mouseDown(with: event(.leftMouseDown, x: 0, y: 100, in: setup.overlay))
         XCTAssertEqual(try XCTUnwrap(setup.renderer.began.last).normalizedLocation.x, 0.25, accuracy: 0.001)
+    }
+
+    func testChangingMirroringCancelsTheGestureAndNextPressCapturesNewOrientation() async throws {
+        let recorder = TrajectoryFrameRecorder()
+        let setup = makeOverlay(listener: { await recorder.append($0) })
+        defer { setup.window.close() }
+        setup.overlay.mouseDown(with: event(.leftMouseDown, x: 50, y: 75, in: setup.overlay))
+        await drain()
+        let before = await recorder.count()
+        setup.overlay.configure(contentMode: .fit, mirrored: true, requested: true)
+        XCTAssertEqual(setup.renderer.ended.count, 1)
+        setup.overlay.mouseDragged(with: event(.leftMouseDragged, x: 100, y: 100, in: setup.overlay))
+        await drain()
+        let after = await recorder.count()
+        XCTAssertEqual(after, before)
+        XCTAssertTrue(setup.renderer.moved.isEmpty)
+        setup.overlay.mouseDown(with: event(.leftMouseDown, x: 50, y: 75, in: setup.overlay))
+        await drain()
+        let last = await recorder.last()
+        XCTAssertTrue(try XCTUnwrap(last).isMirrored)
+        setup.overlay.mouseUp(with: event(.leftMouseUp, x: 50, y: 75, in: setup.overlay))
     }
 
     func testRegistryReplacementInvalidatesOldBindingsAndLocalTracksHaveNoCapability() {
@@ -94,7 +117,7 @@ final class TrajectoryTests: XCTestCase {
         XCTAssertNil(setup.overlay.hitTest(inside))
     }
 
-    func testDragKeepsStableIdentityAndSendsDisplayedCoordinates() async throws {
+    func testMirroredDragKeepsVisualIdentityAndSendsMediaCoordinates() async throws {
         let recorder = TrajectoryFrameRecorder()
         let setup = makeOverlay(listener: { await recorder.append($0) })
         defer { setup.window.close() }
@@ -108,8 +131,8 @@ final class TrajectoryTests: XCTestCase {
         let frames = await recorder.frames
         let frame = try XCTUnwrap(frames.first)
         let mapped = try XCTUnwrap(InteractionCoordinateMapper.map(frame.points[0],
-            viewportSize: frame.viewportSize, resolvedMediaSize: CGSize(width: 400, height: 200), contentMode: frame.contentMode))
-        XCTAssertEqual(mapped.x, 0.25, accuracy: 0.001)
+            viewportSize: frame.viewportSize, resolvedMediaSize: CGSize(width: 400, height: 200), contentMode: frame.contentMode, isMirrored: frame.isMirrored))
+        XCTAssertEqual(mapped.x, 0.75, accuracy: 0.001)
         XCTAssertEqual(mapped.y, 0.25, accuracy: 0.001)
         setup.overlay.mouseDragged(with: event(.leftMouseDragged, x: 150, y: 125, in: setup.overlay))
         XCTAssertEqual(setup.renderer.moved.last?.id, first.id)
@@ -120,6 +143,13 @@ final class TrajectoryTests: XCTestCase {
         let last = await recorder.last()
         let final = try XCTUnwrap(last)
         XCTAssertEqual(final.points[0], CGPoint(x: 150, y: 125))
+        let finalMapped = try XCTUnwrap(InteractionCoordinateMapper.map(
+            final.points[0], viewportSize: final.viewportSize,
+            resolvedMediaSize: CGSize(width: 400, height: 200), contentMode: final.contentMode,
+            isMirrored: final.isMirrored
+        ))
+        XCTAssertEqual(finalMapped.x, 0.25, accuracy: 0.001)
+        XCTAssertEqual(finalMapped.y, 0.75, accuracy: 0.001)
     }
 
     func testFitRejectsBlackBarsAndDragClampsAtVisibleEdge() async throws {
@@ -260,6 +290,7 @@ final class TrajectoryTests: XCTestCase {
         render.registerRemoteTrack(track, resolvedMediaSize: basis, interactionListener: { await recorder.append($0) })
         let renderer = RecordingTrajectoryRenderer()
         let video = XmaxRealtimeVideoView(track: track, videoContentMode: .fit)
+        video.isMirrored = true
         video.trajectoryRenderer = renderer
         let window = makeWindow(content: video)
         defer { window.close() }
@@ -288,9 +319,10 @@ final class TrajectoryTests: XCTestCase {
         let last = try XCTUnwrap(frames.last)
         let mapped = try XCTUnwrap(InteractionCoordinateMapper.map(
             try XCTUnwrap(last.points.last), viewportSize: last.viewportSize,
-            resolvedMediaSize: basis, contentMode: last.contentMode
+            resolvedMediaSize: basis, contentMode: last.contentMode, isMirrored: last.isMirrored
         ))
-        XCTAssertEqual(mapped.x, 0.75, accuracy: 0.001)
+        XCTAssertTrue(last.isMirrored)
+        XCTAssertEqual(mapped.x, 0.25, accuracy: 0.001)
         XCTAssertEqual(mapped.y, 0.75, accuracy: 0.001)
         XCTAssertEqual(renderer.moved.last?.id, began.id)
         XCTAssertEqual(renderer.ended, [began.id])
@@ -310,6 +342,8 @@ final class TrajectoryTests: XCTestCase {
         XCTAssertFalse(view.isInteractionEnabled)
         view.isInteractionEnabled = true
         XCTAssertTrue(view.isInteractionEnabled)
+        view.isMirrored = true
+        XCTAssertTrue((view.subviews.last as? XmaxRealtimeVideoView)?.isMirrored ?? false)
         XCTAssertTrue(XmaxRealtimeDualVideoView().isInteractionEnabled)
         view.remoteTrack = nil
         view.localTrack = nil

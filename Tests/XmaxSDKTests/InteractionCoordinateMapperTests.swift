@@ -13,6 +13,54 @@ import XCTest
 @testable import XmaxSDK
 
 final class InteractionCoordinateMapperTests: XCTestCase {
+    func testMirroredFitMapsBackToMediaAndRejectsBlackBars() {
+        let viewport = CGSize(width: 400, height: 400)
+        let media = CGSize(width: 200, height: 100)
+        XCTAssertNil(InteractionCoordinateMapper.map(
+            CGPoint(x: 100, y: 99), viewportSize: viewport,
+            resolvedMediaSize: media, contentMode: .fit, isMirrored: true
+        ))
+        XCTAssertEqual(InteractionCoordinateMapper.map(
+            CGPoint(x: 100, y: 150), viewportSize: viewport,
+            resolvedMediaSize: media, contentMode: .fit, isMirrored: true
+        ), RealtimePoint(x: 0.75, y: 0.25))
+        XCTAssertNil(InteractionCoordinateMapper.map(
+            CGPoint(x: 10, y: 240), viewportSize: CGSize(width: 320, height: 480),
+            resolvedMediaSize: CGSize(width: 720, height: 1280), contentMode: .fit, isMirrored: true
+        ))
+    }
+
+    func testMirroredFillReversesXAfterAccountingForCrop() {
+        XCTAssertEqual(InteractionCoordinateMapper.map(
+            CGPoint(x: 0, y: 100), viewportSize: CGSize(width: 400, height: 400),
+            resolvedMediaSize: CGSize(width: 200, height: 100), contentMode: .fill, isMirrored: true
+        ), RealtimePoint(x: 0.75, y: 0.25))
+    }
+
+    func testMirroredEdgesAndOutOfRangePointsStayClamped() {
+        for (input, expected) in [
+            (CGPoint(x: 0, y: 0), RealtimePoint(x: 1, y: 0)),
+            (CGPoint(x: 200, y: 100), RealtimePoint(x: 0, y: 1)),
+            (CGPoint(x: -10, y: -10), RealtimePoint(x: 1, y: 0)),
+            (CGPoint(x: 250, y: 150), RealtimePoint(x: 0, y: 1)),
+        ] {
+            XCTAssertEqual(InteractionCoordinateMapper.map(
+                input, viewportSize: CGSize(width: 200, height: 100),
+                resolvedMediaSize: CGSize(width: 200, height: 100), contentMode: .fill, isMirrored: true
+            ), expected)
+        }
+    }
+
+    func testMirroringPreservesFractionalPrecisionAndY() throws {
+        let point = try XCTUnwrap(InteractionCoordinateMapper.map(
+            CGPoint(x: 0.431231 * 314, y: 0.56931 * 418),
+            viewportSize: CGSize(width: 314, height: 418),
+            resolvedMediaSize: CGSize(width: 1256, height: 1672), contentMode: .fit, isMirrored: true
+        ))
+        XCTAssertEqual(point.x, 0.568769, accuracy: 0.000000001)
+        XCTAssertEqual(point.y, 0.56931, accuracy: 0.000000001)
+    }
+
     func testNormalizedCoordinatesPreserveFractionalPrecision() throws {
         let point = try XCTUnwrap(InteractionCoordinateMapper.map(
             CGPoint(x: 0.431231 * 314, y: 0.56931 * 418),

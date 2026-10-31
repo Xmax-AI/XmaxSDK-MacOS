@@ -414,7 +414,7 @@ final class XmaxRealtimeGenerationManagerTests: XCTestCase {
         await components.roomController.leave()
     }
 
-    func testGenerationEnablesTracksAndStopDisablesThem() async throws {
+    func testGenerationSendsMirroredMediaTracksAndStopDisablesThem() async throws {
         let components = try await makeComponents()
         let startTask = Task {
             try await components.manager.start(
@@ -428,9 +428,10 @@ final class XmaxRealtimeGenerationManagerTests: XCTestCase {
             stream: remoteStream)
         let taskID = try await startTask.value
         let frame = InteractionFrame(
-            points: [CGPoint(x: 180, y: 320)],
+            points: [CGPoint(x: 72, y: 160)],
             viewportSize: CGSize(width: 360, height: 640),
-            contentMode: .fit
+            contentMode: .fit,
+            isMirrored: true
         )
 
         await components.interactionController.submitInteraction(frame)
@@ -444,7 +445,7 @@ final class XmaxRealtimeGenerationManagerTests: XCTestCase {
         XCTAssertEqual(tracksEvent["uid"] as? String, taskID)
         XCTAssertEqual(
             tracksEvent["tracks"] as? [[Double]],
-            [[0.5, 0.5]]
+            [[0.8, 0.25]]
         )
 
         try await components.manager.stop(taskID: taskID)

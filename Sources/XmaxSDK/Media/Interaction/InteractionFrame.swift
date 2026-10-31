@@ -21,6 +21,22 @@ struct InteractionFrame: Sendable {
 
     /// The view's video content mode.
     let contentMode: VideoContentMode
+
+    /// Whether the sampled viewport horizontally mirrors the media pixels.
+    let isMirrored: Bool
+
+    /// Captures the display geometry and mirroring used by these pointer samples.
+    init(
+        points: [CGPoint],
+        viewportSize: CGSize,
+        contentMode: VideoContentMode,
+        isMirrored: Bool = false
+    ) {
+        self.points = points
+        self.viewportSize = viewportSize
+        self.contentMode = contentMode
+        self.isMirrored = isMirrored
+    }
 }
 
 extension RealtimeVideoFormat {

@@ -50,7 +50,7 @@ public final class XmaxRealtimeDualVideoView: NSView {
         set { remoteVideoView.isInteractionEnabled = newValue }
     }
 
-    /// Mirrors the generated result; interaction coordinates follow the displayed pointer.
+    /// Mirrors the result and maps sent interactions back to unmirrored media coordinates.
     public var isMirrored: Bool {
         get { remoteVideoView.isMirrored }
         set { remoteVideoView.isMirrored = newValue }

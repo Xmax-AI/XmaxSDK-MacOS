@@ -49,7 +49,7 @@ public final class XmaxRealtimeVideoView: NSView {
         didSet { updateTrajectoryConfiguration() }
     }
 
-    /// Mirrors the video horizontally. Interaction coordinates still follow the displayed pointer.
+    /// Mirrors video horizontally and maps sent interactions back to unmirrored media coordinates.
     public var isMirrored = false {
         didSet {
             applyPreviewMirroring()
