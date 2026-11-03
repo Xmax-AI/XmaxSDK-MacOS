@@ -44,6 +44,9 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// The listener for room and remote stream events.
     private weak var eventListener: (any RtcEventListener)?
 
+    /// The room signaling receiver protected by the state lock.
+    private var roomMessageListener: (@Sendable (String, Data) -> Void)?
+
     /// The listener for RTC quality and media statistics.
     private weak var qualityListener: (any RtcQualityListener)?
 
@@ -622,6 +625,13 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
         stateLock.withLock { eventListener = listener }
     }
 
+    /// Replaces the signaling callback without requiring the main actor.
+    func setRoomMessageListener(
+        _ listener: (@Sendable (String, Data) -> Void)?
+    ) {
+        stateLock.withLock { roomMessageListener = listener }
+    }
+
     /// Sets the RTC network and media quality listener.
     ///
     /// - Parameter listener: The quality listener; `nil` clears it.
@@ -845,6 +855,11 @@ private extension RtcManager {
             switch event {
             case .joined:
                 finishJoin(context)
+            case .message(let userID, let data):
+                let callback = stateLock.withLock {
+                    activeRoom?.id == id ? roomMessageListener : nil
+                }
+                callback?(userID, data)
             case .publication(
                 let userID,
                 let published

@@ -169,7 +169,7 @@ final class RenderController: RenderControlling {
         await remoteFramePipeline.setRemoteVideoBeautyErrorListener(listener)
     }
 
-    /// Clears beauty settings after full media cleanup.
+    /// Restores beauty defaults after full media cleanup.
     func closeBeauty() async {
         await remoteFramePipeline.closeBeauty()
     }

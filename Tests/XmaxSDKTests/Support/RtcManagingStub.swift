@@ -77,6 +77,7 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     private var storedRemoteAudioFrameListener: RtcRemoteAudioFrameListener?
     private var nextAudioRemovalError: (any Error)?
     var flushHandler: (@Sendable () async throws -> Void)?
+    var commandSendHandler: (@Sendable () async throws -> Void)?
     var audioControlHandler: (@Sendable () -> Void)?
     var reportsCameraReadyOnStart = true
     var cameraStartHandler: (@Sendable () -> Void)?
@@ -96,6 +97,8 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     }
     private var cameraPreviewReadyListener: (@Sendable () -> Void)?
     private weak var storedEventListener: (any RtcEventListener)?
+
+    private var roomMessageListener: (@Sendable (String, Data) -> Void)?
     private weak var storedQualityListener: (any RtcQualityListener)?
     private var storedRemoteVideoFrameStream: RemoteStream?
     private var storedRemoteVideoFrameListener:
@@ -392,7 +395,8 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
                 throw sendRoomMessageError
             }
         }
-        return Task {}
+        let handler = commandSendHandler
+        return Task { try await handler?() }
     }
 
     func setSendRoomMessageError(_ error: (any Error)?) {
@@ -405,6 +409,18 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
         lock.withLock {
             storedEventListener = listener
         }
+    }
+
+    func setRoomMessageListener(_ listener: (@Sendable (String, Data) -> Void)?) {
+        lock.withLock { roomMessageListener = listener }
+    }
+
+    var currentRoomMessageListener: (@Sendable (String, Data) -> Void)? {
+        lock.withLock { roomMessageListener }
+    }
+
+    func emitRoomMessage(sender: String, message: String) {
+        currentRoomMessageListener?(sender, Data(message.utf8))
     }
 
     func discardPendingMessages(key: String?) { lock.withLock { storedDiscardedKeys.append(key) } }

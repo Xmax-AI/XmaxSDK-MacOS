@@ -339,16 +339,17 @@ final class StreamController: StreamControlling, RtcEventListener,
         timing.beginSignal(taskID: taskID)
         let confirmation = try beginGenerationConfirmation(taskID: taskID)
         do {
-            try await roomController.startGeneration(
-                taskID: taskID,
-                videoFormat: videoFormat,
-                targetSize: targetSize,
-                context: context,
-                faceRestoration: faceRestoration,
-                paddingContain: paddingContain
-            )
             try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { try await self.rtcManager.awaitPendingMessages() }
+                group.addTask {
+                    try await self.roomController.startGeneration(
+                        taskID: taskID,
+                        videoFormat: videoFormat,
+                        targetSize: targetSize,
+                        context: context,
+                        faceRestoration: faceRestoration,
+                        paddingContain: paddingContain
+                    )
+                }
                 group.addTask {
                     try await Task.sleep(nanoseconds: self.generationTiming.timeoutNanoseconds)
                     throw XmaxError(
@@ -721,6 +722,8 @@ final class StreamController: StreamControlling, RtcEventListener,
         guard let result else {
             return ""
         }
+
+        await roomController.cancelGenerationCommands(taskID: result.taskID)
 
         reject(
             result.waiter,

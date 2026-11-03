@@ -180,6 +180,25 @@ final class RealtimeSessionServiceTests: XCTestCase {
         )
     }
 
+    func testFirstHeartbeatIsImmediateAndOnlyItIncludesStartupGrace() async throws {
+        let response = Data(#"{"sessionUid":"session-5","status":"ACTIVE"}"#.utf8)
+        let api = RealtimeApiServiceStub(responses: [.success(response), .success(response)])
+        let sleeper = ManualRealtimeHeartbeatSleeper()
+        let service = RealtimeSessionService(apiService: api, heartbeatSleeper: sleeper.sleeper)
+        service.startHeartbeat(sessionID: "session-5", firstHeartbeatGraceSeconds: 9) { _, _ in
+            XCTFail("Valid heartbeats must keep the connection")
+        }
+        await waitForRequest(api)
+        let body = try XCTUnwrap(api.requests.first?.body)
+        let fields = try JSONSerialization.jsonObject(with: body) as? [String: Int]
+        XCTAssertEqual(fields, ["firstHeartbeatGraceSeconds": 9])
+        XCTAssertEqual(api.requests.count, 1)
+        sleeper.resume()
+        await waitForRequest(api, count: 2)
+        XCTAssertNil(api.requests[1].body)
+        service.stopHeartbeat()
+    }
+
     func testHeartbeatReportsInactiveSessionAndStopsCycle() async {
         let apiService = RealtimeApiServiceStub(
             responses: [
@@ -203,7 +222,7 @@ final class RealtimeSessionServiceTests: XCTestCase {
         )
         let failure = expectation(description: "heartbeat failure")
 
-        service.startHeartbeat(sessionID: "session-5") { sessionID, error in
+        service.startHeartbeat(sessionID: "session-5", firstHeartbeatGraceSeconds: 0) { sessionID, error in
             XCTAssertEqual(sessionID, "session-5")
             XCTAssertEqual(
                 error,
@@ -214,7 +233,6 @@ final class RealtimeSessionServiceTests: XCTestCase {
             )
             failure.fulfill()
         }
-        manualSleeper.resume()
 
         await fulfillment(of: [failure], timeout: 1)
         XCTAssertEqual(apiService.requests.count, 1)
@@ -238,10 +256,9 @@ final class RealtimeSessionServiceTests: XCTestCase {
         let failure = expectation(description: "stale failure ignored")
         failure.isInverted = true
 
-        service.startHeartbeat(sessionID: "session-6") { _, _ in
+        service.startHeartbeat(sessionID: "session-6", firstHeartbeatGraceSeconds: 0) { _, _ in
             failure.fulfill()
         }
-        manualSleeper.resume()
         await waitForRequest(apiService)
 
         service.stopHeartbeat()
@@ -257,11 +274,11 @@ final class RealtimeSessionServiceTests: XCTestCase {
 }
 
 private extension RealtimeSessionServiceTests {
-    func waitForRequest(_ apiService: RealtimeApiServiceStub) async {
-        for _ in 0..<1_000 where apiService.requests.isEmpty {
+    func waitForRequest(_ apiService: RealtimeApiServiceStub, count: Int = 1) async {
+        for _ in 0..<1_000 where apiService.requests.count < count {
             await Task.yield()
         }
-        XCTAssertFalse(apiService.requests.isEmpty)
+        XCTAssertGreaterThanOrEqual(apiService.requests.count, count)
     }
 }
 

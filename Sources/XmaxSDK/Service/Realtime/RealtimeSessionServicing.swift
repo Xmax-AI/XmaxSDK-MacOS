@@ -22,13 +22,15 @@ protocol RealtimeSessionServicing: Sendable {
         model: RealtimeModel
     ) async throws -> RealtimeSession
 
-    /// Starts periodic heartbeats for the specified session, replacing the previous heartbeat task.
+    /// Sends an immediate first heartbeat, then repeats periodically, replacing the previous task.
     ///
     /// - Parameters:
     ///   - sessionID: The session identifier to keep alive.
+    ///   - firstHeartbeatGraceSeconds: The connection-to-generating time, rounded up to seconds.
     ///   - onFailure: The callback receiving session identity and error on heartbeat failure.
     func startHeartbeat(
         sessionID: String,
+        firstHeartbeatGraceSeconds: Int,
         onFailure: @escaping RealtimeSessionHeartbeatFailureHandler
     )
 

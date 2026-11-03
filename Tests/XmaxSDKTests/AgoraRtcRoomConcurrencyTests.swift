@@ -5,6 +5,27 @@ import XCTest
 @testable import XmaxSDK
 
 final class AgoraRtcRoomConcurrencyTests: XCTestCase, @unchecked Sendable {
+    func testIncomingDataStreamResolvesSenderAccountAndIgnoresDestroyedRoom() async throws {
+        let (room, engine) = try await joinedRoom()
+        let delivered = expectation(description: "Room signaling delivered")
+        room.setEventListener { event in
+            guard case .message(let sender, let data) = event else { return }
+            XCTAssertEqual(sender, "bot")
+            XCTAssertEqual(data, Data("ack".utf8))
+            delivered.fulfill()
+        }
+        let delegate = try XCTUnwrap(engine.roomDelegate)
+        delegate.rtcEngine?(engine.vendor, receiveStreamMessageFromUid: 42, streamId: 1, data: Data("ack".utf8))
+        await fulfillment(of: [delivered], timeout: 2)
+
+        let unexpected = expectation(description: "Destroyed room must ignore signaling")
+        unexpected.isInverted = true
+        room.setEventListener { _ in unexpected.fulfill() }
+        room.destroy()
+        delegate.rtcEngine?(engine.vendor, receiveStreamMessageFromUid: 42, streamId: 1, data: Data("late".utf8))
+        await fulfillment(of: [unexpected], timeout: 0.1)
+    }
+
     func testJoinDoesNotRegisterObserverUntilRemoteFramesAreRequested() async throws {
         let (room, engine) = try await joinedRoom()
         defer { room.destroy() }

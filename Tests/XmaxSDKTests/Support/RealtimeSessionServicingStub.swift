@@ -14,7 +14,7 @@ import Foundation
 
 enum RealtimeSessionServicingCall: Equatable {
     case createSession(RealtimeModel)
-    case startHeartbeat(String)
+    case startHeartbeat(String, firstHeartbeatGraceSeconds: Int)
     case stopHeartbeat
     case closeSession(String)
 }
@@ -27,6 +27,7 @@ final class RealtimeSessionServicingStub: RealtimeSessionServicing,
     private let createError: (any Error)?
     private let closeError: (any Error)?
     private let createHandler: (@Sendable () async throws -> Void)?
+    private let closeHandler: (@Sendable () async throws -> Void)?
 
     /// Concurrent state
     private let lock = NSLock()
@@ -38,12 +39,14 @@ final class RealtimeSessionServicingStub: RealtimeSessionServicing,
         session: RealtimeSession,
         createError: (any Error)? = nil,
         closeError: (any Error)? = nil,
-        createHandler: (@Sendable () async throws -> Void)? = nil
+        createHandler: (@Sendable () async throws -> Void)? = nil,
+        closeHandler: (@Sendable () async throws -> Void)? = nil
     ) {
         self.session = session
         self.createError = createError
         self.closeError = closeError
         self.createHandler = createHandler
+        self.closeHandler = closeHandler
     }
 
     var calls: [RealtimeSessionServicingCall] {
@@ -64,10 +67,11 @@ final class RealtimeSessionServicingStub: RealtimeSessionServicing,
 
     func startHeartbeat(
         sessionID: String,
+        firstHeartbeatGraceSeconds: Int,
         onFailure: @escaping RealtimeSessionHeartbeatFailureHandler
     ) {
         lock.withLock {
-            storedCalls.append(.startHeartbeat(sessionID))
+            storedCalls.append(.startHeartbeat(sessionID, firstHeartbeatGraceSeconds: firstHeartbeatGraceSeconds))
             heartbeatFailureHandler = onFailure
         }
     }
@@ -86,6 +90,7 @@ final class RealtimeSessionServicingStub: RealtimeSessionServicing,
                 throw closeError
             }
         }
+        try await closeHandler?()
     }
 
     func failHeartbeat(

@@ -26,7 +26,8 @@ public enum RealtimeConnectionState: String, CaseIterable, Sendable {
     /// Realtime is connected with no generation task.
     case connected = "Connected"
 
-    /// Realtime is connected and generation is running.
+    /// Generation is confirmed and its first processed remote frame is available for output.
+    /// View attachment and fade-in completion are not required.
     case generating = "Generating"
 
     /// Cleaning up generation, room, and session resources.

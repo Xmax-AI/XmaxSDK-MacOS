@@ -77,13 +77,15 @@ final class RealtimeSessionService: RealtimeSessionServicing, @unchecked Sendabl
         }
     }
 
-    /// Starts periodic heartbeats for the specified session, replacing the previous heartbeat task.
+    /// Sends an immediate first heartbeat, then repeats periodically, replacing the previous task.
     ///
     /// - Parameters:
     ///   - sessionID: The session identifier to keep alive.
+    ///   - firstHeartbeatGraceSeconds: The connection-to-generating time sent only with the first request.
     ///   - onFailure: The callback receiving session identity and error on heartbeat failure.
     func startHeartbeat(
         sessionID: String,
+        firstHeartbeatGraceSeconds: Int,
         onFailure: @escaping RealtimeSessionHeartbeatFailureHandler
     ) {
         heartbeatLock.withLock {
@@ -96,6 +98,7 @@ final class RealtimeSessionService: RealtimeSessionServicing, @unchecked Sendabl
                 versionState: heartbeatVersion,
                 version: version,
                 sessionID: sessionID,
+                firstHeartbeatGraceSeconds: firstHeartbeatGraceSeconds,
                 onFailure: onFailure
             )
             heartbeatTask = Task {
@@ -144,6 +147,13 @@ private extension RealtimeSessionService {
     /// Receives successful responses without business fields.
     struct EmptyResponse: Decodable, Sendable {}
 
+    /// The startup duration reported only by the first session heartbeat.
+    struct HeartbeatRequest: Encodable, Sendable {
+
+        /// The connection-to-generating duration rounded up to whole seconds.
+        let firstHeartbeatGraceSeconds: Int
+    }
+
     /// Stores the service, session, and validity information for one heartbeat loop.
     struct HeartbeatContext: Sendable {
 
@@ -161,6 +171,9 @@ private extension RealtimeSessionService {
 
         /// The session kept alive by this heartbeat.
         let sessionID: String
+
+        /// The startup duration included in the immediate first heartbeat.
+        let firstHeartbeatGraceSeconds: Int
 
         /// The session heartbeat failure handler.
         let onFailure: RealtimeSessionHeartbeatFailureHandler
@@ -341,9 +354,12 @@ private extension RealtimeSessionService {
     static func runHeartbeat(
         _ context: HeartbeatContext
     ) async {
+        var firstHeartbeatGraceSeconds: Int? = context.firstHeartbeatGraceSeconds
         while context.versionState.isCurrent(context.version) {
             do {
-                try await context.sleeper.sleep()
+                if firstHeartbeatGraceSeconds == nil {
+                    try await context.sleeper.sleep()
+                }
                 try Task.checkCancellation()
                 guard context.versionState.isCurrent(context.version) else {
                     return
@@ -351,8 +367,10 @@ private extension RealtimeSessionService {
 
                 let session = try await heartbeatSession(
                     sessionID: context.sessionID,
+                    firstHeartbeatGraceSeconds: firstHeartbeatGraceSeconds,
                     apiService: context.apiService
                 )
+                firstHeartbeatGraceSeconds = nil
                 guard context.versionState.isCurrent(context.version) else {
                     return
                 }
@@ -374,6 +392,7 @@ private extension RealtimeSessionService {
     ///
     /// - Parameters:
     ///   - sessionID: The session identifier to keep alive.
+    ///   - firstHeartbeatGraceSeconds: The first request's startup duration; nil omits its body.
     ///   - apiService: The API service sending heartbeat requests.
     ///
     /// - Returns: The latest session state from the server.
@@ -381,12 +400,22 @@ private extension RealtimeSessionService {
     /// - Throws: An error on request failure, invalid response, or cancellation.
     static func heartbeatSession(
         sessionID: String,
+        firstHeartbeatGraceSeconds: Int?,
         apiService: any ApiServicing
     ) async throws -> RealtimeSession {
-        let payload = try await apiService.put(
-            "/session/\(sessionID)/heartbeat",
-            as: SessionPayload.self
-        )
+        let payload: SessionPayload
+        if let firstHeartbeatGraceSeconds {
+            payload = try await apiService.put(
+                "/session/\(sessionID)/heartbeat",
+                body: HeartbeatRequest(firstHeartbeatGraceSeconds: firstHeartbeatGraceSeconds),
+                as: SessionPayload.self
+            )
+        } else {
+            payload = try await apiService.put(
+                "/session/\(sessionID)/heartbeat",
+                as: SessionPayload.self
+            )
+        }
         return try makeSession(
             from: payload,
             requiresConnection: false

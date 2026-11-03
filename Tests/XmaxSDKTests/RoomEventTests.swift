@@ -13,6 +13,29 @@ import XCTest
 @testable import XmaxSDK
 
 final class RoomEventTests: XCTestCase {
+    func testAcknowledgedCommandsEncodeXidOnlyAtMessageRoot() throws {
+        let format = RealtimeVideoFormat(width: 720, height: 1280, fps: 24)
+        let context = RealtimeContext(prompt: "test")
+        let messages = try [
+            RoomEvent.start(userID: "user", taskID: "task", videoFormat: format, context: context, xid: "start-id"),
+            RoomEvent.changeCondition(userID: "user", taskID: "task", videoFormat: format, context: context, xid: "condition-id"),
+            RoomEvent.changeTargetSize(userID: "user", taskID: "task", targetSize: CGSize(width: 720, height: 1280), xid: "size-id")
+        ]
+        for (message, xid) in zip(messages, ["start-id", "condition-id", "size-id"]) {
+            let event = try decode(message)
+            XCTAssertEqual(event["xid"] as? String, xid)
+            XCTAssertEqual(event["session_uid"] as? String, "task")
+            XCTAssertNil((event["params"] as? [String: Any])?["xid"])
+        }
+        for message in try [
+            RoomEvent.start(userID: "user", taskID: "task", videoFormat: format, context: context),
+            RoomEvent.stop(userID: "user", taskID: "task"),
+            RoomEvent.heartbeat(userID: "user")
+        ] {
+            XCTAssertNil(try decode(message)["xid"])
+        }
+    }
+
     func testContainCanvasAndReturnBudgetAreIndependent() throws {
         let canvas = RealtimeVideoFormat(width: 1024, height: 1920, fps: 30)
         let target = CGSize(width: 864, height: 1536)

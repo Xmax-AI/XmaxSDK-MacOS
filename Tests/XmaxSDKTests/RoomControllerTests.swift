@@ -315,3 +315,102 @@ private extension RtcManagingStub {
         }
     }
 }
+
+extension RoomControllerTests {
+    func testAckFiltersSenderRecipientAndOldRoomBeforeStoppingRetries() async throws {
+        let clock = CommandTestClock()
+        let rtc = RtcManagingStub()
+        let controller = RoomController(rtcManager: rtc, commandSleep: clock.sleep)
+        try await controller.join(connection: connection, ensureActive: {})
+        try await controller.startGeneration(
+            taskID: "task", videoFormat: RealtimeVideoFormat(width: 720, height: 1280, fps: 24),
+            context: RealtimeContext(prompt: "test")
+        )
+        await eventually { clock.waiterCount == 6 }
+        let event = try decode(XCTUnwrap(rtc.controllerMessages.first))
+        let xid = try XCTUnwrap(event["xid"] as? String)
+        for (sender, recipient, count) in [
+            ("intruder", "user-id", "1"), ("user-id", "user-id", "1"),
+            ("bot-user", "other-user", "1"), ("bot-user", "user-id", "0")
+        ] {
+            rtc.emitRoomMessage(sender: sender, message: "{\"event\":\"xid_ack\",\"xid\":\"\(xid)\",\"user_id\":\"\(recipient)\",\"count\":\(count)}")
+        }
+        clock.advance(to: 300_000_000)
+        await eventually { rtc.controllerMessages.count == 2 }
+        rtc.emitRoomMessage(sender: "bot-user", message: "{\"event\":\"xid_ack\",\"xid\":\"\(xid)\",\"count\":1}")
+        await eventually { clock.waiterCount == 0 }
+        let oldCallback = try XCTUnwrap(rtc.currentRoomMessageListener)
+        await controller.leave()
+        XCTAssertNil(rtc.currentRoomMessageListener)
+        try await controller.join(connection: connection, ensureActive: {})
+        try await controller.startGeneration(
+            taskID: "task2", videoFormat: RealtimeVideoFormat(width: 720, height: 1280, fps: 24),
+            context: RealtimeContext(prompt: "test")
+        )
+        await eventually { clock.waiterCount == 6 }
+        let latest = try decode(XCTUnwrap(rtc.controllerMessages.last))
+        let latestXid = try XCTUnwrap(latest["xid"] as? String)
+        // An old room callback must not acknowledge even the new command's identifier.
+        oldCallback("bot-user", Data("{\"event\":\"xid_ack\",\"xid\":\"\(latestXid)\",\"count\":1}".utf8))
+        rtc.emitRoomMessage(sender: "bot-user", message: "{\"event\":\"xid_ack\",\"xid\":\"\(xid)\",\"count\":1}")
+        clock.advance(to: 600_000_000)
+        await eventually { rtc.controllerMessages.count == 4 }
+        await controller.leave()
+        await eventually { clock.waiterCount == 0 }
+    }
+
+    func testFragmentedAckAndGenerationStopCancelRetries() async throws {
+        let clock = CommandTestClock()
+        let rtc = RtcManagingStub()
+        let controller = RoomController(rtcManager: rtc, commandSleep: clock.sleep)
+        try await controller.join(connection: connection, ensureActive: {})
+        let format = RealtimeVideoFormat(width: 720, height: 1280, fps: 24)
+        try await controller.startGeneration(taskID: "task", videoFormat: format, context: RealtimeContext(prompt: "test"))
+        await eventually { clock.waiterCount == 6 }
+        let event = try decode(XCTUnwrap(rtc.controllerMessages.first))
+        let xid = try XCTUnwrap(event["xid"] as? String)
+        let ack = "{\"event\":\"xid_ack\",\"xid\":\"\(xid)\",\"user_id\":\"user-id\",\"count\":1,\"unused\":\"\(String(repeating: "x", count: 1800))\"}"
+        let fragments = try RtcMessageCodec.encode(ack)
+        XCTAssertGreaterThan(fragments.count, 1)
+        for data in fragments.reversed() {
+            rtc.emitRoomMessage(sender: "bot-user", message: String(decoding: data, as: UTF8.self))
+        }
+        await eventually { clock.waiterCount == 0 }
+        try await controller.changeGenerationCondition(taskID: "task", videoFormat: format, context: RealtimeContext(prompt: "new"))
+        await eventually { clock.waiterCount == 6 }
+        try await controller.stopGeneration(taskID: "task")
+        await eventually { clock.waiterCount == 0 }
+        clock.advance(to: 10_000_000_000)
+        XCTAssertEqual(try rtc.controllerMessages.map(decode).compactMap { $0["event"] as? String }, ["start", "change_condition", "stop"])
+        await controller.leave()
+    }
+
+    func testUnspecifiedBotAcceptsRemoteAcknowledgment() async throws {
+        for botName: String? in [nil, "", " \n "] {
+            let clock = CommandTestClock()
+            let rtc = RtcManagingStub()
+            let controller = RoomController(rtcManager: rtc, commandSleep: clock.sleep)
+            try await controller.join(connection: RealtimeSessionConnection(
+                roomID: "room-id", userID: "user-id", token: "token", botName: botName
+            ), ensureActive: {})
+            try await controller.startGeneration(
+                taskID: "task", videoFormat: RealtimeVideoFormat(width: 720, height: 1280, fps: 24),
+                context: RealtimeContext(prompt: "test")
+            )
+            await eventually { clock.waiterCount == 6 }
+            let event = try decode(XCTUnwrap(rtc.controllerMessages.first))
+            let xid = try XCTUnwrap(event["xid"] as? String)
+            rtc.emitRoomMessage(sender: "bot-user", message: "{\"event\":\"xid_ack\",\"xid\":\"\(xid)\",\"count\":1}")
+            await eventually { clock.waiterCount == 0 }
+            await controller.leave()
+        }
+    }
+
+    private func eventually(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<1000 {
+            if condition() { return }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertTrue(condition(), file: file, line: line)
+    }
+}

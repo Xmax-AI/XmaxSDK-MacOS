@@ -16,6 +16,9 @@ enum RtcRoomEvent: Sendable {
     /// The RTC room connection succeeded.
     case joined
 
+    /// A remote account sent room signaling bytes.
+    case message(userID: String, data: Data)
+
     /// A remote user's video publication changed.
     case publication(userID: String, published: Bool)
 

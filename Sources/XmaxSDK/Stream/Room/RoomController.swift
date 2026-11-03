@@ -28,16 +28,40 @@ actor RoomController: RoomControlling {
     /// The shared pending room leave operation.
     private var leaveOperation: LeaveOperation?
 
+    /// Handles logical retries independently of the RTC packet queue.
+    private var commands: RoomCommandController
+
+    /// The retry clock retained when a new room gets a fresh scheduler.
+    private let commandSleep: @Sendable (UInt64) async throws -> Void
+
+    /// Decodes receipts and provider fragments on the room actor.
+    private var decoder = RoomMessageDecoder()
+
+    /// Rejects messages captured before a leave or reconnect boundary.
+    private var roomOperationID: UUID?
+
+    /// The expected service sender assigned by the session.
+    private var botID: String?
+
     /// Creates a room controller with the default heartbeat component.
     ///
     /// - Parameters:
     ///   - rtcManager: The underlying RTC manager.
     ///   - timing: The shared realtime startup timing recorder.
+    ///   - commandSleep: The background retry sleeper, with delays in nanoseconds.
     init(
         rtcManager: any RtcManaging,
-        timing: RealtimeTiming = RealtimeTiming()
+        timing: RealtimeTiming = RealtimeTiming(),
+        commandSleep: @escaping @Sendable (UInt64) async throws -> Void = {
+            try await Task.sleep(nanoseconds: $0)
+        }
     ) {
         self.rtcManager = rtcManager
+        self.commandSleep = commandSleep
+        commands = Self.makeCommands(
+            rtcManager: rtcManager,
+            sleep: commandSleep
+        )
         heartbeat = RoomHeartbeat(rtcManager: rtcManager)
         self.timing = timing
     }
@@ -46,9 +70,17 @@ actor RoomController: RoomControlling {
     init(
         rtcManager: any RtcManaging,
         heartbeat: RoomHeartbeat,
-        timing: RealtimeTiming = RealtimeTiming()
+        timing: RealtimeTiming = RealtimeTiming(),
+        commandSleep: @escaping @Sendable (UInt64) async throws -> Void = {
+            try await Task.sleep(nanoseconds: $0)
+        }
     ) {
         self.rtcManager = rtcManager
+        self.commandSleep = commandSleep
+        commands = Self.makeCommands(
+            rtcManager: rtcManager,
+            sleep: commandSleep
+        )
         self.heartbeat = heartbeat
         self.timing = timing
     }
@@ -77,6 +109,10 @@ actor RoomController: RoomControlling {
         }
 
         let operationID = UUID()
+        commands = Self.makeCommands(
+            rtcManager: rtcManager,
+            sleep: commandSleep
+        )
         state = .joining(id: operationID)
         heartbeat.stop()
 
@@ -102,6 +138,18 @@ actor RoomController: RoomControlling {
             }
 
             state = .joined(userID: connection.userID)
+            roomOperationID = operationID
+            let expectedBotID = connection.botName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            botID = expectedBotID?.isEmpty == false ? expectedBotID : nil
+            rtcManager.setRoomMessageListener { [weak self] sender, data in
+                Task {
+                    await self?.handleIncomingMessage(
+                        sender: sender,
+                        data: data,
+                        operationID: operationID
+                    )
+                }
+            }
             heartbeat.start(userID: connection.userID)
         } catch {
             if case .joining(let currentID) = state,
@@ -143,7 +191,7 @@ actor RoomController: RoomControlling {
         await task.value
     }
 
-    /// Enqueues a generation start signal.
+    /// Sends a generation start command and schedules receipt retries in the background.
     ///
     /// - Parameters:
     ///   - taskID: The generation task identifier.
@@ -161,22 +209,28 @@ actor RoomController: RoomControlling {
         context: RealtimeContext,
         faceRestoration: Bool = false,
         paddingContain: Bool = false
-    ) throws {
-        try send(
-            RoomEvent.start(
-                userID: try requireUserID(),
-                taskID: taskID,
-                videoFormat: videoFormat,
-                targetSize: targetSize,
-                context: context,
-                faceRestoration: faceRestoration,
-                paddingContain: paddingContain
-            ),
-            discardPending: true
+    ) async throws {
+        let userID = try requireUserID()
+        let sending = try await commands.send(
+            kind: .start,
+            taskID: taskID,
+            createMessage: { xid in
+                try RoomEvent.start(
+                    userID: userID,
+                    taskID: taskID,
+                    videoFormat: videoFormat,
+                    targetSize: targetSize,
+                    context: context,
+                    faceRestoration: faceRestoration,
+                    paddingContain: paddingContain,
+                    xid: xid
+                )
+            }
         )
+        try await waitForCommand(sending)
     }
 
-    /// Enqueues a generation condition update.
+    /// Sends a generation condition update and replaces older condition retries for its task.
     ///
     /// - Parameters:
     ///   - taskID: The generation task identifier.
@@ -195,20 +249,26 @@ actor RoomController: RoomControlling {
         context: RealtimeContext,
         faceRestoration: Bool = false,
         paddingContain: Bool = false
-    ) throws {
+    ) async throws {
         try Task.checkCancellation()
-        try send(
-            RoomEvent.changeCondition(
-                userID: try requireUserID(),
-                taskID: taskID,
-                videoFormat: videoFormat,
-                targetSize: targetSize,
-                context: context,
-                faceRestoration: faceRestoration,
-                paddingContain: paddingContain
-            ),
-            discardPending: true
+        let userID = try requireUserID()
+        let sending = try await commands.send(
+            kind: .changeCondition,
+            taskID: taskID,
+            createMessage: { xid in
+                try RoomEvent.changeCondition(
+                    userID: userID,
+                    taskID: taskID,
+                    videoFormat: videoFormat,
+                    targetSize: targetSize,
+                    context: context,
+                    faceRestoration: faceRestoration,
+                    paddingContain: paddingContain,
+                    xid: xid
+                )
+            }
         )
+        try await waitForCommand(sending)
     }
 
     /// Adjusts return dimensions for the current generation task.
@@ -222,18 +282,24 @@ actor RoomController: RoomControlling {
     func changeTargetSize(
         taskID: String,
         targetSize: CGSize,
-        ensureActive: @Sendable () throws -> Void
+        ensureActive: @escaping @Sendable () throws -> Void
     ) async throws {
         try ensureActive()
-        let sending = try send(
-            RoomEvent.changeTargetSize(
-                userID: try requireUserID(),
-                taskID: taskID,
-                targetSize: targetSize
-            ),
-            reportFailure: false
+        let userID = try requireUserID()
+        let sending = try await commands.send(
+            kind: .changeTargetSize,
+            taskID: taskID,
+            createMessage: { xid in
+                try RoomEvent.changeTargetSize(
+                    userID: userID,
+                    taskID: taskID,
+                    targetSize: targetSize,
+                    xid: xid
+                )
+            },
+            ensureCurrent: ensureActive
         )
-        try await RtcMessageQueue.waitForCompletion(of: sending)
+        try await waitForCommand(sending)
     }
 
     /// Enqueues a stop signal if the room and task are active.
@@ -243,7 +309,8 @@ actor RoomController: RoomControlling {
     /// - Throws: An error if stop signaling cannot be encoded or enqueued.
     func stopGeneration(
         taskID: String
-    ) throws {
+    ) async throws {
+        await cancelGenerationCommands(taskID: taskID)
         guard !taskID.isEmpty,
             case .joined(let userID) = state
         else {
@@ -284,9 +351,70 @@ actor RoomController: RoomControlling {
             replacingPendingMessage: "tracks:\(taskID)"
         )
     }
+
+    /// Cancels old command attempts before media cleanup can suspend.
+    func cancelGenerationCommands(
+        taskID: String
+    ) async {
+        await commands.cancel(taskID: taskID.isEmpty ? nil : taskID)
+    }
+
+    /// Accepts only current-room receipts from the expected generation user.
+    private func handleIncomingMessage(
+        sender: String,
+        data: Data,
+        operationID: UUID
+    ) async {
+        guard roomOperationID == operationID, case .joined(let userID) = state,
+            sender != userID, botID == nil || sender == botID,
+            let message = decoder.decode(sender: sender, data: data),
+            message.targetUserID == nil || message.targetUserID == userID,
+            message.event == "xid_ack", let xid = message.xid, let count = message.count
+        else {
+            return
+        }
+        await commands.acknowledge(
+            xid: xid,
+            count: count
+        )
+    }
+
+    /// Forwards caller cancellation to unsent fragments and scheduled retries.
+    private func waitForCommand(
+        _ sending: Task<Void, any Error>
+    ) async throws {
+        do {
+            try await withTaskCancellationHandler {
+                try await RtcMessageQueue.waitForCompletion(of: sending)
+            } onCancel: {
+                sending.cancel()
+            }
+        } catch is CancellationError {
+            throw XmaxError(code: .cancelled, message: "RTC command was cancelled")
+        }
+    }
 }
 
 private extension RoomController {
+
+    /// Creates independent command state for each joined room lifetime.
+    static func makeCommands(
+        rtcManager: any RtcManaging,
+        sleep: @escaping @Sendable (UInt64) async throws -> Void
+    ) -> RoomCommandController {
+        RoomCommandController(
+            sendMessage: { message in
+                XmaxLogger.room.debug(message: Self.formatSignalLog(message))
+                rtcManager.discardPendingMessages(key: nil)
+                return try rtcManager.sendRoomMessage(
+                    message,
+                    reportFailure: false,
+                    replacingPendingMessage: nil
+                )
+            },
+            sleep: sleep
+        )
+    }
 
     /// The room connection and departure lifecycle phase.
     enum State {
@@ -331,6 +459,11 @@ private extension RoomController {
         operationID: UUID
     ) async {
         state = .idle
+        roomOperationID = nil
+        botID = nil
+        rtcManager.setRoomMessageListener(nil)
+        decoder.reset()
+        await commands.close()
         heartbeat.stop()
         await rtcManager.leaveRoom()
 
@@ -372,7 +505,7 @@ private extension RoomController {
         }
 
         XmaxLogger.room.debug(
-            message: formatSignalLog(message)
+            message: Self.formatSignalLog(message)
         )
         return sending
     }
@@ -382,7 +515,7 @@ private extension RoomController {
     /// - Parameter message: The original room signal text.
     ///
     /// - Returns: The event type and JSON body log; preserves the original text if parsing fails.
-    func formatSignalLog(
+    static func formatSignalLog(
         _ message: String
     ) -> String {
         guard let data = message.data(using: .utf8),

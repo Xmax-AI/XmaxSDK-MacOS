@@ -101,8 +101,9 @@ public protocol XmaxRealtimeManaging: Sendable {
 
     /// Sets beauty on generated result frames shared by preview and `setRemoteMediaFrameListener`.
     ///
-    /// Pass nil to disable. Can be configured before connection or changed during generation.
-    /// Options survive result replacement and reconnection, and reset on `close()`.
+    /// Enabled by default with all strengths at zero. Pass nil to disable.
+    /// Can be configured before connection or changed during generation. Options survive result
+    /// replacement and reconnection; `close()` restores the enabled, zero-strength defaults.
     /// Runtime failures automatically disable beauty, retain generation, and notify the independent listener.
     ///
     /// - Parameter options: Finite strengths in `0...1`, or nil for unchanged result pixels.

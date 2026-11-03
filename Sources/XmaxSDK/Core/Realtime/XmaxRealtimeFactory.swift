@@ -172,7 +172,12 @@ enum XmaxRealtimeFactory {
                     generationManager: generationManager
                 )
             },
-            stopLocalCapture: { await mediaController.stopLocalCapture() }
+            stopLocalCapture: { await mediaController.stopLocalCapture() },
+            onStateChanged: { state in
+                if state.connectionState == .generating, let sessionID = state.sessionID {
+                    await connectionManager.startHeartbeat(sessionID: sessionID)
+                }
+            }
         )
         errorManager.setFailureHandler { [weak lifecycleManager] error, target, isCurrent in
             await lifecycleManager?.terminate(

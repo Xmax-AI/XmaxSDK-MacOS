@@ -138,6 +138,9 @@ actor XmaxRealtimeLifecycleManager {
     /// The listener for connection and generation state changes.
     private var stateListener: RealtimeStateListener?
 
+    /// Handles normal state commits independently of the application's listener.
+    private let onStateChanged: @Sendable (RealtimeState) async -> Void
+
     /// The operation currently admitted by the lifecycle manager.
     private var activeOperation: Operation?
 
@@ -156,14 +159,17 @@ actor XmaxRealtimeLifecycleManager {
     ///   - errorManager: The handler that logs errors and forwards runtime failures.
     ///   - cleanup: The callback that releases resources in the specified scope.
     ///   - stopLocalCapture: Releases SDK-owned capture immediately on full termination, before waiting for operations.
+    ///   - onStateChanged: Observes normal state commits; cleanup owns its final notifications.
     init(
         errorManager: XmaxRealtimeErrorManager,
         cleanup: @escaping CleanupHandler,
-        stopLocalCapture: @escaping @Sendable () async -> Void = {}
+        stopLocalCapture: @escaping @Sendable () async -> Void = {},
+        onStateChanged: @escaping @Sendable (RealtimeState) async -> Void = { _ in }
     ) {
         self.errorManager = errorManager
         self.cleanup = cleanup
         self.stopLocalCapture = stopLocalCapture
+        self.onStateChanged = onStateChanged
     }
 
     /// The currently published realtime state.
@@ -1002,6 +1008,8 @@ private extension XmaxRealtimeLifecycleManager {
             return
         }
         state = nextState
+        await onStateChanged(nextState)
+        guard state == nextState else { return }
         if let stateListener {
             await stateListener(nextState)
         }

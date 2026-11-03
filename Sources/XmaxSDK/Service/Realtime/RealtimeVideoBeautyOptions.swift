@@ -12,24 +12,24 @@
 /// All strengths must be finite values in `0...1`. Camera input and upstream publication are unchanged.
 public struct RealtimeVideoBeautyOptions: Equatable, Sendable {
 
-    /// Skin smoothing strength, defaulting to 0.3.
+    /// Skin smoothing strength, defaulting to 0.
     public var smoothness: Float
 
-    /// Skin lightening strength, defaulting to 0.2.
+    /// Skin lightening strength, defaulting to 0.
     public var lightening: Float
 
-    /// Sharpening strength, defaulting to 0.2.
+    /// Sharpening strength, defaulting to 0.
     public var sharpness: Float
 
-    /// Skin redness strength, defaulting to 0.1.
+    /// Skin redness strength, defaulting to 0.
     public var redness: Float
 
     /// Creates result beauty options. Validation occurs when the options are applied.
     public init(
-        smoothness: Float = 0.3,
-        lightening: Float = 0.2,
-        sharpness: Float = 0.2,
-        redness: Float = 0.1
+        smoothness: Float = 0,
+        lightening: Float = 0,
+        sharpness: Float = 0,
+        redness: Float = 0
     ) {
         self.smoothness = smoothness
         self.lightening = lightening

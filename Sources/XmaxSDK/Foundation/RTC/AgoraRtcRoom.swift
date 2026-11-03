@@ -478,6 +478,10 @@ private extension AgoraRtcRoom {
             case .userJoined(let uid):
                 resolveAccount(uid: uid)
                 return publicationEvents(uid: uid)
+            case .message(let uid, let data):
+                resolveAccount(uid: uid)
+                guard let account = accounts[uid] else { return [] }
+                return [.message(userID: account, data: data)]
             case .publication(
                 let uid,
                 let published

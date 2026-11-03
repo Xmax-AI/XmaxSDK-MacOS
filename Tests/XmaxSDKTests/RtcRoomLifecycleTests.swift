@@ -15,6 +15,41 @@ import XCTest
 @testable import XmaxSDK
 
 final class RtcRoomLifecycleTests: XCTestCase {
+    func testRoomMessagesAreDeliveredOnlyFromCurrentJoinedConnection() async throws {
+        let firstStarted = expectation(description: "First join started")
+        let secondStarted = expectation(description: "Second join started")
+        let first = RtcRoomStub(onJoin: { firstStarted.fulfill() })
+        let second = RtcRoomStub(onJoin: { secondStarted.fulfill() })
+        let manager = makeManager { $0 == "first" ? first : second }
+        try await manager.initialize()
+        let received = expectation(description: "Current signaling delivered")
+        received.assertForOverFulfill = true
+        manager.setRoomMessageListener { sender, data in
+            XCTAssertEqual(sender, "bot")
+            XCTAssertEqual(data, Data("current".utf8))
+            received.fulfill()
+        }
+
+        let firstJoin = Task { try await manager.joinRoom(configuration: config("first")) }
+        await fulfillment(of: [firstStarted], timeout: 2)
+        first.emit(.message(userID: "bot", data: Data("before join".utf8)))
+        first.emit(.joined)
+        try await firstJoin.value
+        await manager.leaveRoom()
+        first.emit(.message(userID: "bot", data: Data("after leave".utf8)), late: true)
+
+        let secondJoin = Task { try await manager.joinRoom(configuration: config("second")) }
+        await fulfillment(of: [secondStarted], timeout: 2)
+        second.emit(.joined)
+        try await secondJoin.value
+        first.emit(.message(userID: "bot", data: Data("old room".utf8)), late: true)
+        second.emit(.message(userID: "bot", data: Data("current".utf8)))
+        await fulfillment(of: [received], timeout: 2)
+        manager.setRoomMessageListener(nil)
+        second.emit(.message(userID: "bot", data: Data("removed".utf8)))
+        await manager.destroy()
+    }
+
     func testJoinCancellationDestroysPendingRoomAndAllowsNextJoin() async throws {
         let started = expectation(description: "First join started")
         let first = RtcRoomStub(onJoin: { started.fulfill() })

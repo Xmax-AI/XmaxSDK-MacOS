@@ -56,6 +56,15 @@ actor XmaxRealtimeConnectionManager {
     /// The server session owned by this connection.
     private var activeSession: RealtimeSession?
 
+    /// The monotonic time immediately before creating the current server session.
+    private var connectionStartedAt: ContinuousClock.Instant?
+
+    /// Whether the current session has entered generating and started HTTP heartbeats.
+    private var heartbeatStarted = false
+
+    /// The failure handler retained until generation starts or the connection ends.
+    private var heartbeatFailureHandler: RealtimeConnectionHeartbeatFailureHandler?
+
     /// The most recently applied target dimensions for server output, in pixels.
     private(set) var currentTargetSize: CGSize?
 
@@ -151,6 +160,7 @@ actor XmaxRealtimeConnectionManager {
         var sessionActivated = false
 
         do {
+            connectionStartedAt = .now
             timing.beginSessionCreation()
             session = try await sessionService.createSession(model: model)
             timing.finishSessionCreation()
@@ -173,10 +183,6 @@ actor XmaxRealtimeConnectionManager {
             )
             try Self.ensureCurrent(isCurrent)
 
-            sessionService.startHeartbeat(
-                sessionID: session.id,
-                onFailure: onHeartbeatFailure
-            )
             let remoteTrack = RealtimeVideoTrack(
                 id: connection.botName ?? "video-remote",
                 videoFormat: remoteVideoFormat(for: videoFormat)
@@ -188,6 +194,7 @@ actor XmaxRealtimeConnectionManager {
 
             activeSession = session
             activeRemoteTrack = remoteTrack
+            heartbeatFailureHandler = onHeartbeatFailure
             sessionActivated = true
             try Self.ensureCurrent(isCurrent)
 
@@ -213,7 +220,26 @@ actor XmaxRealtimeConnectionManager {
         }
     }
 
-    /// Disconnects RTC, releases remote render resources, and closes the server session.
+    /// Starts HTTP heartbeats once after generating is committed for the current session.
+    func startHeartbeat(
+        sessionID: String
+    ) {
+        guard activeSession?.id == sessionID, !heartbeatStarted,
+            let connectionStartedAt, let heartbeatFailureHandler
+        else { return }
+        heartbeatStarted = true
+        let elapsed = connectionStartedAt.duration(to: .now).components
+        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        let graceSeconds = max(0, Int(ceil(seconds)))
+        sessionService.startHeartbeat(
+            sessionID: sessionID,
+            firstHeartbeatGraceSeconds: graceSeconds,
+            onFailure: heartbeatFailureHandler
+        )
+    }
+
+    /// Closes the server session alongside remote rendering and RTC cleanup, waiting for both.
+    /// Local cleanup still completes if the close request fails.
     ///
     /// - Returns: The closed session identifier, or `nil` if none was active.
     ///
@@ -225,15 +251,21 @@ actor XmaxRealtimeConnectionManager {
         activeSession = nil
         activeRemoteTrack = nil
         currentTargetSize = nil
+        connectionStartedAt = nil
+        heartbeatStarted = false
+        heartbeatFailureHandler = nil
 
         sessionService.stopHeartbeat()
+        let sessionID = session?.id
+        async let serverClose: Void = { [sessionService] in
+            if let sessionID {
+                try await sessionService.closeSession(sessionID: sessionID)
+            }
+        }()
         await resetRemoteRendering(track: remoteTrack)
         await streamController.disconnect()
 
-        let sessionID = session?.id
-        if let sessionID {
-            try await sessionService.closeSession(sessionID: sessionID)
-        }
+        try await serverClose
         return sessionID
     }
 }
@@ -579,6 +611,9 @@ private extension XmaxRealtimeConnectionManager {
         activeSession = nil
         activeRemoteTrack = nil
         currentTargetSize = nil
+        connectionStartedAt = nil
+        heartbeatStarted = false
+        heartbeatFailureHandler = nil
 
         sessionService.stopHeartbeat()
         await resetRemoteRendering(track: remoteTrack)

@@ -28,7 +28,10 @@ protocol RoomControlling: Actor {
     /// Stops room heartbeats and leaves the current RTC room.
     func leave() async
 
-    /// Enqueues a generation start signal for the room.
+    /// Cancels command retries before generation media cleanup can suspend.
+    func cancelGenerationCommands(taskID: String) async
+
+    /// Waits for a generation start send while receipt retries continue in the background.
     ///
     /// - Parameters:
     ///   - taskID: The current generation task identifier.
@@ -46,9 +49,9 @@ protocol RoomControlling: Actor {
         context: RealtimeContext,
         faceRestoration: Bool,
         paddingContain: Bool
-    ) throws
+    ) async throws
 
-    /// Enqueues a generation condition update signal for the room.
+    /// Waits for a condition update send while replacing its task's older condition retries.
     ///
     /// - Parameters:
     ///   - taskID: The current generation task identifier.
@@ -66,7 +69,7 @@ protocol RoomControlling: Actor {
         context: RealtimeContext,
         faceRestoration: Bool,
         paddingContain: Bool
-    ) throws
+    ) async throws
 
     /// Adjusts return dimensions for the current generation task.
     ///
@@ -79,7 +82,7 @@ protocol RoomControlling: Actor {
     func changeTargetSize(
         taskID: String,
         targetSize: CGSize,
-        ensureActive: @Sendable () throws -> Void
+        ensureActive: @escaping @Sendable () throws -> Void
     ) async throws
 
     /// Enqueues a stop signal; ignores an unjoined room or empty task.
@@ -89,7 +92,7 @@ protocol RoomControlling: Actor {
     /// - Throws: An error if stop signal encoding or enqueueing fails.
     func stopGeneration(
         taskID: String
-    ) throws
+    ) async throws
 
     /// Submits an interaction trajectory for the current generation task.
     ///

@@ -47,7 +47,7 @@ actor RemoteVideoFramePipeline {
     /// The interpolation failure and fallback handler.
     private let errorListener: XmaxErrorListener
 
-    /// Creates an isolated beauty processor only when the effect is requested.
+    /// Creates an isolated beauty processor when enabled result processing first needs it.
     typealias BeautyProcessorFactory = @Sendable (RealtimeVideoBeautyOptions) async throws -> any VideoBeautyProcessing
 
     /// The injectable offline beauty graph factory.
@@ -56,8 +56,8 @@ actor RemoteVideoFramePipeline {
     /// Reports recoverable beauty fallback separately from interpolation and session failures.
     private var beautyErrorListener: RealtimeVideoBeautyErrorListener?
 
-    /// The requested result strengths, retained across result stream replacement.
-    private var beautyOptions: RealtimeVideoBeautyOptions?
+    /// The requested result strengths, enabled at zero by default and retained across stream replacement.
+    private var beautyOptions: RealtimeVideoBeautyOptions? = RealtimeVideoBeautyOptions()
 
     /// The processor for the current result stream.
     private var beautyProcessor: (any VideoBeautyProcessing)?
@@ -172,9 +172,10 @@ actor RemoteVideoFramePipeline {
         beautyErrorListener = listener
     }
 
-    /// Clears user settings and native processing at full manager shutdown.
+    /// Releases native processing and restores zero-strength defaults at full manager shutdown.
     func closeBeauty() async {
         try? await setRemoteVideoBeauty(nil)
+        beautyOptions = RealtimeVideoBeautyOptions()
         beautyErrorListener = nil
     }
 

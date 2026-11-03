@@ -13,6 +13,11 @@ import Foundation
 /// Defines RTC engine, room, media transport, and remote frame output capabilities.
 protocol RtcManaging: RtcCameraCapturing {
 
+    /// Replaces the current room's signaling receiver; `nil` removes it.
+    func setRoomMessageListener(
+        _ listener: (@Sendable (String, Data) -> Void)?
+    )
+
     /// Sets camera upstream mirroring, retaining the setting across encoder reconfiguration.
     ///
     /// - Parameter mirror: Whether to mirror the encoded camera stream.
