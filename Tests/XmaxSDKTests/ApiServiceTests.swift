@@ -345,7 +345,7 @@ private struct ApiTestBody: Codable, Equatable, Sendable {
     let name: String
 }
 
-private final class ApiURLProtocolStub: URLProtocol {
+final class ApiURLProtocolStub: URLProtocol {
 
     /// Shared state
     private static let state = ApiURLProtocolStubState()

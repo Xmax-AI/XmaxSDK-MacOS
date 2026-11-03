@@ -260,6 +260,19 @@ await realtime.close()
 
 <br>
 
+## Credit balance
+
+Query the remaining credits for the account owning your API key:
+
+```swift
+let balance = try await client.getCreditBalance()
+print(balance.currentBalance)
+```
+
+This sends `GET /open/api/v1/balance` with `X-Api-Key` to the client's configured general API environment. Each call fetches the server balance, including fractional credits. Missing or invalid values throw `XmaxError`; they are never substituted with zero. Your app controls refresh timing, balance display, and any low-credit behavior.
+
+XLab displays a credits pill on both the landing and session toolbars, with automatic refreshes every five seconds and after stopping a session. Balances below 300 credits appear in red. Click the pill to open the credits page; its tooltip explains loading or query failures. Changing API keys clears the previous account's balance immediately.
+
 ## Generated-result beauty
 
 Result beauty is disabled by default. Configure it before connection or while generating:
@@ -279,18 +292,20 @@ Strengths must be finite values in `0...1`. Processing runs after optional inter
 
 Beauty requires a private **XPC service**, isolated from the app's realtime Agora engine:
 
-1. Add a macOS XPC Service target named `XmaxVideoBeautyWorker`, with bundle identifier `ai.xmax.sdk.video-beauty` and deployment target macOS 13 or later.
-2. Link the package product `XmaxVideoBeautyWorkerSupport` to that target. Its main entry point is:
+1. Add a macOS XPC Service target named `XmaxRealtimeVideoBeautyWorker`, with an app-specific bundle identifier such as `com.example.YourApp.realtime-video-beauty` and deployment target macOS 13 or later. The SDK reads the identifier from the embedded service's Info.plist; a distinct identifier gives each host its own sandbox container.
+2. Link the package product `XmaxRealtimeVideoBeautyWorkerSupport` to that target. Its main entry point is:
 
    ```swift
-   import XmaxVideoBeautyWorkerSupport
-   XmaxVideoBeautyWorker.run()
+   import XmaxRealtimeVideoBeautyWorkerSupport
+   XmaxRealtimeVideoBeautyWorker.run()
    ```
 
 3. Use an XPC service Info.plist with `CFBundlePackageType = XPC!`, `XPCService.ServiceType = Application`, and `XPCService.RunLoopType = dispatch_main`. Enable App Sandbox with no camera or microphone entitlement. The service owns its sandbox; do not set `com.apple.security.inherit`.
-4. Embed and sign the service in `YourApp.app/Contents/XPCServices/XmaxVideoBeautyWorker.xpc` with the app's signing team. Include the package's Agora/ClearVision dynamic frameworks. If frameworks are shared in the outer app's `Contents/Frameworks`, add `@executable_path/../../../../Frameworks` to the service's runtime search paths.
+4. Embed and sign the service in `YourApp.app/Contents/XPCServices/XmaxRealtimeVideoBeautyWorker.xpc` with the app's signing team. Include the package's Agora/ClearVision dynamic frameworks. If frameworks are shared in the outer app's `Contents/Frameworks`, add `@executable_path/../../../../Frameworks` to the service's runtime search paths.
 
 The SDK opens an app-private XPC connection and transfers IOSurface handles, with one frame request in flight per pipeline. Explicit output leases prevent native pool buffers from being reused while preview, virtual-camera output, or recording still owns them. Missing services, processing failures, and bounded-request timeouts are recoverable errors. Options survive reconnects; `close()` clears beauty options and its listener. No service is activated until beauty is requested.
+
+The XLab example embeds this service. During a session, use **Beauty** in the toolbar to enable or disable result beauty and its overlay with four strength sliders. XLab saves the switch and strengths locally; the first run enables beauty with all four strengths at zero. Changes affect both result preview and recordings. A processing failure disables the effect and displays a recoverable message while generation continues.
 
 ## Dependencies
 

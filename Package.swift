@@ -12,7 +12,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "XmaxSDK", targets: ["XmaxSDK"]),
-        .library(name: "XmaxVideoBeautyWorkerSupport", targets: ["XmaxVideoBeautyWorkerSupport"])
+        .library(name: "XmaxRealtimeVideoBeautyWorkerSupport", targets: ["XmaxRealtimeVideoBeautyWorkerSupport"])
     ],
     dependencies: [
         .package(url: "https://github.com/AgoraIO/AgoraRtcEngine_macOS.git", exact: "4.6.2")
@@ -31,9 +31,9 @@ let package = Package(
         ),
         .target(name: "VideoBeautyIPC", path: "Sources/VideoBeautyIPC"),
         .target(
-            name: "XmaxVideoBeautyWorkerSupport",
+            name: "XmaxRealtimeVideoBeautyWorkerSupport",
             dependencies: ["VideoBeautyIPC", "VideoBeautyBridge"],
-            path: "Sources/XmaxVideoBeautyWorkerSupport"
+            path: "Sources/XmaxRealtimeVideoBeautyWorkerSupport"
         ),
         .target(
             name: "VideoBeautyBridge",
@@ -53,6 +53,19 @@ let package = Package(
             name: "QCloudCOSXML",
             url: "https://github.com/Xmax-AI/XmaxSDK-MacOS/releases/download/cos-6.5.7-spm.1/QCloudCOSXML-6.5.7.xcframework.zip",
             checksum: "e655a38c6f5cfd5ab7d0c06bb18a22c5b8ed32ebbee181584ca15fab492576f0"
+        ),
+        .testTarget(
+            name: "XLabCreditsTests",
+            dependencies: ["XLabCredits", "XmaxSDK"],
+            path: "Tests/XLabCreditsTests",
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../.."])
+            ]
+        ),
+        .target(
+            name: "XLabCredits",
+            dependencies: ["XmaxSDK"],
+            path: "Examples/XLab/XLab/Credits"
         ),
         .testTarget(
             name: "XLabRecordingTests",

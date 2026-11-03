@@ -14,6 +14,7 @@ import XmaxSDK
 @MainActor
 final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
     let controller = RealtimeSessionController()
+    private let credits = RealtimeCreditsController()
 
     /// Window content and page containers
     private let root = RealtimeCanvas(color: .white)
@@ -45,6 +46,8 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
     private let statisticsButton = RealtimeButton(icon: .statistics, style: .statistics)
     private let volumeButton = RealtimeButton(icon: .muted, style: .volume)
     private let interpolationButton = RealtimeButton("2x", icon: .lightning, style: .interpolation)
+    private let beautyButton = RealtimeButton("Beauty", icon: .sparkles, style: .interpolation)
+    private let creditsButton = RealtimeButton("—", icon: .lightning)
     private let elapsed = RealtimeButton("00:00")
     private let recordButton = RealtimeButton("Record", icon: .record, style: .recording)
     private let stopButton = RealtimeButton("Stop Session", icon: .stop, style: .destructive)
@@ -58,6 +61,7 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
     /// Persistent video panels and mode-specific editors
     private lazy var localPanel = RealtimeVideoPanel(title: "Local", statistics: controller.localStatisticsPanels)
     private lazy var resultPanel = RealtimeVideoPanel(title: "Result", statistics: controller.remoteStatisticsPanels, showsWatermark: true)
+    private let beautyPanel = RealtimeBeautyPanel()
     private let tabs = RealtimeCanvas(color: NSColor(srgbRed: 120 / 255, green: 120 / 255, blue: 128 / 255, alpha: 0.1), radius: 21)
     private var tabButtons: [RealtimeExampleMode: RealtimeButton] = [:]
     private var lists: [RealtimeExampleMode: RealtimeReferenceList] = [:]
@@ -74,6 +78,7 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
     private let toastMessage = realtimeLabel(size: 14)
     private let toastDismiss = RealtimeButton("×", style: .plain)
     private var observation: AnyCancellable?
+    private var creditsObservation: AnyCancellable?
     private var renderScheduled = false
     private var displayedSession: Bool?
     private var displayedMode: RealtimeExampleMode?
@@ -100,11 +105,13 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
             // Published values notify before assignment; one main-queue turn reads the committed state.
             self?.scheduleRender()
         }
+        creditsObservation = credits.objectWillChange.sink { [weak self] in self?.scheduleRender() }
         render()
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        credits.start(apiKey: controller.apiKey)
         if ticker == nil {
             ticker = Task { [weak self] in
                 while !Task.isCancelled {
@@ -118,8 +125,15 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         }
     }
 
+    override func viewDidDisappear() {
+        super.viewDidDisappear()
+        credits.stop()
+    }
+
     func shutdown() async {
         observation = nil
+        creditsObservation = nil
+        credits.stop()
         await controller.stopRecording()
         scheduleRecordingSave()
         await recordingSaveTask?.value
@@ -147,20 +161,31 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         logo.imageScaling = .scaleProportionallyUpOrDown
         logo.setAccessibilityLabel("Xmax")
         [logo, homeControls, sessionControls].forEach(header.addSubview)
-        [modelButton, keyButton].forEach(homeControls.addSubview)
-        [currentModel, statisticsButton, volumeButton, interpolationButton, elapsed, recordButton, stopButton].forEach(sessionControls.addSubview)
-        modelButton.font = RealtimeHeaderTypography.font(size: 12)
+        [modelButton, keyButton, creditsButton].forEach(homeControls.addSubview)
+        [currentModel, statisticsButton, volumeButton, interpolationButton, beautyButton, elapsed, recordButton, stopButton].forEach(sessionControls.addSubview)
+        let headerFont = RealtimeHeaderTypography.font(size: 13, weight: .semibold)
+        for button in [modelButton, keyButton, creditsButton, currentModel, statisticsButton, volumeButton,
+                       interpolationButton, beautyButton, elapsed, recordButton, stopButton] {
+            button.font = headerFont
+        }
         modelButton.leadingPadding = 18; modelButton.trailingPadding = 30
         modelButton.chevron = true
-        keyButton.font = RealtimeHeaderTypography.font(size: 12)
         keyButton.iconSize = 14
-        currentModel.font = RealtimeHeaderTypography.font(size: 13, weight: .medium)
-        elapsed.font = RealtimeHeaderTypography.font(size: 13, weight: .medium, monospacedDigits: true)
-        for button in [statisticsButton, volumeButton, interpolationButton, recordButton, stopButton] {
-            button.font = RealtimeHeaderTypography.font(size: 13, weight: .semibold)
+        creditsButton.iconSize = 14; creditsButton.iconSpacing = 7
+        creditsButton.leadingPadding = 10; creditsButton.trailingPadding = 14
+        creditsButton.onClick = {
+            NSWorkspace.shared.open(URL(string: "https://platform.xmaxai.com/credits")!)
         }
+        elapsed.font = RealtimeHeaderTypography.font(size: 13, weight: .semibold, monospacedDigits: true)
         interpolationButton.iconSize = 15; interpolationButton.iconSpacing = 3
         interpolationButton.leadingPadding = 12; interpolationButton.trailingPadding = 15
+        beautyButton.iconSize = 15
+        beautyButton.leadingPadding = 12; beautyButton.trailingPadding = 15
+        beautyButton.setAccessibilityLabel("Result beauty")
+        beautyButton.onClick = { [weak self] in
+            guard let self else { return }
+            self.controller.setBeautyEnabled(!self.controller.beautyEnabled)
+        }
         stopButton.iconSize = 12; stopButton.iconSpacing = 7
         stopButton.leadingPadding = 16; stopButton.trailingPadding = 16
         recordButton.iconSize = 12; recordButton.iconSpacing = 7
@@ -185,7 +210,13 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         interpolationButton.onClick = { [weak self] in
             Task { [weak self] in await self?.controller.toggleInterpolation() }
         }
-        stopButton.onClick = { [weak self] in Task { [weak self] in await self?.controller.close() } }
+        stopButton.onClick = { [weak self] in
+            Task { [weak self] in
+                guard let self else { return }
+                await self.controller.close()
+                await self.credits.refresh(force: true)
+            }
+        }
         keyField.delegate = self
         keyField.placeholderString = "API Key"
         keyField.font = RealtimeHeaderTypography.font(size: 13)
@@ -213,6 +244,8 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
 
     private func configureWorkspace() {
         [localPanel, resultPanel, tabs, promptContainer].forEach(workspace.addSubview)
+        resultPanel.addSubview(beautyPanel)
+        beautyPanel.onChange = { [weak self] options in self?.controller.setBeautyOptions(options) }
         for mode in RealtimeExampleMode.allCases {
             let button = RealtimeButton(mode.title, style: .tab)
             button.font = RealtimeHeaderTypography.font(size: 13.5, weight: .medium)
@@ -304,17 +337,27 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
     /// Updates values without replacing controls, resetting list offsets, or restarting image requests.
     private func render() {
         let active = controller.sessionActive
+        credits.setAPIKey(controller.apiKey)
         let pageChanged = displayedSession != active
         let keyTitle = controller.hasAPIKey ? controller.apiKey : ""
         let recordTitle = controller.isFinishingRecording ? "Finishing…" :
             controller.recordingToSave != nil ? "Saving…" : controller.isRecording ? "Stop Recording" : "Record"
         let needsPageLayout = pageChanged || keyButton.title != keyTitle ||
             modelButton.title != controller.model.displayName || displayedError != controller.errorMessage ||
-            recordButton.title != recordTitle
+            recordButton.title != recordTitle || creditsButton.title != credits.balanceText
         modelButton.title = controller.model.displayName
         modelButton.isEnabled = !controller.isBusy
         currentModel.title = controller.model.displayName
         keyButton.title = keyTitle
+        creditsButton.title = credits.balanceText
+        creditsButton.style = credits.showsLowCreditsWarning ? .destructive : .pill
+        creditsButton.loading = credits.isLoading && credits.balance == nil
+        creditsButton.isEnabled = controller.hasAPIKey
+        creditsButton.toolTip = credits.help
+        creditsButton.setAccessibilityLabel("Remaining credits: \(credits.balanceText)")
+        creditsButton.setAccessibilityHelp(credits.help)
+        let creditsContainer = active ? sessionControls : homeControls
+        if creditsButton.superview !== creditsContainer { creditsContainer.addSubview(creditsButton) }
         startButton.title = controller.isClosing ? "Stopping…" : controller.isBusy ? "Starting…" : "Start Camera"
         startButton.loading = controller.isBusy
         startButton.isEnabled = !controller.isBusy
@@ -334,6 +377,12 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         interpolationButton.isEnabled = !controller.isBusy
         interpolationButton.toolTip = controller.interpolationSwitching ? "Switching frame interpolation…" : controller.interpolationEnabled ? "2× frame interpolation is on. Click to turn off" : "Frame interpolation is off. Click to turn on"
         interpolationButton.setAccessibilityValue(controller.interpolationSwitching ? "Switching" : controller.interpolationEnabled ? "On" : "Off")
+        beautyButton.selected = controller.beautyEnabled
+        beautyButton.isEnabled = active && !controller.isClosing
+        beautyButton.toolTip = controller.beautyEnabled ? "Result beauty is on. Click to turn off" : "Enable result beauty and show controls"
+        beautyButton.setAccessibilityValue(controller.beautyEnabled ? "On" : "Off")
+        beautyPanel.update(options: controller.beautyOptions, enabled: !controller.isClosing,
+                           visible: active && controller.beautyEnabled)
         stopButton.title = controller.isClosing ? "Stopping…" : "Stop Session"
         stopButton.loading = controller.isClosing
         stopButton.isEnabled = !controller.isClosing
@@ -479,6 +528,9 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         workspace.frame = NSRect(x: 28, y: header.frame.maxY, width: contentWidth, height: workspaceHeight)
         localPanel.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
         resultPanel.frame = NSRect(x: panelWidth + 24, y: 0, width: panelWidth, height: panelHeight)
+        beautyPanel.frame = NSRect(x: resultPanel.bounds.width - beautyPanel.preferredSize.width - 12,
+                                   y: resultPanel.bounds.height - beautyPanel.preferredSize.height - 12,
+                                   width: beautyPanel.preferredSize.width, height: beautyPanel.preferredSize.height)
         let tabWidths = RealtimeExampleMode.allCases.map { tabButtons[$0]!.preferredWidth }
         let tabWidth = tabWidths.reduce(0, +) + 2 * CGFloat(tabWidths.count - 1) + 8
         tabs.frame = NSRect(x: (contentWidth - tabWidth) / 2, y: panelHeight + 34, width: tabWidth, height: 42)
@@ -516,21 +568,29 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         logo.frame = NSRect(x: 0, y: 8 + (rowHeight - logoHeight) / 2, width: logoHeight * 552 / 172, height: logoHeight)
         let keyWidth = controller.hasAPIKey ? min(270 + 14 + 8 + 28, keyButton.preferredWidth) : controlHeight
         let modelWidth = modelButton.preferredWidth
-        let homeWidth = modelWidth + 12 + keyWidth
+        let creditsWidth = min(180, creditsButton.preferredWidth)
+        let homeWidth = modelWidth + keyWidth + creditsWidth + 24
         homeControls.frame = NSRect(x: header.bounds.width - homeWidth, y: 8 + (rowHeight - controlHeight) / 2, width: homeWidth, height: controlHeight)
         modelButton.frame = NSRect(x: 0, y: 0, width: modelWidth, height: controlHeight)
         keyButton.frame = NSRect(x: modelWidth + 12, y: 0, width: keyWidth, height: controlHeight)
+        if !controller.sessionActive {
+            creditsButton.frame = NSRect(x: modelWidth + keyWidth + 24, y: 0, width: creditsWidth, height: controlHeight)
+        }
         let stopWidth = ceil(RealtimeHeaderTypography.size("Stop Session", font: stopButton.font!).width) + 12 + 7 + 32
         let controls: [(RealtimeButton, CGFloat)] = [
             (currentModel, currentModel.preferredWidth), (statisticsButton, 36), (volumeButton, 36),
-            (interpolationButton, interpolationButton.preferredWidth), (elapsed, elapsed.preferredWidth),
+            (interpolationButton, interpolationButton.preferredWidth), (beautyButton, beautyButton.preferredWidth),
+            (creditsButton, creditsWidth),
+            (elapsed, elapsed.preferredWidth),
             (recordButton, recordButton.preferredWidth), (stopButton, stopWidth)
         ]
         let sessionWidth = controls.reduce(CGFloat(0)) { $0 + $1.1 } + CGFloat(controls.count - 1) * 12
         sessionControls.frame = NSRect(x: header.bounds.width - sessionWidth, y: 8 + (rowHeight - 36) / 2, width: sessionWidth, height: 36)
         var x: CGFloat = 0
         for (button, size) in controls {
-            button.frame = NSRect(x: x, y: 0, width: size, height: 36)
+            if button !== creditsButton || controller.sessionActive {
+                button.frame = NSRect(x: x, y: 0, width: size, height: 36)
+            }
             x += size + 12
         }
     }

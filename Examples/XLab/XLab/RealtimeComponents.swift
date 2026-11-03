@@ -350,13 +350,12 @@ final class RealtimeButton: NSButton {
         if let foregroundColor { return foregroundColor }
         if style == .primary { return .white }
         if style == .destructive { return NSColor(srgbRed: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1) }
-        if selected && (style == .statistics || style == .recording) { return RealtimePalette.accent }
+        if selected && (style == .statistics || style == .volume || style == .recording) { return RealtimePalette.accent }
         if selected && style == .interpolation { return NSColor(srgbRed: 169 / 255, green: 102 / 255, blue: 8 / 255, alpha: 1) }
         if style == .statistics || style == .interpolation || style == .volume || style == .recording {
-            return selected || (hovered && isEnabled) ? RealtimePalette.text :
-                NSColor(srgbRed: 139 / 255, green: 145 / 255, blue: 157 / 255, alpha: 1)
+            return selected || (hovered && isEnabled) ? RealtimePalette.text : RealtimePalette.secondary
         }
-        if passive || style == .plain || (style == .tab && !selected && !hovered) { return RealtimePalette.secondary }
+        if passive || style == .pill || style == .plain || (style == .tab && !selected && !hovered) { return RealtimePalette.secondary }
         return RealtimePalette.text
     }
 
@@ -409,7 +408,7 @@ final class RealtimeButton: NSButton {
         case .destructive:
             bottom = NSColor(srgbRed: 253 / 255, green: hot ? 232 / 255 : 242 / 255, blue: hot ? 232 / 255 : 242 / 255, alpha: 1)
             border = foreground.withAlphaComponent(hot ? 0.5 : 0.28)
-        case .statistics, .recording:
+        case .statistics, .volume, .recording:
             if selected {
                 top = NSColor(srgbRed: 238 / 255, green: 241 / 255, blue: 1, alpha: 1)
                 bottom = top; border = NSColor(srgbRed: 215 / 255, green: 221 / 255, blue: 251 / 255, alpha: 1)
@@ -427,13 +426,13 @@ final class RealtimeButton: NSButton {
         }
         if isHighlighted { bottom = bottom.blended(withFraction: 0.06, of: .black) ?? bottom }
         NSGradient(starting: top, ending: bottom)?.draw(in: path, angle: 90)
-        if style == .pill || style == .volume || style == .destructive || (!selected && (style == .statistics || style == .interpolation || style == .recording)) {
+        if style == .pill || style == .destructive || (!selected && (style == .statistics || style == .volume || style == .interpolation || style == .recording)) {
             let highlight = NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: rect.height / 2 - 1, yRadius: rect.height / 2 - 1)
             NSColor.white.withAlphaComponent(0.6).setStroke(); highlight.lineWidth = 1; highlight.stroke()
         }
         border.setStroke(); path.lineWidth = 1; path.stroke()
         layer?.shadowColor = (style == .primary ? RealtimePalette.accent : NSColor.black).cgColor
-        let flat = style == .plain || (style == .tab && !selected) || (selected && (style == .statistics || style == .interpolation || style == .recording))
+        let flat = style == .plain || (style == .tab && !selected) || (selected && (style == .statistics || style == .volume || style == .interpolation || style == .recording))
         layer?.shadowOpacity = !showsShadow || flat ? 0 : style == .primary ? 0.35 : style == .tab ? 0.1 : hot ? 0.08 : 0.05
         layer?.shadowRadius = style == .primary ? 15 : style == .tab ? 4 : hot ? 8 : 6
         layer?.shadowOffset = CGSize(width: 0, height: style == .primary ? 10 : style == .tab ? 2 : hot ? 6 : 4)
@@ -662,7 +661,7 @@ extension RealtimeSessionController {
 /// Draws the existing Web icon coordinates directly into the AppKit graphics context.
 @MainActor
 enum RealtimeWebIcon {
-    enum Kind { case camera, microphone, statistics, muted, volume, volumeLow, lightning, plus, close, arrow, globe, socialX, wechat, key, stop, record }
+    enum Kind { case camera, microphone, statistics, muted, volume, volumeLow, lightning, sparkles, plus, close, arrow, globe, socialX, wechat, key, stop, record }
 
     static func draw(_ kind: Kind, in rect: CGRect, color: NSColor) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
@@ -720,6 +719,9 @@ enum RealtimeWebIcon {
             }
         case .lightning:
             line(points([(13.7,2.3),(4.2,13),(10.4,14.2),(9.5,21.7),(19.8,11),(12.9,9.8),(13.7,2.3)])); p.closeSubpath()
+        case .sparkles:
+            line(points([(13,3),(15.5,9.5),(22,12),(15.5,14.5),(13,21),(10.5,14.5),(4,12),(10.5,9.5),(13,3)]))
+            line(points([(4,2),(4,7)])); line(points([(1.5,4.5),(6.5,4.5)]))
         case .plus: line(points([(12,4),(12,20)])); line(points([(4,12),(20,12)]))
         case .close: line(points([(5,5),(19,19)])); line(points([(19,5),(5,19)]))
         case .arrow: line(points([(4,12),(20,12)])); line(points([(14,6),(20,12),(14,18)]))

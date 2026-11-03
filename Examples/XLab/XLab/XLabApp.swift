@@ -5,6 +5,7 @@
 //
 
 import AppKit
+@_spi(Diagnostics) import XmaxSDK
 
 /// Native AppKit application lifecycle, window ownership, and standard editing menus.
 @main
@@ -15,6 +16,20 @@ final class XLabApp: NSObject, NSApplicationDelegate {
     private var terminating = false
 
     static func main() {
+        if CommandLine.arguments.contains("--verify-video-beauty") {
+            Task {
+                do {
+                    let report = try await RealtimeVideoBeautyDiagnostics.verify()
+                    FileHandle.standardOutput.write(report)
+                    FileHandle.standardOutput.write(Data("\n".utf8))
+                    exit(EXIT_SUCCESS)
+                } catch {
+                    FileHandle.standardError.write(Data("Beauty verification failed: \(error.localizedDescription)\n".utf8))
+                    exit(EXIT_FAILURE)
+                }
+            }
+            dispatchMain()
+        }
         let application = NSApplication.shared
         let delegate = XLabApp()
         application.delegate = delegate

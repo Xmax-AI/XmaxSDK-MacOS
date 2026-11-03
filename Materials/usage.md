@@ -5,6 +5,7 @@ AppKit rendering. Unless stated otherwise, these snippets reuse its `client`,
 `realtime`, `localStream`, and `resultView`. Supply your own file URLs, retain
 resources for the screen's lifetime, and run UI operations on the main actor.
 
+- [Credit balance](#credit-balance)
 - [Camera selection and microphone](#camera-selection-and-microphone)
 - [Video format and encoding](#video-format-and-encoding)
 - [External video input](#external-video-input)
@@ -24,6 +25,35 @@ resources for the screen's lifetime, and run UI operations on the main actor.
 of the realtime model. The China environment uses the domestic endpoint; the global
 environment uses `https://api.xmax.cloud/open/api/v1` for general requests and
 `https://api.xmax.ai/open/api/v1` for realtime sessions.
+
+## Credit balance
+
+Query account credits using the API key and environment supplied to `XmaxClient`:
+
+```swift
+do {
+    let balance = try await client.getCreditBalance()
+    print("Remaining credits: \(balance.currentBalance)")
+} catch let error as XmaxError {
+    print(error.message)
+}
+```
+
+The method returns `XmaxCreditBalance`. Its `currentBalance` is a finite,
+nonnegative `Double` measured in credits and can include fractional credits.
+Each invocation sends `GET /open/api/v1/balance` with `X-Api-Key`, using the
+general API environment described above. A realtime session is not required.
+Invalid keys, transport failures, server errors, missing or invalid balances,
+and cancellation throw `XmaxError`; unknown balances are never replaced with zero.
+Keep the last known value or show an unavailable state when a request fails.
+Your app owns polling, refresh throttling, and low-credit UI behavior.
+
+XLab's credits pill shows the balance on both the landing page and the session
+toolbar. It refreshes automatically every five seconds and after **Stop Session**.
+Balances below 300 credits use the red warning style. Clicking the pill opens the
+platform credits page. A failed query preserves the last confirmed value, with
+details in the tooltip; changing API keys immediately clears the old account's
+balance. Credit queries run independently of generation startup and media output.
 
 ## Camera selection and microphone
 
@@ -263,6 +293,17 @@ also finishes the current clip and opens the save panel. Canceling the panel
 discards the temporary clip. XLab creates its camera stream with `mirror: true`
 and records remote frame pixels as received. The result preview and recording
 apply no additional mirror transform.
+
+Use **Beauty** in XLab's session toolbar to toggle generated-result beauty. When
+enabled, a translucent panel on the result video exposes **Smoothness**,
+**Lightening**, **Sharpness**, and **Redness**, each from `0%` to `100%`. The switch
+and strengths are saved locally; the initial defaults are enabled with all four
+strengths at zero. Slider changes are coalesced and applied without restarting
+generation, and the same processed pixels reach preview and recording. If beauty
+fails, XLab reports the error and continues generation with the original result.
+The example embeds `XmaxRealtimeVideoBeautyWorker.xpc`; its private XPC target is
+separate from the main application's RTC engine.
+
 The macOS views support primary-button dragging for trajectory interaction during generation.
 With `isMirrored: true`, the video is mirrored horizontally and interaction coordinates
 are mapped back to the original media orientation before sending. The SDK first accounts

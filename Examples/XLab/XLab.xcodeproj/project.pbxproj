@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C50123456789ABCDEF000001 /* RealtimeCreditsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50123456789ABCDEF000002 /* RealtimeCreditsController.swift */; };
+		B40123456789ABCDEF000001 /* RealtimeBeautyPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40123456789ABCDEF000002 /* RealtimeBeautyPanel.swift */; };
+		B40123456789ABCDEF000003 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40123456789ABCDEF000004 /* main.swift */; };
+		B40123456789ABCDEF000005 /* XmaxRealtimeVideoBeautyWorkerSupport in Frameworks */ = {isa = PBXBuildFile; productRef = B40123456789ABCDEF000006 /* XmaxRealtimeVideoBeautyWorkerSupport */; };
+		B40123456789ABCDEF000007 /* XmaxRealtimeVideoBeautyWorker.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = B40123456789ABCDEF000008 /* XmaxRealtimeVideoBeautyWorker.xpc */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		AB0123456789ABCDEF000001 /* RealtimeMediaRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0123456789ABCDEF000002 /* RealtimeMediaRecorder.swift */; };
 		AA0123456789ABCDEF000001 /* RealtimeReferenceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0123456789ABCDEF000002 /* RealtimeReferenceViews.swift */; };
 		068DD710767D275A362CF1EA /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 9024EE048665F6BE0006CC11 /* Kingfisher */; };
@@ -22,7 +27,35 @@
 		FF1CE2280780D71DF25F743B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 36E3C4A5FF8289133401A01F /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		B40123456789ABCDEF000009 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D1706D397D2BBF438DFF474A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B40123456789ABCDEF00000A;
+			remoteInfo = XmaxRealtimeVideoBeautyWorker;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B40123456789ABCDEF00000B /* Embed XPC Services */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
+			dstSubfolderSpec = 16;
+			files = (B40123456789ABCDEF000007 /* XmaxRealtimeVideoBeautyWorker.xpc in Embed XPC Services */, );
+			name = "Embed XPC Services";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		C50123456789ABCDEF000002 /* RealtimeCreditsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RealtimeCreditsController.swift; path = Credits/RealtimeCreditsController.swift; sourceTree = "<group>"; };
+		B40123456789ABCDEF000002 /* RealtimeBeautyPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeBeautyPanel.swift; sourceTree = "<group>"; };
+		B40123456789ABCDEF000004 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		B40123456789ABCDEF000008 /* XmaxRealtimeVideoBeautyWorker.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = XmaxRealtimeVideoBeautyWorker.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
+		B40123456789ABCDEF00000C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B40123456789ABCDEF00000D /* XmaxRealtimeVideoBeautyWorker.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = XmaxRealtimeVideoBeautyWorker.entitlements; sourceTree = "<group>"; };
 		AB0123456789ABCDEF000002 /* RealtimeMediaRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RealtimeMediaRecorder.swift; path = Recording/RealtimeMediaRecorder.swift; sourceTree = "<group>"; };
 		AA0123456789ABCDEF000002 /* RealtimeReferenceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeReferenceViews.swift; sourceTree = "<group>"; };
 		27270E9D49719B4C4E95860A /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
@@ -38,6 +71,12 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		B40123456789ABCDEF00000E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (B40123456789ABCDEF000005 /* XmaxRealtimeVideoBeautyWorkerSupport in Frameworks */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AA48E4F2FAA0858AEC620873 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -51,6 +90,16 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		B40123456789ABCDEF00000F /* XmaxRealtimeVideoBeautyWorker */ = {
+			isa = PBXGroup;
+			children = (
+				B40123456789ABCDEF000004 /* main.swift */,
+				B40123456789ABCDEF00000C /* Info.plist */,
+				B40123456789ABCDEF00000D /* XmaxRealtimeVideoBeautyWorker.entitlements */,
+			);
+			path = XmaxRealtimeVideoBeautyWorker;
+			sourceTree = "<group>";
+		};
 		43F1B3804E4D788DC899FBC1 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -62,6 +111,8 @@
 		5248FD8D46F0D3DC1016B850 /* XLab */ = {
 			isa = PBXGroup;
 			children = (
+				C50123456789ABCDEF000002 /* RealtimeCreditsController.swift */,
+				B40123456789ABCDEF000002 /* RealtimeBeautyPanel.swift */,
 				AB0123456789ABCDEF000002 /* RealtimeMediaRecorder.swift */,
 				77356DA9FD252880FEFF294C /* RealtimeSessionController.swift */,
 				501AAEB78BA4EA3003EC92DB /* RealtimeViewController.swift */,
@@ -89,6 +140,7 @@
 		A0F1CE7F74699053B2D362C9 = {
 			isa = PBXGroup;
 			children = (
+				B40123456789ABCDEF00000F /* XmaxRealtimeVideoBeautyWorker */,
 				C8D7010B0AF02C99D4B584A8 /* Products */,
 				43F1B3804E4D788DC899FBC1 /* Frameworks */,
 				5248FD8D46F0D3DC1016B850 /* XLab */,
@@ -98,6 +150,7 @@
 		C8D7010B0AF02C99D4B584A8 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				B40123456789ABCDEF000008 /* XmaxRealtimeVideoBeautyWorker.xpc */,
 				730F7B3828B7F7E3D0BF00E7 /* XLab.app */,
 			);
 			name = Products;
@@ -114,6 +167,18 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		B40123456789ABCDEF00000A /* XmaxRealtimeVideoBeautyWorker */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B40123456789ABCDEF000010 /* Build configuration list for PBXNativeTarget "XmaxRealtimeVideoBeautyWorker" */;
+			buildPhases = (B40123456789ABCDEF000011 /* Sources */, B40123456789ABCDEF00000E /* Frameworks */, );
+			buildRules = ();
+			dependencies = ();
+			name = XmaxRealtimeVideoBeautyWorker;
+			packageProductDependencies = (B40123456789ABCDEF000006 /* XmaxRealtimeVideoBeautyWorkerSupport */, );
+			productName = XmaxRealtimeVideoBeautyWorker;
+			productReference = B40123456789ABCDEF000008 /* XmaxRealtimeVideoBeautyWorker.xpc */;
+			productType = "com.apple.product-type.xpc-service";
+		};
 		BF5AA4CF5DE357D891872B1D /* XLab */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A3D133945FFD5CBC81D65BDC /* Build configuration list for PBXNativeTarget "XLab" */;
@@ -121,10 +186,12 @@
 				E8F5429A39B819CB2F308005 /* Sources */,
 				AA48E4F2FAA0858AEC620873 /* Frameworks */,
 				D33DC7CFC13D08FB85264C66 /* Resources */,
+				B40123456789ABCDEF00000B /* Embed XPC Services */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				B40123456789ABCDEF000012 /* PBXTargetDependency */,
 			);
 			name = XLab;
 			packageProductDependencies = (
@@ -163,6 +230,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				B40123456789ABCDEF00000A /* XmaxRealtimeVideoBeautyWorker */,
 				BF5AA4CF5DE357D891872B1D /* XLab */,
 			);
 		};
@@ -182,10 +250,18 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		B40123456789ABCDEF000011 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (B40123456789ABCDEF000003 /* main.swift in Sources */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E8F5429A39B819CB2F308005 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C50123456789ABCDEF000001 /* RealtimeCreditsController.swift in Sources */,
+				B40123456789ABCDEF000001 /* RealtimeBeautyPanel.swift in Sources */,
 				AB0123456789ABCDEF000001 /* RealtimeMediaRecorder.swift in Sources */,
 				C2ACB832134F712FA61CFE36 /* RealtimeSessionController.swift in Sources */,
 				D702308119484BAA6DC18EE8 /* RealtimeViewController.swift in Sources */,
@@ -198,7 +274,55 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		B40123456789ABCDEF000012 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B40123456789ABCDEF00000A /* XmaxRealtimeVideoBeautyWorker */;
+			targetProxy = B40123456789ABCDEF000009 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		B40123456789ABCDEF000013 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = XmaxRealtimeVideoBeautyWorker/XmaxRealtimeVideoBeautyWorker.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = XmaxRealtimeVideoBeautyWorker/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../../../../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.xmax.macos.XLab.realtime-video-beauty;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		B40123456789ABCDEF000014 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = XmaxRealtimeVideoBeautyWorker/XmaxRealtimeVideoBeautyWorker.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = XmaxRealtimeVideoBeautyWorker/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../../../../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.xmax.macos.XLab.realtime-video-beauty;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 		2F23913B69F6F82121570EA7 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -363,6 +487,12 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		B40123456789ABCDEF000010 /* Build configuration list for PBXNativeTarget "XmaxRealtimeVideoBeautyWorker" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (B40123456789ABCDEF000013 /* Debug */, B40123456789ABCDEF000014 /* Release */, );
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		10B53D52DA9D67B9B0E0D1AC /* Build configuration list for PBXProject "XLab" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -402,6 +532,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		B40123456789ABCDEF000006 /* XmaxRealtimeVideoBeautyWorkerSupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F071D06B52545C98A4FCF657 /* XCLocalSwiftPackageReference ".." */;
+			productName = XmaxRealtimeVideoBeautyWorkerSupport;
+		};
 		9024EE048665F6BE0006CC11 /* Kingfisher */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D99DAB38BF4D263867B25E89 /* XCRemoteSwiftPackageReference "Kingfisher" */;
@@ -409,6 +544,7 @@
 		};
 		F8829C532C02FAB86C47E1CA /* XmaxSDK */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = F071D06B52545C98A4FCF657 /* XCLocalSwiftPackageReference ".." */;
 			productName = XmaxSDK;
 		};
 /* End XCSwiftPackageProductDependency section */

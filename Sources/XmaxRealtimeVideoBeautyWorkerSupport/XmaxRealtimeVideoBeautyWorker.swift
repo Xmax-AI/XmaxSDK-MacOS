@@ -7,7 +7,7 @@ import VideoBeautyBridge
 import VideoBeautyIPC
 
 /// Entry point for the signed, independently sandboxed beauty helper bundled by the host app.
-public enum XmaxVideoBeautyWorker {
+public enum XmaxRealtimeVideoBeautyWorker {
 
     /// Runs the private XPC service embedded in the host's Contents/XPCServices directory.
     /// Call only from the service executable's main entry point; this never creates an RTC connection.

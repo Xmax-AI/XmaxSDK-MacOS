@@ -36,6 +36,7 @@ final class RealtimeSessionController: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var isBusy = false
     @Published private(set) var isClosing = false
+    /// The first confirmed generation time in the current session.
     @Published private(set) var sessionStartedAt: Date?
     @Published private(set) var selectedReferenceID: String?
     @Published private(set) var uploadedReferences: [RealtimeReference] = []
@@ -45,6 +46,20 @@ final class RealtimeSessionController: ObservableObject {
     @Published private(set) var networkQuality: RealtimeNetworkQuality?
     @Published private(set) var interpolationEnabled = true
     @Published private(set) var interpolationSwitching = false
+    @Published private(set) var beautyEnabled =
+        UserDefaults.standard.object(forKey: "xmax.xlab.beauty.enabled") as? Bool ?? true
+    @Published private(set) var beautyOptions: RealtimeVideoBeautyOptions = {
+        let values = UserDefaults.standard.dictionary(forKey: "xmax.xlab.beauty.options") ?? [:]
+        func strength(_ key: String) -> Float {
+            guard let value = values[key] as? NSNumber,
+                  value.floatValue.isFinite, (0...1).contains(value.floatValue) else { return 0 }
+            return value.floatValue
+        }
+        return RealtimeVideoBeautyOptions(
+            smoothness: strength("smoothness"), lightening: strength("lightening"),
+            sharpness: strength("sharpness"), redness: strength("redness")
+        )
+    }()
     @Published private(set) var remoteAudioVolume: Float = 0
     @Published private(set) var isRecording = false
     @Published private(set) var isFinishingRecording = false
@@ -61,6 +76,9 @@ final class RealtimeSessionController: ObservableObject {
     private var recorder: RealtimeMediaRecorder?
     private var recordingID = UUID()
     private var recordingFinishTask: Task<Void, Never>?
+    private var beautyRevision: UInt64 = 0
+    private var beautyDebounce: Task<Void, Never>?
+    private var beautyApplication: Task<Void, Never>?
     private let makeManager: (XmaxClient, RealtimeConfiguration) -> any XmaxRealtimeManaging
     private let uploadImage: (XmaxClient, Data, String, XmaxStorageProgressHandler?) async throws -> URL
 
@@ -115,6 +133,10 @@ final class RealtimeSessionController: ObservableObject {
         ))
         self.client = client
         self.manager = manager
+        await manager.setRemoteVideoBeautyErrorListener { [weak self] error in
+            guard let self, self.lifecycleID == operation else { return }
+            self.disableBeautyAfterFailure(error)
+        }
         await manager.setLaunchTimingListener { [weak self] timing in
             guard let self, self.lifecycleID == operation else { return }
             self.launchTiming = timing
@@ -136,6 +158,8 @@ final class RealtimeSessionController: ObservableObject {
             self.state = state
             if [.connected, .generating].contains(state.connectionState), !self.sessionActive {
                 self.sessionActive = true
+            }
+            if state.connectionState == .generating, self.sessionStartedAt == nil {
                 self.sessionStartedAt = Date()
             }
             if ![.connected, .generating].contains(state.connectionState) {
@@ -159,6 +183,8 @@ final class RealtimeSessionController: ObservableObject {
         }
         pendingInitialReference = RealtimeExampleMode.charx.presets.first
         do {
+            await applyPendingBeauty()
+            guard lifecycleID == operation else { await manager.close(); return }
             let stream = try await manager.createLocalCameraStream(
                 preset: .resolution1920x1080, mirror: true, useMicrophone: useMicrophone
             )
@@ -350,6 +376,89 @@ final class RealtimeSessionController: ObservableObject {
         } catch { if lifecycleID == operation { errorMessage = error.localizedDescription } }
     }
 
+    /// Applies the saved strengths to the common result preview and recording output.
+    func setBeautyEnabled(_ enabled: Bool) {
+        guard !isClosing, beautyEnabled != enabled else { return }
+        beautyEnabled = enabled
+        saveBeautyPreferences()
+        scheduleBeautyApplication()
+    }
+
+    /// Stores slider edits immediately while coalescing native configuration requests.
+    func setBeautyOptions(_ options: RealtimeVideoBeautyOptions) {
+        guard !isClosing, options != beautyOptions, (try? options.validate()) != nil else { return }
+        beautyOptions = options
+        saveBeautyPreferences()
+        if beautyEnabled { scheduleBeautyApplication() }
+    }
+
+    private func saveBeautyPreferences() {
+        UserDefaults.standard.set(beautyEnabled, forKey: "xmax.xlab.beauty.enabled")
+        UserDefaults.standard.set([
+            "smoothness": beautyOptions.smoothness, "lightening": beautyOptions.lightening,
+            "sharpness": beautyOptions.sharpness, "redness": beautyOptions.redness
+        ], forKey: "xmax.xlab.beauty.options")
+    }
+
+    /// Keeps slider traffic independent of generation commands and serializes in-flight changes.
+    private func scheduleBeautyApplication() {
+        beautyRevision &+= 1
+        beautyDebounce?.cancel()
+        guard manager != nil, !isClosing else { return }
+        let operation = lifecycleID
+        beautyDebounce = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
+            guard let self, self.lifecycleID == operation, !Task.isCancelled else { return }
+            await self.applyPendingBeauty()
+        }
+    }
+
+    /// Applies startup settings and drains the latest edit before releasing operation ownership.
+    private func applyPendingBeauty() async {
+        if let beautyApplication {
+            await beautyApplication.value
+            return
+        }
+        guard let manager, !isClosing else { return }
+        let operation = lifecycleID
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.lifecycleID == operation { self.beautyApplication = nil }
+            }
+            while self.lifecycleID == operation, !Task.isCancelled {
+                let revision = self.beautyRevision
+                do {
+                    try await manager.setRemoteVideoBeauty(self.beautyEnabled ? self.beautyOptions : nil)
+                } catch {
+                    guard self.lifecycleID == operation, !Task.isCancelled else { return }
+                    if revision == self.beautyRevision { self.disableBeautyAfterFailure(error) }
+                }
+                guard revision != self.beautyRevision else { return }
+            }
+        }
+        beautyApplication = task
+        await task.value
+    }
+
+    /// Reports a recoverable effect failure while preserving the user's saved settings.
+    private func disableBeautyAfterFailure(_ error: any Error) {
+        beautyEnabled = false
+        beautyRevision &+= 1
+        errorMessage = "Result beauty is unavailable. Generation continues without beauty. \(error.localizedDescription)"
+    }
+
+    /// Invalidates pending changes and returns the operation teardown must finish waiting for.
+    private func cancelBeautyUpdates() -> Task<Void, Never>? {
+        beautyRevision &+= 1
+        beautyDebounce?.cancel()
+        beautyDebounce = nil
+        let task = beautyApplication
+        task?.cancel()
+        beautyApplication = nil
+        return task
+    }
+
     func dismissError() { errorMessage = nil }
 
     /// Records unified remote output, independently of the user's playback volume.
@@ -407,6 +516,7 @@ final class RealtimeSessionController: ObservableObject {
     func close() async {
         guard sessionActive, !isClosing else { return }
         let closingManager = manager
+        let closingBeauty = cancelBeautyUpdates()
         let operation = UUID()
         lifecycleID = operation
         selectionIntent = UUID()
@@ -422,6 +532,7 @@ final class RealtimeSessionController: ObservableObject {
         sessionActive = false
         let task = Task<Void, Never> {
             await stopRecording()
+            await closingBeauty?.value
             await closingManager?.close()
         }
         closingTask = task
@@ -434,15 +545,18 @@ final class RealtimeSessionController: ObservableObject {
     /// Releases capture and transport before the AppKit application finishes termination.
     func shutdown() async {
         await stopRecording()
+        let closingBeauty = cancelBeautyUpdates()
         let manager = manager
         let closingTask = closingTask
         application?.cancel()
         resetSession()
         await closingTask?.value
+        await closingBeauty?.value
         await manager?.close()
     }
 
     private func resetSession() {
+        _ = cancelBeautyUpdates()
         lifecycleID = UUID()
         selectionIntent = UUID()
         pendingInitialReference = nil

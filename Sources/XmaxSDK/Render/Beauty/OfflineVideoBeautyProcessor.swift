@@ -251,11 +251,14 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
     /// Activates the owning app's private XPC service with the system launch and sandbox lifecycle.
     private func start() throws {
         guard !storage.closed else { throw Self.error("The result beauty processor is closed") }
-        let service = Bundle.main.bundleURL.appendingPathComponent("Contents/XPCServices/XmaxVideoBeautyWorker.xpc")
+        let service = Bundle.main.bundleURL.appendingPathComponent("Contents/XPCServices/XmaxRealtimeVideoBeautyWorker.xpc")
         guard FileManager.default.fileExists(atPath: service.path) else {
-            throw Self.error("Embed XmaxVideoBeautyWorker.xpc in Contents/XPCServices to enable result beauty")
+            throw Self.error("Embed XmaxRealtimeVideoBeautyWorker.xpc in Contents/XPCServices to enable result beauty")
         }
-        let connection = NSXPCConnection(serviceName: "ai.xmax.sdk.video-beauty")
+        guard let serviceName = Bundle(url: service)?.bundleIdentifier, !serviceName.isEmpty else {
+            throw Self.error("The result beauty service requires a bundle identifier")
+        }
+        let connection = NSXPCConnection(serviceName: serviceName)
         connection.remoteObjectInterface = VideoBeautyWorkerInterface.make()
         connection.resume()
         storage.connection = connection

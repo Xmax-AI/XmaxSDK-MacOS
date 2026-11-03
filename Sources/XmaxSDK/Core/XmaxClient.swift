@@ -8,13 +8,13 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-/// Unified SDK entry point creating realtime, storage, and media service components.
+/// Unified SDK entry point for realtime generation, storage, media services, and account credit queries.
 public final class XmaxClient: Sendable {
 
     /// The client's global configuration.
     public let configuration: XmaxConfiguration
 
-    /// The service used to request storage credentials and perform media safety checks.
+    /// The service used for storage credentials, media safety checks, and account credit queries.
     private let apiService: any ApiServicing
 
     /// The injected API service shared with realtime managers in dependency-controlled construction.
@@ -86,6 +86,22 @@ public final class XmaxClient: Sendable {
     public func createStorageManager() throws -> any XmaxStorageManaging {
         try configuration.validate()
         return XmaxStorageManager(apiService: apiService)
+    }
+
+    /// Fetches the remaining credits for the account owning this client's API key.
+    ///
+    /// Each call requests the current server balance using the client's general service environment.
+    /// Your app controls when to refresh the balance and how to handle insufficient credits.
+    ///
+    /// - Returns: The server-reported balance, in credits, including fractional credits.
+    ///
+    /// - Throws: `XmaxError` on invalid credentials, request failure, an invalid response, or cancellation.
+    public func getCreditBalance() async throws -> XmaxCreditBalance {
+        try configuration.validate()
+        return try await apiService.get(
+            "/balance",
+            as: XmaxCreditBalance.self
+        )
     }
 
     /// Creates a media processing and capability query service.
