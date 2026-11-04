@@ -77,7 +77,12 @@ final class RtcRemoteVideoSink: NSObject, AgoraVideoFrameDelegate, @unchecked Se
         channelId: String
     ) -> Bool {
         guard let source = frame.pixelBuffer,
-            let buffer = lock.withLock({ copy(source) })
+            let buffer = lock.withLock({
+                copy(
+                    source,
+                    colorSpace: frame.colorSpace
+                )
+            })
         else { return true }
 
         frameListener(
@@ -94,13 +99,16 @@ final class RtcRemoteVideoSink: NSObject, AgoraVideoFrameDelegate, @unchecked Se
         return true
     }
 
-    /// Copies biplanar pixel data and attachments into an owned buffer.
+    /// Copies biplanar pixels and resolves their color attachments into an owned buffer.
     ///
-    /// - Parameter source: The source pixel buffer.
+    /// - Parameters:
+    ///   - source: The source pixel buffer, whose pixel format defines full or video range.
+    ///   - colorSpace: The RTC color information used when buffer attachments are missing.
     ///
     /// - Returns: An independently retained copy, or `nil` for unsupported layout or allocation failure.
     private func copy(
-        _ source: CVPixelBuffer
+        _ source: CVPixelBuffer,
+        colorSpace: AgoraColorSpace?
     ) -> CVPixelBuffer? {
         let width = CVPixelBufferGetWidth(source)
         let height = CVPixelBufferGetHeight(source)
@@ -193,10 +201,79 @@ final class RtcRemoteVideoSink: NSObject, AgoraVideoFrameDelegate, @unchecked Se
                 )
             }
         }
+        // Pooled buffers may still carry color attachments from an earlier decoded frame.
+        CVBufferRemoveAllAttachments(output)
         CVBufferPropagateAttachments(
             source,
             output
         )
+        applyColorSpace(
+            colorSpace,
+            to: output
+        )
         return output
+    }
+
+    /// Fills missing color tags from RTC metadata, using Agora's BT.709 default when unspecified.
+    ///
+    /// - Parameters:
+    ///   - colorSpace: The color information accompanying the decoded RTC frame.
+    ///   - buffer: The owned buffer, retaining existing color tags and its full/video-range pixel format.
+    private func applyColorSpace(
+        _ colorSpace: AgoraColorSpace?,
+        to buffer: CVPixelBuffer
+    ) {
+        let primaries: CFString?
+        switch colorSpace?.primaryID {
+        case .IDBT709?, .idUnspecified?, .idInvalid?, nil:
+            primaries = kCVImageBufferColorPrimaries_ITU_R_709_2
+        case .IDSMPTE170M?:
+            primaries = kCVImageBufferColorPrimaries_SMPTE_C
+        case .IDBT2020?:
+            primaries = kCVImageBufferColorPrimaries_ITU_R_2020
+        @unknown default:
+            primaries = nil
+        }
+
+        let transfer: CFString?
+        switch colorSpace?.transferID {
+        case .IDBT709?, .IDSMPTE170M?, .idUnspecified?, .idInvalid?, nil:
+            transfer = kCVImageBufferTransferFunction_ITU_R_709_2
+        case .IDSMPTEST2084?:
+            transfer = kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ
+        case .IDARIB_STD_B67?:
+            transfer = kCVImageBufferTransferFunction_ITU_R_2100_HLG
+        @unknown default:
+            transfer = nil
+        }
+
+        let matrix: CFString?
+        switch colorSpace?.matrixID {
+        case .IDBT709?, .idUnspecified?, .idInvalid?, nil:
+            matrix = kCVImageBufferYCbCrMatrix_ITU_R_709_2
+        case .IDSMPTE170M?:
+            matrix = kCVImageBufferYCbCrMatrix_ITU_R_601_4
+        case .IDBT2020_NCL?:
+            matrix = kCVImageBufferYCbCrMatrix_ITU_R_2020
+        case .IDRGB?:
+            matrix = nil
+        @unknown default:
+            matrix = nil
+        }
+
+        for (key, value) in [
+            (kCVImageBufferColorPrimariesKey, primaries),
+            (kCVImageBufferTransferFunctionKey, transfer),
+            (kCVImageBufferYCbCrMatrixKey, matrix)
+        ] {
+            if let value, CVBufferCopyAttachment(buffer, key, nil) == nil {
+                CVBufferSetAttachment(
+                    buffer,
+                    key,
+                    value,
+                    .shouldPropagate
+                )
+            }
+        }
     }
 }

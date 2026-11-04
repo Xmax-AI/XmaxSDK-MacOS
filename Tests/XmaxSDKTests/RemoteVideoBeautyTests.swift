@@ -17,7 +17,7 @@ final class RemoteVideoBeautyTests: XCTestCase, @unchecked Sendable {
         await pipeline.setRemoteVideoBeautyErrorListener { _ in
             XCTFail("Temporary capacity pressure must not disable beauty or notify the user")
         }
-        try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions())
+        try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions(smoothness: 0.5))
         await pipeline.enqueue(try frame())
         await fulfillment(of: [pressure], timeout: 2)
         await pipeline.enqueue(try frame(timestamp: 2))
@@ -45,55 +45,73 @@ final class RemoteVideoBeautyTests: XCTestCase, @unchecked Sendable {
         XCTAssertThrowsError(try RealtimeVideoBeautyOptions(redness: -.infinity).validate())
     }
 
-    func testBeautyIsEnabledWithZeroStrengthsByDefaultAndPreservesTimestamp() async throws {
+    func testBeautyIsDisabledByDefaultWithoutCreatingProcessor() async throws {
         let input = try frame()
-        let replacement = try frame()
-        let processor = BeautyStub(replacement: replacement.pixelBuffer)
-        let recorder = BeautyRecorder()
-        let output = expectation(description: "Processed output")
-        let pipeline = makePipeline(factory: { options in
-            XCTAssertEqual(options.smoothness, 0)
-            XCTAssertEqual(options.lightening, 0)
-            XCTAssertEqual(options.sharpness, 0)
-            XCTAssertEqual(options.redness, 0)
-            return processor
+        let output = expectation(description: "Original result output")
+        let pipeline = makePipeline(factory: { _ in
+            XCTFail("Default-disabled beauty must not initialize a processor")
+            throw XmaxError(code: .internalError, message: "Unexpected factory")
         }, output: { frame, _ in
-            await recorder.append(frame)
+            XCTAssertTrue(frame.pixelBuffer === input.pixelBuffer)
+            XCTAssertEqual(frame.presentationTimeStamp, input.presentationTimeStamp)
             output.fulfill()
         })
         await pipeline.enqueue(input)
         await fulfillment(of: [output], timeout: 2)
-        let recorded = await recorder.first()
-        let received = try XCTUnwrap(recorded)
-        XCTAssertTrue(received.pixelBuffer === replacement.pixelBuffer)
-        XCTAssertEqual(received.presentationTimeStamp, input.presentationTimeStamp)
-        XCTAssertEqual(received.duration, CMTime(value: 1, timescale: 24))
         await pipeline.closeBeauty()
     }
 
-    func testExplicitDisableBypassesBeautyAndCloseRestoresDefaults() async throws {
+    func testExplicitBeautyEnableProcessesZeroAndNonzeroOptionsAndPreservesTiming() async throws {
+        for options in [RealtimeVideoBeautyOptions(),
+                        RealtimeVideoBeautyOptions(smoothness: 0.5),
+                        RealtimeVideoBeautyOptions(lightening: 0.5),
+                        RealtimeVideoBeautyOptions(sharpness: 0.5),
+                        RealtimeVideoBeautyOptions(redness: 0.5)] {
+            let input = try frame()
+            let replacement = try frame()
+            let processor = BeautyStub(replacement: replacement.pixelBuffer)
+            let output = expectation(description: "Processed output")
+            let pipeline = makePipeline(factory: { applied in
+                XCTAssertEqual(applied, options)
+                return processor
+            }, output: { received, _ in
+                XCTAssertTrue(received.pixelBuffer === replacement.pixelBuffer)
+                XCTAssertEqual(received.presentationTimeStamp, input.presentationTimeStamp)
+                XCTAssertEqual(received.duration, input.duration)
+                output.fulfill()
+            })
+            try await pipeline.setRemoteVideoBeauty(options)
+            await pipeline.enqueue(input)
+            await fulfillment(of: [output], timeout: 2)
+            await pipeline.closeBeauty()
+        }
+    }
+
+    func testExplicitDisableAndCloseKeepBeautyDisabled() async throws {
         let input = try frame()
+        let afterClose = try frame(timestamp: 2)
         let replacement = try frame()
         let bypassed = expectation(description: "Explicit disable preserves original pixels")
-        let restored = expectation(description: "Reused pipeline restores beauty defaults")
+        let restored = expectation(description: "Reused pipeline keeps beauty disabled")
         let processor = BeautyStub(replacement: replacement.pixelBuffer)
         let pipeline = makePipeline(factory: { options in
-            XCTAssertEqual(options, RealtimeVideoBeautyOptions(smoothness: 0, lightening: 0, sharpness: 0, redness: 0))
+            XCTAssertEqual(options, RealtimeVideoBeautyOptions(smoothness: 0.5))
             return processor
         }, output: { frame, _ in
             if frame.presentationTimeStamp.value == 1 {
                 XCTAssertTrue(frame.pixelBuffer === input.pixelBuffer)
                 bypassed.fulfill()
             } else {
-                XCTAssertTrue(frame.pixelBuffer === replacement.pixelBuffer)
+                XCTAssertTrue(frame.pixelBuffer === afterClose.pixelBuffer)
                 restored.fulfill()
             }
         })
+        try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions(smoothness: 0.5))
         try await pipeline.setRemoteVideoBeauty(nil)
         await pipeline.enqueue(input)
         await fulfillment(of: [bypassed], timeout: 2)
         await pipeline.closeBeauty()
-        await pipeline.enqueue(try frame(timestamp: 2))
+        await pipeline.enqueue(afterClose)
         await fulfillment(of: [restored], timeout: 2)
         await pipeline.closeBeauty()
     }
@@ -113,7 +131,7 @@ final class RemoteVideoBeautyTests: XCTestCase, @unchecked Sendable {
             XCTAssertEqual(error.code, .mediaError)
             failed.fulfill()
         }
-        try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions())
+        try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions(smoothness: 0.5))
         let input = try frame()
         await pipeline.enqueue(input)
         await fulfillment(of: [failed, first], timeout: 2)
@@ -137,7 +155,7 @@ final class RemoteVideoBeautyTests: XCTestCase, @unchecked Sendable {
             await recorder.append(frame)
             output.fulfill()
         })
-        try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions())
+        try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions(smoothness: 0.5))
         await pipeline.enqueue(try frame(), outputToken: 0)
         await fulfillment(of: [entered], timeout: 2)
         await pipeline.reset(outputToken: 2)

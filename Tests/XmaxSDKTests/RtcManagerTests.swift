@@ -15,6 +15,42 @@ import XCTest
 @testable import XmaxSDK
 
 final class RtcManagerTests: XCTestCase {
+    func testMicrophoneInputSelectionIsRetainedAcrossCaptureRestarts() async throws {
+        for deviceID: String? in [nil, "usb-input-uid"] {
+            let captured = expectation(description: "Selected input reaches audio capture")
+            captured.expectedFulfillmentCount = 2
+            let platform = RtcPlatformStub(onAudioCapture: { selected in
+                XCTAssertEqual(selected, deviceID)
+                captured.fulfill()
+            })
+            let engines = RtcEngineManager(
+                appID: "test",
+                makeEngine: { _ in platform },
+                destroyEngine: {}
+            )
+            let manager = RtcManager(engineManager: engines, microphoneDeviceID: deviceID)
+            try await manager.initialize()
+            try manager.startAudioCapture()
+            try manager.stopAudioCapture()
+            try manager.startAudioCapture()
+            await fulfillment(of: [captured], timeout: 1)
+            await manager.destroy()
+        }
+    }
+
+    func testRejectedMicrophoneSelectionPropagatesCaptureFailure() async throws {
+        let platform = RtcPlatformStub(onAudioCapture: { _ in
+            throw XmaxError(code: .mediaError, message: "Input removed")
+        })
+        let engines = RtcEngineManager(appID: "test", makeEngine: { _ in platform }, destroyEngine: {})
+        let manager = RtcManager(engineManager: engines, microphoneDeviceID: "removed-input")
+        try await manager.initialize()
+        XCTAssertThrowsError(try manager.startAudioCapture()) { error in
+            XCTAssertEqual((error as? XmaxError)?.code, .mediaError)
+        }
+        await manager.destroy()
+    }
+
     @MainActor
     func testPreviewBindingDoesNotBlockMainThreadDuringJoinAndOnlyBindsLatestView() async throws {
         let entered = expectation(description: "Join holds control lock")

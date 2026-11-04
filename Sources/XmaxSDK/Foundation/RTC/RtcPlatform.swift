@@ -41,8 +41,12 @@ protocol RtcPlatform: AnyObject, RtcCameraCapturing {
 
     /// Switches to microphone input and starts capture.
     ///
+    /// - Parameter deviceID: The Core Audio input UID; nil follows the system default input.
+    ///
     /// - Throws: An error on audio source switching or capture failure.
-    func startAudioCapture() throws
+    func startAudioCapture(
+        deviceID: String?
+    ) throws
 
     /// Stops microphone capture.
     ///

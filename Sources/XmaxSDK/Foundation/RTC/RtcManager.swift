@@ -20,6 +20,9 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// The exclusive engine lease provider.
     private let engineManager: RtcEngineManager
 
+    /// The selected input UID, or nil to follow the system default during microphone capture.
+    private let microphoneDeviceID: String?
+
     /// The room join timeout, in nanoseconds.
     private let joinTimeout: UInt64
 
@@ -65,9 +68,11 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// Creates an RTC manager with a room join timeout.
     init(
         engineManager: RtcEngineManager = .shared,
-        joinTimeoutNanoseconds: UInt64 = RtcManager.joinTimeoutNanoseconds
+        joinTimeoutNanoseconds: UInt64 = RtcManager.joinTimeoutNanoseconds,
+        microphoneDeviceID: String? = nil
     ) {
         self.engineManager = engineManager
+        self.microphoneDeviceID = microphoneDeviceID
         joinTimeout = joinTimeoutNanoseconds
     }
 
@@ -296,7 +301,7 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     ///
     /// - Throws: An error on audio source switching or capture failure.
     func startAudioCapture() throws {
-        try withEngine { try $0.startAudioCapture() }
+        try withEngine { try $0.startAudioCapture(deviceID: microphoneDeviceID) }
     }
 
     /// Stops microphone capture.

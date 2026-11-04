@@ -259,11 +259,12 @@ private extension RemoteVideoFramePipelineTests {
     func waitForOutput(
         _ recorder: RealtimeVideoFrameRecorder
     ) async throws -> RealtimeVideoFrameRecorder.Output {
-        for _ in 0..<1_000 {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline {
             if let output = await recorder.firstOutput {
                 return output
             }
-            await Task.yield()
+            try await Task.sleep(nanoseconds: 1_000_000)
         }
         XCTFail("Timed out waiting for a processed video frame")
         throw XmaxError(code: .timeout, message: "Frame output timed out")

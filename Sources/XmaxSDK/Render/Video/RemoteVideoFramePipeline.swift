@@ -56,8 +56,8 @@ actor RemoteVideoFramePipeline {
     /// Reports recoverable beauty fallback separately from interpolation and session failures.
     private var beautyErrorListener: RealtimeVideoBeautyErrorListener?
 
-    /// The requested result strengths, enabled at zero by default and retained across stream replacement.
-    private var beautyOptions: RealtimeVideoBeautyOptions? = RealtimeVideoBeautyOptions()
+    /// The explicitly enabled strengths, retained across stream replacement; nil disables beauty.
+    private var beautyOptions: RealtimeVideoBeautyOptions?
 
     /// The processor for the current result stream.
     private var beautyProcessor: (any VideoBeautyProcessing)?
@@ -172,10 +172,9 @@ actor RemoteVideoFramePipeline {
         beautyErrorListener = listener
     }
 
-    /// Releases native processing and restores zero-strength defaults at full manager shutdown.
+    /// Releases native processing and restores disabled beauty at full manager shutdown.
     func closeBeauty() async {
         try? await setRemoteVideoBeauty(nil)
-        beautyOptions = RealtimeVideoBeautyOptions()
         beautyErrorListener = nil
     }
 

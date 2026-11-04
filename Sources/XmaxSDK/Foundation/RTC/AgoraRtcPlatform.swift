@@ -430,10 +430,24 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
 
     /// Switches to microphone input and starts capture.
     ///
+    /// - Parameter deviceID: The Core Audio input UID; nil follows the system default input.
+    ///
     /// - Throws: An error on audio source switching or capture failure.
-    func startAudioCapture() throws {
+    func startAudioCapture(
+        deviceID: String?
+    ) throws {
         try lock.withLock {
             try stopExternalAudioSource()
+            try Self.checkResult(
+                engine.followSystemRecordingDevice(deviceID == nil),
+                operation: "followSystemRecordingDevice"
+            )
+            if let deviceID {
+                try Self.checkResult(
+                    engine.setDevice(.audioRecording, deviceId: deviceID),
+                    operation: "setRecordingDevice"
+                )
+            }
             try Self.checkResult(
                 engine.enableLocalAudio(true),
                 operation: "enableLocalAudio"

@@ -161,8 +161,9 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
         let late = rtc.currentCameraPreviewReadyListener
         let unexpected = expectation(description: "Stopped preview must not become ready")
         unexpected.isInverted = true
-        controller.setPreviewReadyHandler { _ in unexpected.fulfill() }
         await controller.stopLocalCameraStream()
+        // Capture was already ready; only a notification after completed shutdown is invalid.
+        controller.setPreviewReadyHandler { _ in unexpected.fulfill() }
         late?()
         await fulfillment(of: [unexpected], timeout: 0.1)
         XCTAssertNil(controller.currentTrack)

@@ -20,11 +20,14 @@ final class RtcPlatformStub: RtcPlatform, @unchecked Sendable {
     /// Room factory
     private let makeRoom: @Sendable (String) throws -> any RtcRoom
     private let onPreviewAttach: @MainActor @Sendable (NSView) -> Void
+    private let onAudioCapture: @Sendable (String?) throws -> Void
 
     init(makeRoom: @escaping @Sendable (String) throws -> any RtcRoom = { _ in RtcRoomStub() },
-         onPreviewAttach: @escaping @MainActor @Sendable (NSView) -> Void = { _ in }) {
+         onPreviewAttach: @escaping @MainActor @Sendable (NSView) -> Void = { _ in },
+         onAudioCapture: @escaping @Sendable (String?) throws -> Void = { _ in }) {
         self.makeRoom = makeRoom
         self.onPreviewAttach = onPreviewAttach
+        self.onAudioCapture = onAudioCapture
     }
 
     func configureVideoEncoding(_ configuration: VideoEncodingConfiguration) throws {}
@@ -40,7 +43,7 @@ final class RtcPlatformStub: RtcPlatform, @unchecked Sendable {
     func stopCameraCapture() throws {}
     @MainActor func attachCameraPreview(to view: NSView, contentMode: VideoContentMode, mirrored: Bool) throws { onPreviewAttach(view) }
     @MainActor func detachCameraPreview(from view: NSView) throws {}
-    func startAudioCapture() throws {}
+    func startAudioCapture(deviceID: String?) throws { try onAudioCapture(deviceID) }
     func stopAudioCapture() throws {}
     func startExternalAudioSource() throws {}
     func stopExternalAudioSource() throws {}

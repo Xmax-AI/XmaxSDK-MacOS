@@ -67,6 +67,12 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
     private final class Storage: @unchecked Sendable {
         /// The app-private XPC peer.
         var connection: NSXPCConnection?
+        /// Converts supported SDR colors before transferring their surfaces to ClearVision.
+        let colorConverter = VideoBeautyColorConverter()
+        #if DEBUG
+        /// The explicitly applied strengths included in the temporary local color diagnostic.
+        var diagnosticOptions: RealtimeVideoBeautyOptions?
+        #endif
         /// Prevents a closed processor from activating another connection.
         var closed = false
 
@@ -74,6 +80,7 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
         func shutdown() {
             connection?.invalidate()
             connection = nil
+            colorConverter.close()
             closed = true
         }
     }
@@ -134,6 +141,9 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
                         throw Self.error("Invalid beauty helper configuration reply")
                     }
                     if let error { throw Self.error(error) }
+                    #if DEBUG
+                    storage.diagnosticOptions = options
+                    #endif
                     continuation.resume()
                 } catch {
                     storage.shutdown()
@@ -151,18 +161,8 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
         return try await withCheckedThrowingContinuation { continuation in
             worker.async { [self] in
                 do {
-                    let attachments = CVBufferCopyAttachments(frame.pixelBuffer, .shouldPropagate) as? [String: Any]
-                    let expected = [
-                        kCVImageBufferYCbCrMatrixKey as String: kCVImageBufferYCbCrMatrix_ITU_R_709_2 as String,
-                        kCVImageBufferColorPrimariesKey as String: kCVImageBufferColorPrimaries_ITU_R_709_2 as String,
-                        kCVImageBufferTransferFunctionKey as String: kCVImageBufferTransferFunction_ITU_R_709_2 as String
-                    ]
-                    for (key, value) in expected {
-                        if let actual = attachments?[key] as? String, actual != value {
-                            throw Self.error("Result beauty currently supports SDR BT.709 video only")
-                        }
-                    }
-                    guard let surface = CVPixelBufferGetIOSurface(frame.pixelBuffer)?.takeUnretainedValue() else {
+                    let input = try storage.colorConverter.prepare(frame)
+                    guard let surface = CVPixelBufferGetIOSurface(input.pixelBuffer)?.takeUnretainedValue() else {
                         throw Self.error("Result beauty requires an IOSurface-backed pixel buffer")
                     }
                     let reply = Reply()
@@ -191,6 +191,11 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
                                           kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
                     CVBufferSetAttachment(output, kCVImageBufferTransferFunctionKey,
                                           kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
+                    #if DEBUG
+                    if let options = storage.diagnosticOptions {
+                        TemporaryBeautyColorCapture.save(original: frame, prepared: input, output: output, options: options)
+                    }
+                    #endif
                     continuation.resume(returning: RealtimeVideoFrame(
                         pixelBuffer: output,
                         presentationTimeStamp: frame.presentationTimeStamp,

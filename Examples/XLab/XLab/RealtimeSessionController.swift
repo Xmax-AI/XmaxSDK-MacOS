@@ -47,7 +47,7 @@ final class RealtimeSessionController: ObservableObject {
     @Published private(set) var interpolationEnabled = true
     @Published private(set) var interpolationSwitching = false
     @Published private(set) var beautyEnabled =
-        UserDefaults.standard.object(forKey: "xmax.xlab.beauty.enabled") as? Bool ?? true
+        UserDefaults.standard.object(forKey: "xmax.xlab.beauty.enabled") as? Bool ?? false
     @Published private(set) var beautyOptions: RealtimeVideoBeautyOptions = {
         let values = UserDefaults.standard.dictionary(forKey: "xmax.xlab.beauty.options") ?? [:]
         func strength(_ key: String) -> Float {

@@ -57,7 +57,7 @@ enum XmaxRealtimeFactory {
         apiService: any ApiServicing
     ) -> XmaxRealtimeComponents {
         let errorManager = XmaxRealtimeErrorManager()
-        let rtcManager = RtcManager()
+        let rtcManager = RtcManager(microphoneDeviceID: options.microphoneDeviceID)
         let mediaService = MediaService(model: options.model)
         let timing = RealtimeTiming()
 
