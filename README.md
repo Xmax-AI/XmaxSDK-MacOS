@@ -239,7 +239,7 @@ let localStream = try await realtime.createLocalCameraStream(
     videoFormat: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30),
     deviceID: nil,
     mirror: false,
-    useMicrophone: false
+    microphone: .disabled
 )
 videoView.localTrack = localStream.videoTrack
 

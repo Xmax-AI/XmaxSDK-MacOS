@@ -3,7 +3,7 @@ import CoreVideo
 import XCTest
 @testable import XmaxSDK
 
-final class RemoteVideoBeautyTests: XCTestCase, @unchecked Sendable {
+final class RemoteBeautyTests: XCTestCase, @unchecked Sendable {
     func testOutputPressureDropsOneFrameAndPreservesBeautyForNextFrame() async throws {
         let replacement = try frame()
         let pressure = expectation(description: "Pool pressure observed")
@@ -214,7 +214,7 @@ private actor BeautyRecorder {
     func first() -> RealtimeVideoFrame? { frames.first }
 }
 
-private actor BeautyStub: VideoBeautyProcessing {
+private actor BeautyStub: BeautyProcessing {
     private let replacement: CVPixelBuffer?
     private let fails: Bool
     private let pressureObserved: XCTestExpectation?
@@ -234,7 +234,7 @@ private actor BeautyStub: VideoBeautyProcessing {
         calls += 1
         if let pressureObserved, calls == 1 {
             pressureObserved.fulfill()
-            throw VideoBeautyProcessingError.outputBackpressure
+            throw BeautyProcessingError.outputBackpressure
         }
         if let entered, !closed {
             await withCheckedContinuation { continuation in

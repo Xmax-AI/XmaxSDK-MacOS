@@ -49,6 +49,20 @@ final class ExternalVideoController: ExternalVideoControlling, @unchecked Sendab
     /// The dispatcher coalescing pending preview frames.
     @MainActor private var dispatcher: DecodedVideoPreviewDispatcher?
 
+    /// The active external video track.
+    var currentTrack: RealtimeVideoTrack? {
+        lock.withLock {
+            track
+        }
+    }
+
+    /// Whether the current source supplies external audio.
+    var hasAudio: Bool {
+        lock.withLock {
+            storedHasAudio
+        }
+    }
+
     /// Creates an external video lifecycle and preview controller.
     init(
         rtcManager: any RtcManaging,
@@ -63,20 +77,6 @@ final class ExternalVideoController: ExternalVideoControlling, @unchecked Sendab
         self.videoFrameListener = videoFrameListener
         self.audioFrameListener = audioFrameListener
         self.errorListener = errorListener
-    }
-
-    /// The active external video track.
-    var currentTrack: RealtimeVideoTrack? {
-        lock.withLock {
-            track
-        }
-    }
-
-    /// Whether the current source supplies external audio.
-    var hasAudio: Bool {
-        lock.withLock {
-            storedHasAudio
-        }
     }
 
     /// Binds an external source for preview and generation.

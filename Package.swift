@@ -12,7 +12,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "XmaxSDK", targets: ["XmaxSDK"]),
-        .library(name: "XmaxRealtimeVideoBeautyWorkerSupport", targets: ["XmaxRealtimeVideoBeautyWorkerSupport"])
+        .library(name: "XmaxRealtimeBeautyWorkerSupport", targets: ["XmaxRealtimeBeautyWorkerSupport"])
     ],
     dependencies: [
         .package(url: "https://github.com/AgoraIO/AgoraRtcEngine_macOS.git", exact: "4.6.2")
@@ -22,26 +22,26 @@ let package = Package(
             name: "XmaxSDK",
             dependencies: [
                 .product(name: "RtcBasic", package: "AgoraRtcEngine_macOS"),
-                "VideoBeautyIPC",
+                "BeautyIPC",
                 .product(name: "ClearVision", package: "AgoraRtcEngine_macOS"),
                 "QCloudCore",
                 "QCloudCOSXML"
             ],
             path: "Sources/XmaxSDK"
         ),
-        .target(name: "VideoBeautyIPC", path: "Sources/VideoBeautyIPC"),
+        .target(name: "BeautyIPC", path: "Sources/Beauty/IPC"),
         .target(
-            name: "XmaxRealtimeVideoBeautyWorkerSupport",
-            dependencies: ["VideoBeautyIPC", "VideoBeautyBridge"],
-            path: "Sources/XmaxRealtimeVideoBeautyWorkerSupport"
+            name: "XmaxRealtimeBeautyWorkerSupport",
+            dependencies: ["BeautyIPC", "BeautyBridge"],
+            path: "Sources/Beauty/WorkerSupport"
         ),
         .target(
-            name: "VideoBeautyBridge",
+            name: "BeautyBridge",
             dependencies: [
                 .product(name: "RtcBasic", package: "AgoraRtcEngine_macOS"),
                 .product(name: "ClearVision", package: "AgoraRtcEngine_macOS")
             ],
-            path: "Sources/VideoBeautyBridge",
+            path: "Sources/Beauty/Bridge",
             publicHeadersPath: "include"
         ),
         .binaryTarget(
@@ -81,9 +81,9 @@ let package = Package(
             path: "Examples/XLab/XLab/Recording"
         ),
         .testTarget(
-            name: "VideoBeautyWorkerTests",
-            dependencies: ["VideoBeautyBridge"],
-            path: "Tests/VideoBeautyWorkerTests",
+            name: "BeautyWorkerTests",
+            dependencies: ["BeautyBridge"],
+            path: "Tests/BeautyWorkerTests",
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../.."])]
         ),
         .testTarget(

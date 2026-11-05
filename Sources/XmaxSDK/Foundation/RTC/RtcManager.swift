@@ -21,7 +21,7 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     private let engineManager: RtcEngineManager
 
     /// The selected input UID, or nil to follow the system default during microphone capture.
-    private let microphoneDeviceID: String?
+    private var microphoneDeviceID: String?
 
     /// The room join timeout, in nanoseconds.
     private let joinTimeout: UInt64
@@ -302,6 +302,22 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// - Throws: An error on audio source switching or capture failure.
     func startAudioCapture() throws {
         try withEngine { try $0.startAudioCapture(deviceID: microphoneDeviceID) }
+    }
+
+    /// Applies and retains input selection under the audio control lock, restoring the previous route on failure.
+    func setMicrophoneDevice(
+        _ deviceID: String?
+    ) throws {
+        try withEngine { platform in
+            do {
+                try platform.setMicrophoneDevice(deviceID)
+                microphoneDeviceID = deviceID
+            } catch {
+                do { try platform.setMicrophoneDevice(microphoneDeviceID) }
+                catch { XmaxLogger.realtime.error(message: "Failed to restore microphone input: \(error)") }
+                throw error
+            }
+        }
     }
 
     /// Stops microphone capture.

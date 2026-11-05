@@ -16,6 +16,12 @@ protocol StreamControlling: Sendable {
     /// The current media baseline and upstream and downstream tiers.
     var qualityConfiguration: QualityConfiguration? { get }
 
+    /// Whether a generation task is starting or running.
+    var hasGenerationTask: Bool { get }
+
+    /// The current remote generated audio playback volume.
+    var remoteAudioVolume: Float { get }
+
     /// Prepares upstream and downstream tiers from media baseline and model history.
     ///
     /// - Parameters:
@@ -65,12 +71,6 @@ protocol StreamControlling: Sendable {
 
     /// Clears the consecutive sampling window.
     func resetQualitySamples()
-
-    /// Whether a generation task is starting or running.
-    var hasGenerationTask: Bool { get }
-
-    /// The current remote generated audio playback volume.
-    var remoteAudioVolume: Float { get }
 
     /// Sets realtime video encoder configuration.
     ///
@@ -141,6 +141,11 @@ protocol StreamControlling: Sendable {
     /// Clears generation, local publication, and remote subscription state, then leaves the RTC room;
     /// returns safely without an active room.
     func disconnect() async
+
+    /// Changes only local audio publication and retains its state for disconnect cleanup.
+    func setLocalAudioPublished(
+        _ published: Bool
+    ) throws
 
     /// Pushes local external video during an active generation task; ignores frames otherwise.
     ///

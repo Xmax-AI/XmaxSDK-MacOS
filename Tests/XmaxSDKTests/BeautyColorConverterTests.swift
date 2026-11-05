@@ -4,9 +4,9 @@ import CoreVideo
 import XCTest
 @testable import XmaxSDK
 
-final class VideoBeautyColorConverterTests: XCTestCase, @unchecked Sendable {
+final class BeautyColorConverterTests: XCTestCase, @unchecked Sendable {
     func testCompatibleAndUntaggedFramesRetainOriginalBuffersAndTiming() throws {
-        let converter = VideoBeautyColorConverter()
+        let converter = BeautyColorConverter()
         defer { converter.close() }
         for format in [kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
                        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange] {
@@ -22,7 +22,7 @@ final class VideoBeautyColorConverterTests: XCTestCase, @unchecked Sendable {
     }
 
     func testSDRColorConversionPreservesAppearanceInsteadOfRelabelingPixels() throws {
-        let converter = VideoBeautyColorConverter()
+        let converter = BeautyColorConverter()
         defer { converter.close() }
         for format in [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange] {
             for srgb in [false, true] {
@@ -46,7 +46,7 @@ final class VideoBeautyColorConverterTests: XCTestCase, @unchecked Sendable {
     }
 
     func testHDRTransferFunctionsFailWithTheirActualValues() throws {
-        let converter = VideoBeautyColorConverter()
+        let converter = BeautyColorConverter()
         for transfer in [kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ,
                          kCVImageBufferTransferFunction_ITU_R_2100_HLG] {
             let input = try makeFrame()
@@ -63,13 +63,13 @@ final class VideoBeautyColorConverterTests: XCTestCase, @unchecked Sendable {
     }
 
     func testConvertedBufferPressureAndShutdownPreserveRetainedPixels() throws {
-        let converter = VideoBeautyColorConverter()
+        let converter = BeautyColorConverter()
         let input = try makeFrame()
         setColors(input.pixelBuffer, transfer: kCVImageBufferTransferFunction_sRGB)
         var retained = try (0..<3).map { _ in try converter.prepare(input) }
         let before = render(retained[0].pixelBuffer)
         XCTAssertThrowsError(try converter.prepare(input)) { error in
-            guard case VideoBeautyProcessingError.outputBackpressure = error else {
+            guard case BeautyProcessingError.outputBackpressure = error else {
                 return XCTFail("Expected recoverable conversion pool pressure")
             }
         }
@@ -89,7 +89,7 @@ final class VideoBeautyColorConverterTests: XCTestCase, @unchecked Sendable {
         setColors(input.pixelBuffer, primaries: kCVImageBufferColorPrimaries_SMPTE_C,
                   matrix: kCVImageBufferYCbCrMatrix_ITU_R_601_4)
         let interpolation = try FrameInterpolationManager(frame: input)
-        let converter = VideoBeautyColorConverter()
+        let converter = BeautyColorConverter()
         defer { converter.close() }
         do {
             let first = try await interpolation.process(input, sourceDuration: input.duration)

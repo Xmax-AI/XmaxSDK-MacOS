@@ -19,7 +19,7 @@ Pod::Spec.new do |spec|
   spec.swift_version = '6.0'
   spec.module_name = 'XmaxSDK'
   spec.static_framework = true
-  spec.source_files = 'Sources/XmaxSDK/**/*.swift', 'Sources/VideoBeautyIPC/**/*.swift'
+  spec.source_files = 'Sources/XmaxSDK/**/*.swift', 'Sources/Beauty/IPC/**/*.swift'
 
   spec.dependency 'AgoraRtcEngine_macOS/RtcBasic', '4.6.2'
   spec.dependency 'QCloudCOSXML/Transfer', '6.5.7'

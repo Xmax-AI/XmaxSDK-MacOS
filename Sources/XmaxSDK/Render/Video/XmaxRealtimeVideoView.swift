@@ -108,6 +108,9 @@ public final class XmaxRealtimeVideoView: NSView {
     /// The reusable preview media format description.
     private var localPreviewFormatDescription: CMVideoFormatDescription?
 
+    /// Uses top-down view coordinates.
+    public override var isFlipped: Bool { true }
+
     /// Creates a video container with the specified track and display mode.
     ///
     /// - Parameters:
@@ -175,9 +178,6 @@ public final class XmaxRealtimeVideoView: NSView {
         trajectoryOverlay?.frame = bounds
     }
 
-    /// Uses top-down view coordinates.
-    public override var isFlipped: Bool { true }
-
     /// Creates a layer container with a black background.
     private func configureView() {
         wantsLayer = true
@@ -187,6 +187,14 @@ public final class XmaxRealtimeVideoView: NSView {
 }
 
 extension XmaxRealtimeVideoView {
+
+    /// The error describing unsupported image preview pixels.
+    static var invalidImageFrameError: XmaxError {
+        XmaxError(
+            code: .mediaError,
+            message: "Video preview frame is invalid"
+        )
+    }
 
     /// Starts the binding's fade-in once and preserves the internal frame notification.
     func notifyVideoFrameSubmitted() {
@@ -856,13 +864,5 @@ extension XmaxRealtimeVideoView {
                 )
             }
         }
-    }
-
-    /// The error describing unsupported image preview pixels.
-    static var invalidImageFrameError: XmaxError {
-        XmaxError(
-            code: .mediaError,
-            message: "Video preview frame is invalid"
-        )
     }
 }

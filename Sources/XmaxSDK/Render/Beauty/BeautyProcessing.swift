@@ -1,5 +1,5 @@
 //
-//  VideoBeautyProcessing.swift
+//  BeautyProcessing.swift
 //  XmaxSDK
 //
 //  Author: 翁跃庭 (Yueting Weng)
@@ -9,7 +9,7 @@
 //
 
 /// Processes owned result frames independently of RTC capture, publication, and room state.
-protocol VideoBeautyProcessing: AnyObject, Sendable {
+protocol BeautyProcessing: AnyObject, Sendable {
 
     /// Applies validated strengths without replacing the media graph.
     func update(
@@ -27,7 +27,7 @@ protocol VideoBeautyProcessing: AnyObject, Sendable {
 }
 
 /// Identifies a temporary output-capacity limit without invalidating the beauty graph.
-enum VideoBeautyProcessingError: Error {
+enum BeautyProcessingError: Error {
     /// Downstream consumers still hold every buffer in the bounded output pool.
     case outputBackpressure
 }

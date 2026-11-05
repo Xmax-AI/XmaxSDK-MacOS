@@ -1,5 +1,5 @@
 //
-//  OfflineVideoBeautyProcessor.swift
+//  OfflineBeautyProcessor.swift
 //  XmaxSDK
 //
 //  Author: 翁跃庭 (Yueting Weng)
@@ -12,11 +12,11 @@ import CoreVideo
 import Foundation
 @preconcurrency import IOSurface
 #if SWIFT_PACKAGE
-internal import VideoBeautyIPC
+internal import BeautyIPC
 #endif
 
 /// Serializes bounded XPC requests to a private helper, isolating Agora's process-wide engine state.
-final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Sendable {
+final class OfflineBeautyProcessor: BeautyProcessing, @unchecked Sendable {
 
     /// A cross-process response whose surface is protected by a native buffer lease.
     private enum Response: @unchecked Sendable {
@@ -68,7 +68,7 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
         /// The app-private XPC peer.
         var connection: NSXPCConnection?
         /// Converts supported SDR colors before transferring their surfaces to ClearVision.
-        let colorConverter = VideoBeautyColorConverter()
+        let colorConverter = BeautyColorConverter()
         #if DEBUG
         /// The explicitly applied strengths included in the temporary local color diagnostic.
         var diagnosticOptions: RealtimeVideoBeautyOptions?
@@ -106,8 +106,8 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
     /// Creates a helper-backed processor without creating capture devices or RTC connections.
     static func make(
         _ options: RealtimeVideoBeautyOptions
-    ) async throws -> any VideoBeautyProcessing {
-        let processor = OfflineVideoBeautyProcessor()
+    ) async throws -> any BeautyProcessing {
+        let processor = OfflineBeautyProcessor()
         try await processor.update(options)
         return processor
     }
@@ -171,7 +171,7 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
                         throw Self.error("Invalid beauty helper frame reply")
                     }
                     if code == Int(kCVReturnWouldExceedAllocationThreshold) {
-                        throw VideoBeautyProcessingError.outputBackpressure
+                        throw BeautyProcessingError.outputBackpressure
                     }
                     if let error { throw Self.error(error) }
                     guard let result, lease != 0 else { throw Self.error("The beauty helper returned no frame") }
@@ -201,8 +201,8 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
                         presentationTimeStamp: frame.presentationTimeStamp,
                         duration: frame.duration
                     ))
-                } catch VideoBeautyProcessingError.outputBackpressure {
-                    continuation.resume(throwing: VideoBeautyProcessingError.outputBackpressure)
+                } catch BeautyProcessingError.outputBackpressure {
+                    continuation.resume(throwing: BeautyProcessingError.outputBackpressure)
                 } catch {
                     storage.shutdown()
                     continuation.resume(throwing: error)
@@ -236,18 +236,18 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
     ) {
         worker.async { [storage] in
             guard let connection = storage.connection else { return }
-            (connection.remoteObjectProxyWithErrorHandler { _ in } as? VideoBeautyWorkerProtocol)?.releaseFrame(lease)
+            (connection.remoteObjectProxyWithErrorHandler { _ in } as? BeautyWorkerProtocol)?.releaseFrame(lease)
         }
     }
 
     /// Forwards a connection failure into the active request's bounded wait.
     private func proxy(
         reply: Reply
-    ) throws -> any VideoBeautyWorkerProtocol {
+    ) throws -> any BeautyWorkerProtocol {
         guard !storage.closed, let connection = storage.connection,
             let proxy = connection.remoteObjectProxyWithErrorHandler({ error in
                 reply.complete(.failure("Result beauty helper disconnected: \(error.localizedDescription)"))
-            }) as? VideoBeautyWorkerProtocol else {
+            }) as? BeautyWorkerProtocol else {
             throw Self.error("The result beauty helper is unavailable")
         }
         return proxy
@@ -256,15 +256,15 @@ final class OfflineVideoBeautyProcessor: VideoBeautyProcessing, @unchecked Senda
     /// Activates the owning app's private XPC service with the system launch and sandbox lifecycle.
     private func start() throws {
         guard !storage.closed else { throw Self.error("The result beauty processor is closed") }
-        let service = Bundle.main.bundleURL.appendingPathComponent("Contents/XPCServices/XmaxRealtimeVideoBeautyWorker.xpc")
+        let service = Bundle.main.bundleURL.appendingPathComponent("Contents/XPCServices/XmaxRealtimeBeautyWorker.xpc")
         guard FileManager.default.fileExists(atPath: service.path) else {
-            throw Self.error("Embed XmaxRealtimeVideoBeautyWorker.xpc in Contents/XPCServices to enable result beauty")
+            throw Self.error("Embed XmaxRealtimeBeautyWorker.xpc in Contents/XPCServices to enable result beauty")
         }
         guard let serviceName = Bundle(url: service)?.bundleIdentifier, !serviceName.isEmpty else {
             throw Self.error("The result beauty service requires a bundle identifier")
         }
         let connection = NSXPCConnection(serviceName: serviceName)
-        connection.remoteObjectInterface = VideoBeautyWorkerInterface.make()
+        connection.remoteObjectInterface = BeautyWorkerInterface.make()
         connection.resume()
         storage.connection = connection
     }

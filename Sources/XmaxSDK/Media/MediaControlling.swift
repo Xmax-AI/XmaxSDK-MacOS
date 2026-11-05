@@ -13,11 +13,6 @@ import Foundation
 /// Defines unified media capabilities exposed to Core.
 protocol MediaControlling: Actor, InteractionControlling {
 
-    /// Lists available camera devices without starting capture.
-    ///
-    /// - Returns: Devices with their identifiers, names, and default status.
-    func listCameraDevices() -> [CameraDevice]
-
     /// The active local video track.
     var currentTrack: RealtimeVideoTrack? { get }
 
@@ -29,6 +24,14 @@ protocol MediaControlling: Actor, InteractionControlling {
 
     /// Whether the current source includes SDK-managed local audio.
     var hasAudio: Bool { get }
+
+    /// Lists available camera devices without starting capture.
+    ///
+    /// - Returns: Devices with their identifiers, names, and default status.
+    func listCameraDevices() -> [CameraDevice]
+
+    /// Lists microphone inputs without starting capture or initializing RTC.
+    func listMicrophoneDevices() -> [MicrophoneDevice]
 
     /// Sets a one-time internal readiness handler for the current camera stream.
     ///
@@ -43,8 +46,7 @@ protocol MediaControlling: Actor, InteractionControlling {
     ///   - videoFormat: The target camera capture video format.
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
     ///   - mirror: Whether to mirror camera preview and upstream encoding.
-    ///   - useMicrophone: Whether to use the microphone; permission is checked at creation and capture starts on
-    ///     connection.
+    ///   - microphone: The initial input selection; enabled inputs capture audio only while connected.
     ///
     /// - Returns: The media stream containing the local camera video track.
     ///
@@ -54,7 +56,7 @@ protocol MediaControlling: Actor, InteractionControlling {
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
         mirror: Bool,
-        useMicrophone: Bool
+        microphone: RealtimeMicrophone
     ) async throws -> RealtimeMediaStream
 
     /// Binds caller-owned video input without acquiring camera permissions or capture resources.
@@ -75,6 +77,18 @@ protocol MediaControlling: Actor, InteractionControlling {
     ///
     /// - Throws: An error if stopping RTC audio capture fails.
     func stopMicrophoneCapture() throws
+
+    /// Changes input selection for the active camera stream without starting capture.
+    func switchMicrophone(
+        to deviceID: String?
+    ) throws
+
+    /// Updates camera microphone intent and starts capture only when the caller is connected.
+    func setMicrophoneEnabled(
+        _ enabled: Bool,
+        capture: Bool,
+        ensureCurrent: @escaping @Sendable () throws -> Void
+    ) async throws
 
     /// Cancels pending camera creation and releases SDK-owned capture before remote cleanup.
     /// RTC resources remain alive until the connection has been disconnected.

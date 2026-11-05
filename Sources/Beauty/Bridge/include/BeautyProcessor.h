@@ -6,7 +6,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /// An offline Agora media service, confined to its caller's serial worker queue.
-@interface VideoBeautyProcessor : NSObject {
+@interface BeautyProcessor : NSObject {
 @private
     void *_context;
 }

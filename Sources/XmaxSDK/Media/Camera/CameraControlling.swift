@@ -19,16 +19,16 @@ typealias CameraPreviewReadyHandler =
 /// Defines local camera stream, microphone capture, and preview resource management.
 protocol CameraControlling: Sendable {
 
-    /// Lists currently available camera devices.
-    ///
-    /// - Returns: The currently selectable system video devices.
-    func listCameraDevices() -> [CameraDevice]
-
     /// The local camera video track, or nil before creation or after stopping.
     var currentTrack: RealtimeVideoTrack? { get }
 
     /// Whether the current camera stream is configured to use the microphone.
     var useMicrophone: Bool { get }
+
+    /// Lists currently available camera devices.
+    ///
+    /// - Returns: The currently selectable system video devices.
+    func listCameraDevices() -> [CameraDevice]
 
     /// Reports ready capture and a bound preview. Native capture uses engine state events, including for hidden views.
     ///
@@ -66,6 +66,13 @@ protocol CameraControlling: Sendable {
     ///
     /// - Throws: An error if stopping RTC microphone capture fails.
     func stopMicrophoneCapture() throws
+
+    /// Updates microphone intent, checking permission before enabling and capture validity after suspension.
+    func setMicrophoneEnabled(
+        _ enabled: Bool,
+        capture: Bool,
+        ensureCurrent: @escaping @Sendable () throws -> Void
+    ) async throws
 
     /// Stops camera and microphone capture and releases the track and local preview resources.
     func stopLocalCameraStream() async

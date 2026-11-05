@@ -68,6 +68,27 @@ actor XmaxRealtimeConnectionManager {
     /// The most recently applied target dimensions for server output, in pixels.
     private(set) var currentTargetSize: CGSize?
 
+    /// The current session identifier; an empty string if no session is active.
+    var currentSessionID: String {
+        activeSession?.id ?? ""
+    }
+
+    /// The connected remote media stream, or `nil` before its session and tracks are ready.
+    var currentRemoteStream: RealtimeMediaStream? {
+        guard activeSession != nil, let activeRemoteTrack else {
+            return nil
+        }
+        return RealtimeMediaStream(
+            id: StreamID.remote.rawValue,
+            videoTrack: activeRemoteTrack
+        )
+    }
+
+    /// The connected session and its assigned model instance, or `nil` while disconnected.
+    var currentSession: RealtimeSession? {
+        activeSession
+    }
+
     /// Creates a realtime connection manager.
     init(
         sessionService: any RealtimeSessionServicing,
@@ -85,22 +106,6 @@ actor XmaxRealtimeConnectionManager {
         self.renderController = renderController
         self.streamController = streamController
         self.timing = timing
-    }
-
-    /// The current session identifier; an empty string if no session is active.
-    var currentSessionID: String {
-        activeSession?.id ?? ""
-    }
-
-    /// The connected remote media stream, or `nil` before its session and tracks are ready.
-    var currentRemoteStream: RealtimeMediaStream? {
-        guard activeSession != nil, let activeRemoteTrack else {
-            return nil
-        }
-        return RealtimeMediaStream(
-            id: StreamID.remote.rawValue,
-            videoTrack: activeRemoteTrack
-        )
     }
 
     /// Updates remote track and render formats using the current return dimensions.

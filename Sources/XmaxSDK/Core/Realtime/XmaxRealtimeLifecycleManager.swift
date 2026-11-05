@@ -88,6 +88,11 @@ actor XmaxRealtimeLifecycleManager {
         /// The lease that tracks the operation's validity.
         fileprivate let lease: OperationLease
 
+        /// Whether the current operation remains valid.
+        var isCurrent: Bool {
+            lease.isCurrent
+        }
+
         /// Sets the resource cleanup scope for operation failure or cancellation.
         ///
         /// - Parameter scope: The resource scope to release.
@@ -102,11 +107,6 @@ actor XmaxRealtimeLifecycleManager {
         /// - Throws: An error if the operation is invalid or cancelled.
         func ensureCurrent() throws {
             try lease.ensureCurrent()
-        }
-
-        /// Whether the current operation remains valid.
-        var isCurrent: Bool {
-            lease.isCurrent
         }
     }
 
@@ -153,6 +153,11 @@ actor XmaxRealtimeLifecycleManager {
     /// The number of pending or executing foreground requests, which take priority over adaptation.
     private var foregroundRequests = 0
 
+    /// The currently published realtime state.
+    var currentState: RealtimeState {
+        state
+    }
+
     /// Creates a realtime lifecycle manager.
     ///
     /// - Parameters:
@@ -170,11 +175,6 @@ actor XmaxRealtimeLifecycleManager {
         self.cleanup = cleanup
         self.stopLocalCapture = stopLocalCapture
         self.onStateChanged = onStateChanged
-    }
-
-    /// The currently published realtime state.
-    var currentState: RealtimeState {
-        state
     }
 
     /// Updates the state listener and immediately reports the current state.
@@ -597,13 +597,6 @@ private extension XmaxRealtimeLifecycleManager {
         /// The resources to release if this operation fails.
         private var storedFailureScope: TerminationScope?
 
-        /// Creates an operation token.
-        init(
-            failureScope: TerminationScope?
-        ) {
-            storedFailureScope = failureScope
-        }
-
         /// Whether the operation token remains valid.
         var isCurrent: Bool {
             lock.withLock { valid }
@@ -617,6 +610,13 @@ private extension XmaxRealtimeLifecycleManager {
         /// The resource cleanup scope on operation failure or cancellation.
         var failureScope: TerminationScope? {
             lock.withLock { storedFailureScope }
+        }
+
+        /// Creates an operation token.
+        init(
+            failureScope: TerminationScope?
+        ) {
+            storedFailureScope = failureScope
         }
 
         /// Updates the resource cleanup scope on operation failure or cancellation.

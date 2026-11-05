@@ -48,6 +48,81 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     /// Whether an adaptive quality request is already pending.
     private var qualityPending = false
 
+    /// The current realtime connection and generation state.
+    var currentState: RealtimeState {
+        get async {
+            await lifecycleManager.currentState
+        }
+    }
+
+    /// The uplink level successfully applied to the current connection.
+    var uplinkQualityLevel: RealtimeQualityLevel? {
+        get async {
+            let state = await lifecycleManager.currentState.connectionState
+            guard state == .connected || state == .generating else {
+                return nil
+            }
+
+            return streamController.qualityConfiguration?.uplinkLevel
+        }
+    }
+
+    /// The downlink level successfully submitted for the current connection.
+    var downlinkQualityLevel: RealtimeQualityLevel? {
+        get async {
+            let state = await lifecycleManager.currentState.connectionState
+            guard state == .connected || state == .generating else {
+                return nil
+            }
+
+            return streamController.qualityConfiguration?.downlinkLevel
+        }
+    }
+
+    /// The camera's resolved media format, or `nil` for other input sources.
+    var currentCameraVideoFormat: RealtimeVideoFormat? {
+        get async {
+            guard let track = await mediaController.currentTrack, track.device != nil else {
+                return nil
+            }
+
+            return track.videoFormat
+        }
+    }
+
+    /// The preset matching current camera dimensions, independent of frame rate or encoding level.
+    var currentCameraPreset: RealtimeCameraPreset? {
+        get async {
+            guard let format = await currentCameraVideoFormat else {
+                return nil
+            }
+
+            return RealtimeCameraPreset.allCases.first {
+                $0.size == format.size
+            }
+        }
+    }
+
+    /// The effective remote frame interpolation state.
+    var isFrameInterpolationEnabled: Bool {
+        get async {
+            await renderController.isFrameInterpolationEnabled
+        }
+    }
+
+    /// The remote generated audio playback volume in `0...1`.
+    var remoteAudioVolume: Float {
+        streamController.remoteAudioVolume
+    }
+
+    /// Whether the active camera stream requests microphone capture while connected.
+    var isMicrophoneEnabled: Bool {
+        get async {
+            guard !(await mediaController.isExternalVideo) else { return false }
+            return await mediaController.hasAudio
+        }
+    }
+
     /// Creates a realtime facade using the default SDK components.
     @MainActor
     init(
@@ -114,66 +189,11 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         await mediaController.listCameraDevices()
     }
 
-    /// The current realtime connection and generation state.
-    var currentState: RealtimeState {
-        get async {
-            await lifecycleManager.currentState
-        }
-    }
-
-    /// The uplink level successfully applied to the current connection.
-    var uplinkQualityLevel: RealtimeQualityLevel? {
-        get async {
-            let state = await lifecycleManager.currentState.connectionState
-            guard state == .connected || state == .generating else {
-                return nil
-            }
-
-            return streamController.qualityConfiguration?.uplinkLevel
-        }
-    }
-
-    /// The downlink level successfully submitted for the current connection.
-    var downlinkQualityLevel: RealtimeQualityLevel? {
-        get async {
-            let state = await lifecycleManager.currentState.connectionState
-            guard state == .connected || state == .generating else {
-                return nil
-            }
-
-            return streamController.qualityConfiguration?.downlinkLevel
-        }
-    }
-
-    /// The camera's resolved media format, or `nil` for other input sources.
-    var currentCameraVideoFormat: RealtimeVideoFormat? {
-        get async {
-            guard let track = await mediaController.currentTrack, track.device != nil else {
-                return nil
-            }
-
-            return track.videoFormat
-        }
-    }
-
-    /// The preset matching current camera dimensions, independent of frame rate or encoding level.
-    var currentCameraPreset: RealtimeCameraPreset? {
-        get async {
-            guard let format = await currentCameraVideoFormat else {
-                return nil
-            }
-
-            return RealtimeCameraPreset.allCases.first {
-                $0.size == format.size
-            }
-        }
-    }
-
-    /// The effective remote frame interpolation state.
-    var isFrameInterpolationEnabled: Bool {
-        get async {
-            await renderController.isFrameInterpolationEnabled
-        }
+    /// Lists available microphone inputs independently of capture and connection state.
+    ///
+    /// - Returns: Physical and virtual input devices with stable identifiers and default status.
+    func listMicrophoneDevices() async -> [MicrophoneDevice] {
+        await mediaController.listMicrophoneDevices()
     }
 
     /// Configures shared generated-result beauty without changing input media or generation state.
@@ -188,11 +208,6 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         _ listener: RealtimeVideoBeautyErrorListener?
     ) async {
         await renderController.setRemoteVideoBeautyErrorListener(listener)
-    }
-
-    /// The remote generated audio playback volume in `0...1`.
-    var remoteAudioVolume: Float {
-        streamController.remoteAudioVolume
     }
 
     /// Changes the uplink encoding level while allowing subsequent automatic adaptation.
@@ -384,25 +399,25 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     ///   - videoFormat: The camera capture video format.
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
     ///   - mirror: Whether to mirror local preview and the encoded camera stream; disabled by default.
-    ///   - useMicrophone: Whether to use the microphone; requests permission at creation, starts capture on connection,
-    ///     and stops on disconnect.
+    ///   - microphone: The initial microphone selection, disabled by default. Enabled inputs request permission
+    ///     at creation, start capture on connection, and stop on disconnect.
     ///
     /// - Returns: The media stream containing the local camera video track.
     ///
-    /// - Throws: An error on invalid configuration, denied permissions, conflicting operations, or capture startup
-    ///   failure.
+    /// - Throws: An error on invalid configuration, denied permissions, conflicting operations, input selection,
+    ///   or capture startup failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
         mirror: Bool = false,
-        useMicrophone: Bool = false
+        microphone: RealtimeMicrophone = .disabled
     ) async throws -> RealtimeMediaStream {
         return try await createLocalMediaStream(source: .camera) { [self] token in
             let stream = try await mediaController.createLocalCameraStream(
                 videoFormat: videoFormat,
                 deviceID: deviceID,
                 mirror: mirror,
-                useMicrophone: useMicrophone
+                microphone: microphone
             )
             try token.ensureCurrent()
             return stream
@@ -607,6 +622,71 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
             }
             return stream
         }
+    }
+
+    /// Changes audio input without replacing the local video track or generation task.
+    func switchMicrophone(
+        to deviceID: String?
+    ) async throws {
+        try await lifecycleManager.run(kind: .configuration) { [self] token in
+            _ = try await microphoneCaptureState()
+            try token.ensureCurrent()
+            try await mediaController.switchMicrophone(to: deviceID)
+            try token.ensureCurrent()
+        }
+    }
+
+    /// Changes microphone intent and publication while preserving the current realtime state.
+    func setMicrophoneEnabled(
+        _ enabled: Bool
+    ) async throws {
+        try await lifecycleManager.run(kind: .configuration) { [self] token in
+            let connected = try await microphoneCaptureState()
+            try token.ensureCurrent()
+            let previous = await mediaController.hasAudio
+            if enabled {
+                try await mediaController.setMicrophoneEnabled(true, capture: connected) {
+                    try token.ensureCurrent()
+                }
+                do {
+                    try token.ensureCurrent()
+                    if connected { try streamController.setLocalAudioPublished(true) }
+                    try token.ensureCurrent()
+                } catch {
+                    if !previous {
+                        if connected {
+                            do { try streamController.setLocalAudioPublished(false) }
+                            catch { XmaxLogger.realtime.error(message: "Failed to roll back microphone publication: \(error)") }
+                        }
+                        try? await mediaController.setMicrophoneEnabled(false, capture: false, ensureCurrent: {})
+                    }
+                    throw error
+                }
+            } else {
+                var publicationError: XmaxError?
+                if connected {
+                    do { try streamController.setLocalAudioPublished(false) }
+                    catch { publicationError = XmaxError.from(error) }
+                }
+                // Stopping physical capture must not depend on a successful channel update.
+                try await mediaController.setMicrophoneEnabled(false, capture: false) {
+                    try token.ensureCurrent()
+                }
+                try token.ensureCurrent()
+                if let publicationError { throw publicationError }
+            }
+        }
+    }
+
+    /// Validates camera ownership and returns whether microphone capture should currently be running.
+    private func microphoneCaptureState() async throws -> Bool {
+        let state = await lifecycleManager.currentState
+        guard [.ready, .connected, .generating].contains(state.connectionState),
+            await mediaController.currentTrack != nil, !(await mediaController.isExternalVideo)
+        else {
+            throw XmaxError(code: .invalidConfiguration, message: "Microphone changes require a ready camera stream")
+        }
+        return state.connectionState == .connected || state.connectionState == .generating
     }
 
     /// Establishes a realtime connection with the local stream created by this manager.

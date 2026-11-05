@@ -25,6 +25,14 @@ struct VideoFramePlane: Equatable, Sendable {
     /// The plane's byte count.
     let byteLength: Int
 
+    /// The error for an invalid plane byte range.
+    private static var invalidRangeError: XmaxError {
+        XmaxError(
+            code: .invalidConfiguration,
+            message: "Video frame plane range is invalid"
+        )
+    }
+
     /// Creates a video pixel plane referencing a valid byte range.
     ///
     /// - Parameters:
@@ -64,13 +72,5 @@ struct VideoFramePlane: Equatable, Sendable {
         self.stride = stride
         self.byteOffset = byteOffset
         self.byteLength = resolvedByteLength
-    }
-
-    /// The error for an invalid plane byte range.
-    private static var invalidRangeError: XmaxError {
-        XmaxError(
-            code: .invalidConfiguration,
-            message: "Video frame plane range is invalid"
-        )
     }
 }

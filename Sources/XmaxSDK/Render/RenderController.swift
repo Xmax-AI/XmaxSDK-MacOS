@@ -100,6 +100,16 @@ final class RenderController: RenderControlling {
     /// Whether generation currently permits remote trajectory input.
     private var interactionEnabled = false
 
+    /// The pending result stream first-frame wait.
+    private var remoteFrameReadyWaiters: [UUID: RemoteFrameReadyWaiter] = [:]
+
+    /// Whether remote frame interpolation is enabled.
+    var isFrameInterpolationEnabled: Bool {
+        get async {
+            await remoteFramePipeline.isFrameInterpolationEnabled
+        }
+    }
+
     /// Updates generation interaction availability for the registered remote track.
     func setInteractionEnabled(
         _ enabled: Bool
@@ -116,9 +126,6 @@ final class RenderController: RenderControlling {
                 interactionEnabled && remoteStream != nil && latestRemoteFrame != nil
         )
     }
-
-    /// The pending result stream first-frame wait.
-    private var remoteFrameReadyWaiters: [UUID: RemoteFrameReadyWaiter] = [:]
 
     /// Creates a coordinator for remote rendering, interpolation, and frame callbacks.
     ///
@@ -146,13 +153,6 @@ final class RenderController: RenderControlling {
         self.remoteFrameReadyTimeoutNanoseconds =
             remoteFrameReadyTimeoutNanoseconds
         self.errorListener = errorListener
-    }
-
-    /// Whether remote frame interpolation is enabled.
-    var isFrameInterpolationEnabled: Bool {
-        get async {
-            await remoteFramePipeline.isFrameInterpolationEnabled
-        }
     }
 
     /// Updates result beauty before preview and public frame output.

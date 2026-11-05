@@ -1,5 +1,5 @@
 //
-//  RealtimeVideoBeautyDiagnostics.swift
+//  RealtimeBeautyDiagnostics.swift
 //  XmaxSDK
 //
 //  Author: 翁跃庭 (Yueting Weng)
@@ -13,7 +13,7 @@ import CoreVideo
 import Foundation
 
 /// Exercises signed host-to-XPC processing using synthetic pixels, with no capture or network room.
-@_spi(Diagnostics) public enum RealtimeVideoBeautyDiagnostics {
+@_spi(Diagnostics) public enum RealtimeBeautyDiagnostics {
 
     /// Verifies pixel changes, timing, retained buffer ownership, and coexistence with the RTC engine.
     ///
@@ -27,7 +27,7 @@ import Foundation
         }
         defer { AgoraRtcPlatform.destroyEngine() }
         let options = RealtimeVideoBeautyOptions(smoothness: 1, lightening: 1, sharpness: 0, redness: 0)
-        let processor = try await OfflineVideoBeautyProcessor.make(options)
+        let processor = try await OfflineBeautyProcessor.make(options)
         do {
             let input = try makeFrame()
             let bright = try await processor.process(input)
@@ -47,7 +47,7 @@ import Foundation
                 }
             }
             let elapsed = start.duration(to: .now)
-            let helperPID = await (processor as? OfflineVideoBeautyProcessor)?.diagnosticProcessIdentifier() ?? 0
+            let helperPID = await (processor as? OfflineBeautyProcessor)?.diagnosticProcessIdentifier() ?? 0
             await processor.close()
             guard helperPID > 0, helperPID != getpid(), brightValue > neutralValue + 5,
                 luminance(bright.pixelBuffer) == brightValue, luminance(neutral.pixelBuffer) == neutralValue,

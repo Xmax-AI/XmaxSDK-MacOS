@@ -19,7 +19,7 @@ final class XLabApp: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--verify-video-beauty") {
             Task {
                 do {
-                    let report = try await RealtimeVideoBeautyDiagnostics.verify()
+                    let report = try await RealtimeBeautyDiagnostics.verify()
                     FileHandle.standardOutput.write(report)
                     FileHandle.standardOutput.write(Data("\n".utf8))
                     exit(EXIT_SUCCESS)

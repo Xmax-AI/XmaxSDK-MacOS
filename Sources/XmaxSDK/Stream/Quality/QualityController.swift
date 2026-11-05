@@ -57,6 +57,11 @@ final class QualityController: QualityControlling, RtcQualityListener,
     /// The preferences storing quality history.
     private let historyDefaults: UserDefaults
 
+    /// The current media baseline and quality levels.
+    var qualityConfiguration: QualityConfiguration? {
+        listenerLock.withLock { configuration() }
+    }
+
     /// Creates a quality controller and registers RTC quality callbacks.
     ///
     /// - Parameters:
@@ -68,11 +73,6 @@ final class QualityController: QualityControlling, RtcQualityListener,
     ) {
         self.historyDefaults = historyDefaults
         rtcManager.setQualityListener(self)
-    }
-
-    /// The current media baseline and quality levels.
-    var qualityConfiguration: QualityConfiguration? {
-        listenerLock.withLock { configuration() }
     }
 
     /// Prepares initial transport quality from the media baseline and model history.

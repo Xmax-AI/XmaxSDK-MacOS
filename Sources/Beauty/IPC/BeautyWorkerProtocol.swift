@@ -4,7 +4,7 @@ import Foundation
 import IOSurface
 
 /// The private, parent-only XPC contract for an unpublished offline processing service.
-@objc public protocol VideoBeautyWorkerProtocol {
+@objc public protocol BeautyWorkerProtocol {
 
     /// Initializes or updates the worker's media graph; replies with a recoverable error description.
     func configure(
@@ -28,14 +28,14 @@ import IOSurface
 }
 
 /// Creates identical secure-coding interface rules in the host and the worker.
-public enum VideoBeautyWorkerInterface {
+public enum BeautyWorkerInterface {
 
     /// Allows IOSurface objects in the processing request and reply.
     public static func make() -> NSXPCInterface {
-        let interface = NSXPCInterface(with: VideoBeautyWorkerProtocol.self)
-        interface.setClasses(NSSet(array: [IOSurface.self]) as! Set<AnyHashable>, for: #selector(VideoBeautyWorkerProtocol.process(_:reply:)),
+        let interface = NSXPCInterface(with: BeautyWorkerProtocol.self)
+        interface.setClasses(NSSet(array: [IOSurface.self]) as! Set<AnyHashable>, for: #selector(BeautyWorkerProtocol.process(_:reply:)),
                              argumentIndex: 0, ofReply: false)
-        interface.setClasses(NSSet(array: [IOSurface.self]) as! Set<AnyHashable>, for: #selector(VideoBeautyWorkerProtocol.process(_:reply:)),
+        interface.setClasses(NSSet(array: [IOSurface.self]) as! Set<AnyHashable>, for: #selector(BeautyWorkerProtocol.process(_:reply:)),
                              argumentIndex: 0, ofReply: true)
         return interface
     }

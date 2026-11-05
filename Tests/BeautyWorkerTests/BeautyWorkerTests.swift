@@ -1,12 +1,12 @@
 import CoreVideo
 import Foundation
 import XCTest
-import VideoBeautyBridge
+import BeautyBridge
 
 /// Tests the worker's vendor graph directly, without running a host app, an XPC service, or RTC.
-final class VideoBeautyWorkerTests: XCTestCase {
+final class BeautyWorkerTests: XCTestCase {
     func testBufferPoolPressureRecoversAfterConsumersReleaseFrames() throws {
-        let processor = try VideoBeautyProcessor(appID: "5588dfe2e7874bd08ea28f4968ec2d40", options: options(lightening: 0.5))
+        let processor = try BeautyProcessor(appID: "5588dfe2e7874bd08ea28f4968ec2d40", options: options(lightening: 0.5))
         defer { processor.close() }
         let input = try makePixels()
         var retained: [CVPixelBuffer] = []
@@ -26,7 +26,7 @@ final class VideoBeautyWorkerTests: XCTestCase {
     }
 
     func testPixelsBurstOwnershipAndRecreation() throws {
-        let processor = try VideoBeautyProcessor(appID: "5588dfe2e7874bd08ea28f4968ec2d40", options: options(lightening: 1))
+        let processor = try BeautyProcessor(appID: "5588dfe2e7874bd08ea28f4968ec2d40", options: options(lightening: 1))
         let input = try makePixels()
         let bright = try processor.processPixelBuffer(input)
         let brightValue = luminance(bright)
@@ -67,7 +67,7 @@ final class VideoBeautyWorkerTests: XCTestCase {
         XCTAssertEqual(luminance(normalized), neutralValue, accuracy: 2)
         processor.close()
         processor.close()
-        let next = try VideoBeautyProcessor(appID: "5588dfe2e7874bd08ea28f4968ec2d40", options: options(lightening: 1))
+        let next = try BeautyProcessor(appID: "5588dfe2e7874bd08ea28f4968ec2d40", options: options(lightening: 1))
         let output = try next.processPixelBuffer(input)
         XCTAssertGreaterThan(luminance(output), neutralValue + 5)
         next.close()

@@ -1,5 +1,5 @@
 //
-//  VideoBeautyColorConverter.swift
+//  BeautyColorConverter.swift
 //  XmaxSDK
 //
 //  Author: 翁跃庭 (Yueting Weng)
@@ -14,7 +14,7 @@ import Foundation
 import VideoToolbox
 
 /// Converts SDR frames to the beauty worker's BT.709 input on its serial worker queue.
-final class VideoBeautyColorConverter {
+final class BeautyColorConverter {
 
     /// The reusable system color conversion session, created only for incompatible SDR color tags.
     private var session: VTPixelTransferSession?
@@ -186,7 +186,7 @@ final class VideoBeautyColorConverter {
             &output
         )
         if status == kCVReturnWouldExceedAllocationThreshold {
-            throw VideoBeautyProcessingError.outputBackpressure
+            throw BeautyProcessingError.outputBackpressure
         }
         guard status == kCVReturnSuccess, let output else {
             throw Self.error("Unable to allocate result beauty color surface (\(status))")

@@ -43,6 +43,11 @@ struct QualityDirection: Sendable {
     /// The post-upgrade probing deadline, in seconds.
     private var probeUntil: TimeInterval = 0
 
+    /// The transport format for this direction and level.
+    var format: RealtimeVideoFormat {
+        format(at: level)
+    }
+
     /// Creates a directional policy with a supported initial level.
     ///
     /// - Parameters:
@@ -66,11 +71,6 @@ struct QualityDirection: Sendable {
         {
             self.level = higher
         }
-    }
-
-    /// The transport format for this direction and level.
-    var format: RealtimeVideoFormat {
-        format(at: level)
     }
 
     /// Resolves a quality level's transport format.

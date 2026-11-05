@@ -81,6 +81,11 @@ public struct XmaxError: Error, LocalizedError, Equatable, Sendable {
     /// The HTTP response status code; absent if no response was received.
     public let httpStatus: Int?
 
+    /// The error description used by `LocalizedError`.
+    public var errorDescription: String? {
+        message
+    }
+
     /// Creates an SDK error.
     public init(
         code: XmaxErrorCode,
@@ -92,11 +97,6 @@ public struct XmaxError: Error, LocalizedError, Equatable, Sendable {
         self.message = message
         self.apiCode = apiCode
         self.httpStatus = httpStatus
-    }
-
-    /// The error description used by `LocalizedError`.
-    public var errorDescription: String? {
-        message
     }
 
     /// Converts unknown errors to internal SDK errors, preserving existing `XmaxError` values.

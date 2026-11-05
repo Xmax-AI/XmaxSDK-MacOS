@@ -48,7 +48,7 @@ actor RemoteVideoFramePipeline {
     private let errorListener: XmaxErrorListener
 
     /// Creates an isolated beauty processor when enabled result processing first needs it.
-    typealias BeautyProcessorFactory = @Sendable (RealtimeVideoBeautyOptions) async throws -> any VideoBeautyProcessing
+    typealias BeautyProcessorFactory = @Sendable (RealtimeVideoBeautyOptions) async throws -> any BeautyProcessing
 
     /// The injectable offline beauty graph factory.
     private let beautyProcessorFactory: BeautyProcessorFactory
@@ -60,7 +60,7 @@ actor RemoteVideoFramePipeline {
     private var beautyOptions: RealtimeVideoBeautyOptions?
 
     /// The processor for the current result stream.
-    private var beautyProcessor: (any VideoBeautyProcessing)?
+    private var beautyProcessor: (any BeautyProcessing)?
 
     /// Invalidates asynchronous configuration and frames after newer beauty requests.
     private var beautyRevision: UInt64 = 0
@@ -92,6 +92,11 @@ actor RemoteVideoFramePipeline {
     /// The output stream identifier.
     private var outputToken: UInt64
 
+    /// Whether interpolation is requested.
+    var isFrameInterpolationEnabled: Bool {
+        interpolationEnabled
+    }
+
     /// Creates a remote frame pipeline with stream validity checks.
     ///
     /// - Parameters:
@@ -119,7 +124,7 @@ actor RemoteVideoFramePipeline {
                 }
             #endif
         },
-        beautyProcessorFactory: @escaping BeautyProcessorFactory = OfflineVideoBeautyProcessor.make,
+        beautyProcessorFactory: @escaping BeautyProcessorFactory = OfflineBeautyProcessor.make,
         outputListener: @escaping OutputListener,
         errorListener: @escaping XmaxErrorListener
     ) {
@@ -176,11 +181,6 @@ actor RemoteVideoFramePipeline {
     func closeBeauty() async {
         try? await setRemoteVideoBeauty(nil)
         beautyErrorListener = nil
-    }
-
-    /// Whether interpolation is requested.
-    var isFrameInterpolationEnabled: Bool {
-        interpolationEnabled
     }
 
     /// Enqueues a frame for the current output stream.
@@ -277,6 +277,14 @@ private extension RemoteVideoFramePipeline {
         /// The interpolation input pixel format.
         let pixelFormat: OSType
 
+        /// The interpolation input dimensions.
+        var size: CGSize {
+            CGSize(
+                width: width,
+                height: height
+            )
+        }
+
         /// Extracts frame dimensions and pixel format.
         ///
         /// - Parameter frame: The frame used to check interpolator compatibility.
@@ -286,14 +294,6 @@ private extension RemoteVideoFramePipeline {
             width = CVPixelBufferGetWidth(frame.pixelBuffer)
             height = CVPixelBufferGetHeight(frame.pixelBuffer)
             pixelFormat = CVPixelBufferGetPixelFormatType(frame.pixelBuffer)
-        }
-
-        /// The interpolation input dimensions.
-        var size: CGSize {
-            CGSize(
-                width: width,
-                height: height
-            )
         }
     }
 
@@ -378,7 +378,7 @@ private extension RemoteVideoFramePipeline {
         guard let options = beautyOptions else { return frame }
         let revision = beautyRevision
         do {
-            let processor: any VideoBeautyProcessing
+            let processor: any BeautyProcessing
             if let current = beautyProcessor {
                 processor = current
             } else {
@@ -392,7 +392,7 @@ private extension RemoteVideoFramePipeline {
             let result = try await processor.process(frame)
             guard generation == activeGeneration, revision == beautyRevision, !Task.isCancelled else { return nil }
             return result
-        } catch VideoBeautyProcessingError.outputBackpressure {
+        } catch BeautyProcessingError.outputBackpressure {
             // Keep the graph and user settings; consumers will release capacity as pending frames drain.
             return nil
         } catch {

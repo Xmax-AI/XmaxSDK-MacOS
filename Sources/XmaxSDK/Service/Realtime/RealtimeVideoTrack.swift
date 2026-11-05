@@ -22,6 +22,21 @@ public final class RealtimeVideoTrack: @unchecked Sendable {
     /// The synchronized media format and camera position.
     private var metadata: Metadata
 
+    /// The video format currently used by the track.
+    public var videoFormat: RealtimeVideoFormat? {
+        metadataLock.withLock { metadata.videoFormat }
+    }
+
+    /// The camera position currently used by the local camera track.
+    public var position: CameraPosition? {
+        metadataLock.withLock { metadata.position }
+    }
+
+    /// The current camera device; nil for non-camera tracks.
+    public var device: CameraDevice? {
+        metadataLock.withLock { metadata.device }
+    }
+
     /// Creates a video track with the specified identity and initial metadata.
     ///
     /// - Parameters:
@@ -40,21 +55,6 @@ public final class RealtimeVideoTrack: @unchecked Sendable {
             position: position,
             device: device
         )
-    }
-
-    /// The video format currently used by the track.
-    public var videoFormat: RealtimeVideoFormat? {
-        metadataLock.withLock { metadata.videoFormat }
-    }
-
-    /// The camera position currently used by the local camera track.
-    public var position: CameraPosition? {
-        metadataLock.withLock { metadata.position }
-    }
-
-    /// The current camera device; nil for non-camera tracks.
-    public var device: CameraDevice? {
-        metadataLock.withLock { metadata.device }
     }
 
     /// Updates device metadata while retaining video track identity.

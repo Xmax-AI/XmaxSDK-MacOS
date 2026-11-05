@@ -17,13 +17,6 @@ public struct XmaxLoggerOption: OptionSet, Sendable {
     /// The log type bitmask.
     public let rawValue: UInt
 
-    /// Creates logging options with the specified bitmask.
-    public init(
-        rawValue: UInt
-    ) {
-        self.rawValue = rawValue
-    }
-
     /// Business logs for Room, API, Realtime, Storage, and other components.
     public static let business = Self(rawValue: 1 << 0)
 
@@ -32,6 +25,13 @@ public struct XmaxLoggerOption: OptionSet, Sendable {
 
     /// Enables all XmaxSDK logs.
     public static let all: Self = [.business, .performance]
+
+    /// Creates logging options with the specified bitmask.
+    public init(
+        rawValue: UInt
+    ) {
+        self.rawValue = rawValue
+    }
 }
 
 /// Emits system logs with the Xmax prefix and category.

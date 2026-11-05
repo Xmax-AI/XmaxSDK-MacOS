@@ -67,6 +67,9 @@ final class StreamController: StreamControlling, RtcEventListener,
         Float(stateLock.withLock { remoteAudioVolumePercentage }) / 100
     }
 
+    /// The current media baseline and directional quality levels.
+    var qualityConfiguration: QualityConfiguration? { qualityController.qualityConfiguration }
+
     /// Creates a stream controller from room, encoding, and quality components.
     ///
     /// - Parameters:
@@ -139,9 +142,6 @@ final class StreamController: StreamControlling, RtcEventListener,
     ) throws {
         try encodingController.configure(videoFormat)
     }
-
-    /// The current media baseline and directional quality levels.
-    var qualityConfiguration: QualityConfiguration? { qualityController.qualityConfiguration }
 
     /// Prepares quality levels from the media baseline and model history.
     ///
@@ -531,6 +531,22 @@ final class StreamController: StreamControlling, RtcEventListener,
                 }
                 throw XmaxError.from(error)
             }
+        }
+    }
+
+    /// Updates audio publication independently of video and generation, committing state after vendor success.
+    func setLocalAudioPublished(
+        _ published: Bool
+    ) throws {
+        try operationLock.withLock {
+            let current = stateLock.withLock { state }
+            guard !current.roomID.isEmpty else {
+                throw XmaxError(code: .invalidConfiguration, message: "RTC room is not connected")
+            }
+            guard current.localAudioPublished != published else { return }
+            if published { try rtcManager.publishLocalAudio() }
+            else { try rtcManager.unpublishLocalAudio() }
+            stateLock.withLock { state.localAudioPublished = published }
         }
     }
 

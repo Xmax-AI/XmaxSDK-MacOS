@@ -35,7 +35,7 @@ public extension XmaxRealtimeManaging {
     ///   - preset: The camera resolution, which must be supported by the model.
     ///   - deviceID: The initial camera device identifier; `nil` selects the system default.
     ///   - mirror: Whether to mirror local preview and upstream camera video; disabled by default.
-    ///   - useMicrophone: Whether to capture microphone audio while connected.
+    ///   - microphone: The initial microphone selection, disabled by default.
     ///
     /// - Returns: A media stream containing the local camera track.
     ///
@@ -45,7 +45,7 @@ public extension XmaxRealtimeManaging {
         preset: RealtimeCameraPreset,
         deviceID: String? = nil,
         mirror: Bool = false,
-        useMicrophone: Bool = false
+        microphone: RealtimeMicrophone = .disabled
     ) async throws -> RealtimeMediaStream {
         guard
             let format = options.model.supportedVideoFormats.first(
@@ -64,7 +64,7 @@ public extension XmaxRealtimeManaging {
             videoFormat: format,
             deviceID: deviceID,
             mirror: mirror,
-            useMicrophone: useMicrophone
+            microphone: microphone
         )
     }
 
@@ -73,34 +73,33 @@ public extension XmaxRealtimeManaging {
     /// - Parameters:
     ///   - videoFormat: The camera capture and encoding format.
     ///   - mirror: Whether to mirror local preview and upstream camera video; disabled by default.
-    ///   - useMicrophone: Whether to capture microphone audio while connected. The default is
-    ///     `false`.
+    ///   - microphone: The initial microphone selection, disabled by default.
     ///
     /// - Returns: A media stream containing the local camera video track.
     ///
-    /// - Throws: An error if configuration is invalid, a required permission is denied, an
-    ///   operation conflicts, or capture cannot start.
+    /// - Throws: An error if configuration is invalid, permission is denied, an operation
+    ///   conflicts, or capture cannot start.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         mirror: Bool = false,
-        useMicrophone: Bool = false
+        microphone: RealtimeMicrophone = .disabled
     ) async throws -> RealtimeMediaStream {
         try await createLocalCameraStream(
             videoFormat: videoFormat,
             deviceID: nil,
             mirror: mirror,
-            useMicrophone: useMicrophone
+            microphone: microphone
         )
     }
 
-    /// Creates a camera stream with the specified format and no microphone.
+    /// Creates a camera stream with the specified format and microphone disabled.
     ///
     /// - Parameters:
     ///   - videoFormat: A camera output format supported by the model.
-    ///   - deviceID: The device identifier; an empty value uses the system default camera.
+    ///   - deviceID: The device identifier; `nil` selects the system default camera.
     ///   - mirror: Whether to mirror local preview and upstream camera video; disabled by default.
     ///
-    /// - Returns: The media stream containing the local camera track.
+    /// - Returns: A media stream containing the local camera track.
     ///
     /// - Throws: An error on permission, device configuration, or capture startup failure.
     func createLocalCameraStream(
@@ -112,53 +111,53 @@ public extension XmaxRealtimeManaging {
             videoFormat: videoFormat,
             deviceID: deviceID,
             mirror: mirror,
-            useMicrophone: false
+            microphone: .disabled
         )
     }
 
-    /// Creates an unmirrored camera stream with explicit device and microphone settings.
+    /// Creates an unmirrored camera stream with explicit device and microphone selections.
     ///
     /// - Parameters:
     ///   - videoFormat: The camera capture and encoding format.
     ///   - deviceID: The camera identifier; `nil` selects the system default.
-    ///   - useMicrophone: Whether to capture microphone audio while connected.
+    ///   - microphone: The initial microphone selection.
     ///
-    /// - Returns: The media stream containing the local camera track.
+    /// - Returns: A media stream containing the local camera track.
     ///
     /// - Throws: An error on permission, device configuration, or capture startup failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
-        useMicrophone: Bool
+        microphone: RealtimeMicrophone
     ) async throws -> RealtimeMediaStream {
         try await createLocalCameraStream(
             videoFormat: videoFormat,
             deviceID: deviceID,
             mirror: false,
-            useMicrophone: useMicrophone
+            microphone: microphone
         )
     }
 
     /// Creates a local camera stream using the current model's default landscape format.
     ///
     /// - Parameters:
-    ///   - deviceID: The device identifier; an empty value uses the system default camera.
+    ///   - deviceID: The device identifier; `nil` selects the system default camera.
     ///   - mirror: Whether to mirror local preview and upstream camera video; disabled by default.
-    ///   - useMicrophone: Whether to use the microphone; disabled by default.
+    ///   - microphone: The initial microphone selection, disabled by default.
     ///
-    /// - Returns: The media stream containing the local camera track.
+    /// - Returns: A media stream containing the local camera track.
     ///
     /// - Throws: An error on permission, device configuration, or capture startup failure.
     func createLocalCameraStream(
         deviceID: String? = nil,
         mirror: Bool = false,
-        useMicrophone: Bool = false
+        microphone: RealtimeMicrophone = .disabled
     ) async throws -> RealtimeMediaStream {
         try await createLocalCameraStream(
             videoFormat: options.model.defaultCameraVideoFormat,
             deviceID: deviceID,
             mirror: mirror,
-            useMicrophone: useMicrophone
+            microphone: microphone
         )
     }
 

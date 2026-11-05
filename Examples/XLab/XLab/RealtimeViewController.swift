@@ -234,7 +234,7 @@ final class RealtimeViewController: NSViewController, NSTextFieldDelegate {
         startButton.onClick = { [weak self] in
             guard let self else { return }
             let enabled = self.microphoneToggle.state == .on
-            Task { [weak self] in await self?.controller.start(useMicrophone: enabled) }
+            Task { [weak self] in await self?.controller.start(microphone: enabled ? .systemDefault : .disabled) }
         }
         terms.isEditable = false; terms.isSelectable = true; terms.drawsBackground = false
         terms.textContainerInset = .zero

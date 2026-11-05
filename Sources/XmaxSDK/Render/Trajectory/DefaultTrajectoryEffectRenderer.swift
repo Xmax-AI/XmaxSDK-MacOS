@@ -59,11 +59,6 @@ public final class DefaultTrajectoryEffectRenderer: NSView,
     /// Whether the effect paints an opaque background.
     public override var isOpaque: Bool { false }
 
-    /// Passes pointer input through to the SDK's interaction overlay.
-    public override func hitTest(
-        _ point: NSPoint
-    ) -> NSView? { nil }
-
     /// The effect view installed above the video.
     public var view: NSView { self }
 
@@ -87,6 +82,11 @@ public final class DefaultTrajectoryEffectRenderer: NSView,
 
     /// The timer advancing trajectory effects on the main run loop.
     private var displayLink: Timer?
+
+    /// Passes pointer input through to the SDK's interaction overlay.
+    public override func hitTest(
+        _ point: NSPoint
+    ) -> NSView? { nil }
 
     /// Creates a programmatic trajectory effect view; archive initialization is unavailable.
     public override init(

@@ -17,9 +17,6 @@ public final class XmaxClient: Sendable {
     /// The service used for storage credentials, media safety checks, and account credit queries.
     private let apiService: any ApiServicing
 
-    /// The injected API service shared with realtime managers in dependency-controlled construction.
-    private let realtimeApiOverride: (any ApiServicing)?
-
     /// Creates an SDK client.
     ///
     /// - Parameter configuration: Global SDK configuration.
@@ -27,7 +24,6 @@ public final class XmaxClient: Sendable {
         configuration: XmaxConfiguration
     ) {
         self.configuration = configuration
-        realtimeApiOverride = nil
         XmaxLogger.configure(
             options: configuration.loggerOptions,
             environment: configuration.environment
@@ -42,7 +38,7 @@ public final class XmaxClient: Sendable {
     ///
     /// - Parameters:
     ///   - configuration: The client configuration, which also sets global log options and language.
-    ///   - apiService: The API service shared by storage and realtime sessions.
+    ///   - apiService: The service used for storage and account credit queries.
     init(
         configuration: XmaxConfiguration,
         apiService: any ApiServicing
@@ -53,7 +49,6 @@ public final class XmaxClient: Sendable {
             environment: configuration.environment
         )
         self.apiService = apiService
-        realtimeApiOverride = apiService
     }
 
     /// Creates a component managing local media, realtime connections, and generation tasks.
@@ -70,11 +65,10 @@ public final class XmaxClient: Sendable {
     ) -> any XmaxRealtimeManaging {
         XmaxRealtimeManager(
             options: options,
-            apiService: realtimeApiOverride
-                ?? ApiService(
-                    apiKey: configuration.apiKey,
-                    baseURL: configuration.environment.realtimeApiBaseURL
-                )
+            apiService: ApiService(
+                apiKey: configuration.apiKey,
+                baseURL: configuration.environment.realtimeApiBaseURL
+            )
         )
     }
 

@@ -20,6 +20,7 @@ enum RtcManagingCall: Equatable {
     case destroy
     case configureVideoEncoding(VideoEncodingConfiguration)
     case startAudioCapture
+    case setMicrophoneDevice(String?)
     case stopAudioCapture
     case useExternalVideoSource
     case startCameraCapture(RtcCameraConfiguration)
@@ -59,10 +60,12 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     private let initializationHandler: (@Sendable () async throws -> Void)?
     private let destroyHandler: (@Sendable () async -> Void)?
     private let startAudioCaptureError: (any Error)?
+    private let microphoneDeviceError: (any Error)?
     private let stopAudioCaptureError: (any Error)?
     private let publishLocalVideoError: (any Error)?
     private let unpublishLocalVideoError: (any Error)?
     private let publishLocalAudioError: (any Error)?
+    private let publishLocalAudioHandler: (@Sendable () -> Void)?
     private let unpublishLocalAudioError: (any Error)?
     private let subscribeRemoteVideoError: (any Error)?
     private let subscribeRemoteAudioError: (any Error)?
@@ -110,10 +113,12 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
         destroyHandler: (@Sendable () async -> Void)? = nil,
         encodingError: (any Error)? = nil,
         startAudioCaptureError: (any Error)? = nil,
+        microphoneDeviceError: (any Error)? = nil,
         stopAudioCaptureError: (any Error)? = nil,
         publishLocalVideoError: (any Error)? = nil,
         unpublishLocalVideoError: (any Error)? = nil,
         publishLocalAudioError: (any Error)? = nil,
+        publishLocalAudioHandler: (@Sendable () -> Void)? = nil,
         unpublishLocalAudioError: (any Error)? = nil,
         subscribeRemoteVideoError: (any Error)? = nil,
         subscribeRemoteAudioError: (any Error)? = nil,
@@ -130,10 +135,12 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
         self.destroyHandler = destroyHandler
         self.encodingError = encodingError
         self.startAudioCaptureError = startAudioCaptureError
+        self.microphoneDeviceError = microphoneDeviceError
         self.stopAudioCaptureError = stopAudioCaptureError
         self.publishLocalVideoError = publishLocalVideoError
         self.unpublishLocalVideoError = unpublishLocalVideoError
         self.publishLocalAudioError = publishLocalAudioError
+        self.publishLocalAudioHandler = publishLocalAudioHandler
         self.unpublishLocalAudioError = unpublishLocalAudioError
         self.subscribeRemoteVideoError = subscribeRemoteVideoError
         self.subscribeRemoteAudioError = subscribeRemoteAudioError
@@ -239,6 +246,10 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
         audioControlHandler?()
     }
 
+    func setMicrophoneDevice(_ deviceID: String?) throws {
+        try record(.setMicrophoneDevice(deviceID), error: microphoneDeviceError)
+    }
+
     func stopAudioCapture() throws {
         try record(.stopAudioCapture, error: stopAudioCaptureError)
         audioControlHandler?()
@@ -292,6 +303,7 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
 
     func publishLocalAudio() throws {
         try record(.publishLocalAudio, error: publishLocalAudioError)
+        publishLocalAudioHandler?()
     }
 
     func unpublishLocalAudio() throws {

@@ -49,17 +49,21 @@ enum XmaxRealtimeFactory {
     /// - Parameters:
     ///   - options: The model, interpolation, and adaptive quality configuration.
     ///   - apiService: The service used to create and maintain server sessions.
+    ///   - rtcManager: An injected RTC transport; nil creates the default transport.
     ///
     /// - Returns: The configured components and their shared lifecycle manager.
     @MainActor
     static func make(
         options: RealtimeConfiguration,
-        apiService: any ApiServicing
+        apiService: any ApiServicing,
+        rtcManager: (any RtcManaging)? = nil
     ) -> XmaxRealtimeComponents {
         let errorManager = XmaxRealtimeErrorManager()
-        let rtcManager = RtcManager(microphoneDeviceID: options.microphoneDeviceID)
+        let rtcManager = rtcManager ?? RtcManager()
         let mediaService = MediaService(model: options.model)
         let timing = RealtimeTiming()
+        let eventRelayService = RealtimeEventRelayService(apiService: apiService)
+        let connectionReference = ConnectionReference()
 
         let renderController = RenderController(
             rtcManager: rtcManager,
@@ -77,6 +81,29 @@ enum XmaxRealtimeFactory {
 
         let streamController = StreamController(
             rtcManager: rtcManager,
+            roomController: RoomController(
+                rtcManager: rtcManager,
+                timing: timing,
+                relayMessage: { message in
+                    try Task.checkCancellation()
+                    let session = await connectionReference.currentSession
+                    try Task.checkCancellation()
+                    guard let session, let modelID = session.modelID else {
+                        XmaxLogger.room.warn(
+                            message: "HTTP 信令转发已跳过 (HTTP Signaling Relay Skipped)\n"
+                                + "└─ Session does not contain a model instance ID"
+                        )
+                        return
+                    }
+                    try await eventRelayService.relay(
+                        sessionID: session.id,
+                        modelID: modelID,
+                        message: message
+                    )
+                }
+            ),
+            encodingController: EncodingController(rtcManager: rtcManager),
+            qualityController: QualityController(rtcManager: rtcManager),
             errorListener: {
                 errorManager.forward(
                     $0,
@@ -119,6 +146,7 @@ enum XmaxRealtimeFactory {
             mediaService: mediaService,
             errorManager: errorManager
         )
+        connectionReference.manager = connectionManager
 
         let generationManager = XmaxRealtimeGenerationManager(
             interactionController: mediaController,
@@ -277,5 +305,18 @@ enum XmaxRealtimeFactory {
             sessionID: sessionID,
             hasLocalMedia: await mediaController.currentTrack != nil
         )
+    }
+
+    /// Resolves the session after stream and connection components assemble.
+    @MainActor
+    private final class ConnectionReference {
+
+        /// The session owner, weak to avoid retaining the assembled component graph.
+        weak var manager: XmaxRealtimeConnectionManager?
+
+        /// The session currently eligible for relay routing.
+        var currentSession: RealtimeSession? {
+            get async { await manager?.currentSession }
+        }
     }
 }

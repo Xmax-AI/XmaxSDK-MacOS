@@ -68,6 +68,16 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// Whether RTC microphone capture is active.
     private var isMicrophoneCapturing = false
 
+    /// The active local camera video track, or nil before creation.
+    var currentTrack: RealtimeVideoTrack? {
+        stateLock.withLock { activeTrack }
+    }
+
+    /// Whether the current camera stream is configured to use the microphone.
+    var useMicrophone: Bool {
+        stateLock.withLock { activeTrack != nil && storedUseMicrophone }
+    }
+
     /// Creates a camera controller with system permission and capture components.
     ///
     /// - Parameters:
@@ -148,16 +158,6 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             )
         }
         return device
-    }
-
-    /// The active local camera video track, or nil before creation.
-    var currentTrack: RealtimeVideoTrack? {
-        stateLock.withLock { activeTrack }
-    }
-
-    /// Whether the current camera stream is configured to use the microphone.
-    var useMicrophone: Bool {
-        stateLock.withLock { activeTrack != nil && storedUseMicrophone }
     }
 
     /// Reports ready capture and a bound preview without requiring hidden native views to render.
@@ -293,6 +293,38 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             guard stateLock.withLock({ isMicrophoneCapturing }) else { return }
             try rtcManager.stopAudioCapture()
             stateLock.withLock { isMicrophoneCapturing = false }
+        }
+    }
+
+    /// Changes microphone intent while preventing a late permission reply from restarting closed capture.
+    func setMicrophoneEnabled(
+        _ enabled: Bool,
+        capture: Bool,
+        ensureCurrent: @escaping @Sendable () throws -> Void
+    ) async throws {
+        guard let track = stateLock.withLock({ activeTrack }) else {
+            throw XmaxError(code: .invalidConfiguration, message: "Local camera stream is unavailable")
+        }
+        if enabled { try await permissionManager.ensureMicrophonePermission() }
+        try audioOperationLock.withLock {
+            try ensureCurrent()
+            guard stateLock.withLock({ activeTrack === track }) else {
+                throw XmaxError(code: .cancelled, message: "Local camera stream was stopped")
+            }
+            let previous = stateLock.withLock { storedUseMicrophone }
+            if enabled {
+                stateLock.withLock { storedUseMicrophone = true }
+                do {
+                    if capture { try startMicrophoneCapture() }
+                } catch {
+                    try? stopMicrophoneCapture()
+                    stateLock.withLock { storedUseMicrophone = previous }
+                    throw error
+                }
+            } else {
+                try stopMicrophoneCapture()
+                stateLock.withLock { storedUseMicrophone = false }
+            }
         }
     }
 

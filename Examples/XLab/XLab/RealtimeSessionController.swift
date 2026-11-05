@@ -108,7 +108,7 @@ final class RealtimeSessionController: ObservableObject {
     }
 
     /// Keeps the landing page during startup and mounts the local preview in the background to satisfy SDK readiness.
-    func start(useMicrophone: Bool = false) async {
+    func start(microphone: RealtimeMicrophone = .disabled) async {
         guard !isBusy, localStream == nil else { return }
         guard hasAPIKey else {
             errorMessage = "API Key is required — click the key button in the top-right corner to enter it"
@@ -186,7 +186,7 @@ final class RealtimeSessionController: ObservableObject {
             await applyPendingBeauty()
             guard lifecycleID == operation else { await manager.close(); return }
             let stream = try await manager.createLocalCameraStream(
-                preset: .resolution1920x1080, mirror: true, useMicrophone: useMicrophone
+                preset: .resolution1920x1080, mirror: true, microphone: microphone
             )
             guard lifecycleID == operation else { await manager.close(); return }
             localStream = stream

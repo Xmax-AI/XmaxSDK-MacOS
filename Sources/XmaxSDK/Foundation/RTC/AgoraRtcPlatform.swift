@@ -10,6 +10,7 @@
 
 @preconcurrency import AgoraRtcKit
 import Foundation
+import CoreAudio
 import AppKit
 
 /// Adapts neutral engine operations to Agora calls.
@@ -438,21 +439,85 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     ) throws {
         try lock.withLock {
             try stopExternalAudioSource()
-            try Self.checkResult(
-                engine.followSystemRecordingDevice(deviceID == nil),
-                operation: "followSystemRecordingDevice"
-            )
-            if let deviceID {
-                try Self.checkResult(
-                    engine.setDevice(.audioRecording, deviceId: deviceID),
-                    operation: "setRecordingDevice"
-                )
-            }
+            try setMicrophoneDevice(deviceID)
             try Self.checkResult(
                 engine.enableLocalAudio(true),
                 operation: "enableLocalAudio"
             )
         }
+    }
+
+    /// Changes audio routing without enabling capture or modifying system default devices.
+    func setMicrophoneDevice(
+        _ deviceID: String?
+    ) throws {
+        try lock.withLock {
+            let recordingID = try deviceID.map { uid in
+                try Self.resolveRecordingDeviceID(
+                    uid,
+                    enumeratedIDs: engine.enumerateDevices(.audioRecording)?.compactMap(\.deviceId) ?? []
+                )
+            }
+
+            try Self.checkResult(
+                engine.followSystemRecordingDevice(deviceID == nil),
+                operation: "followSystemRecordingDevice"
+            )
+            if let recordingID {
+                try Self.checkResult(
+                    engine.setDevice(
+                        .audioRecording,
+                        deviceId: recordingID
+                    ),
+                    operation: "setRecordingDevice"
+                )
+            }
+        }
+    }
+
+    /// Resolves a stable Core Audio UID to an ID currently enumerated by Agora.
+    ///
+    /// Agora's macOS recording IDs represent AudioDeviceID values, not persistent Core Audio UIDs.
+    /// Resolve on every selection because numeric IDs can change after reconnecting a device.
+    static func resolveRecordingDeviceID(
+        _ uid: String,
+        enumeratedIDs: [String],
+        resolveUID: (String) -> AudioDeviceID? = coreAudioDeviceID
+    ) throws -> String {
+        guard !uid.isEmpty, let device = resolveUID(uid), device != kAudioObjectUnknown,
+            let recordingID = enumeratedIDs.first(where: { $0 == String(device) })
+        else {
+            throw XmaxError(
+                code: .mediaError,
+                message: "Selected microphone is unavailable. Choose another input device."
+            )
+        }
+        return recordingID
+    }
+
+    /// Translates a persistent input UID without opening the device or changing the system default.
+    private static func coreAudioDeviceID(
+        _ uid: String
+    ) -> AudioDeviceID? {
+        var value: CFString = uid as CFString
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var device: AudioDeviceID = kAudioObjectUnknown
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = withUnsafePointer(to: &value) {
+            AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                UInt32(MemoryLayout<CFString>.size),
+                $0,
+                &size,
+                &device
+            )
+        }
+        return status == noErr && device != kAudioObjectUnknown ? device : nil
     }
 
     /// Stops microphone capture.

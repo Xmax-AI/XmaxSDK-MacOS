@@ -42,6 +42,13 @@ final class ExternalVideoFrameSink: RealtimeExternalFrameSink, @unchecked Sendab
     /// The optional audio converter, serialized with frame submission and invalidation.
     private var audioConverter: ExternalAudioFrameConverter?
 
+    /// Whether preview and generation frames are accepted.
+    var isRequestingFrames: Bool {
+        lock.withLock {
+            active
+        }
+    }
+
     /// Creates a frame sink for a source binding.
     init(
         sourceVideoFormat: RealtimeVideoFormat,
@@ -58,13 +65,6 @@ final class ExternalVideoFrameSink: RealtimeExternalFrameSink, @unchecked Sendab
         self.audioFrameListener = audioFrameListener
         audioConverter = hasAudio ? ExternalAudioFrameConverter() : nil
         self.errorListener = errorListener
-    }
-
-    /// Whether preview and generation frames are accepted.
-    var isRequestingFrames: Bool {
-        lock.withLock {
-            active
-        }
     }
 
     /// Copies and delivers a valid frame, ignoring invalid or nonincreasing timestamps.

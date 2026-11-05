@@ -19,6 +19,9 @@ actor MediaController: MediaControlling {
     /// The adapter for local input and media frame delivery.
     private let rtcManager: any RtcManaging
 
+    /// Reads fresh input descriptions independently of the active capture source.
+    private let microphoneDevices: @Sendable () -> [MicrophoneDevice]
+
     /// The camera and preview controller.
     private let cameraController: any CameraControlling
 
@@ -36,71 +39,6 @@ actor MediaController: MediaControlling {
 
     /// The pending media stop operation.
     private var stopOperation: LocalMediaStopOperation?
-
-    /// Creates and connects camera and media interaction controllers.
-    ///
-    /// - Parameters:
-    ///   - rtcManager: The RTC engine and media adapter.
-    ///   - mediaService: The media service providing model dimension rules.
-    ///   - videoFrameListener: The callback receiving local video frames.
-    ///   - audioFrameListener: Receives converted external audio without local playback.
-    ///   - errorListener: The callback receiving media runtime errors.
-    ///   - interactionListener: The callback receiving video pixel interaction coordinates.
-    @MainActor
-    init(
-        rtcManager: any RtcManaging,
-        mediaService: any MediaServicing = MediaService(),
-        videoFrameListener: @escaping MediaVideoFrameListener,
-        audioFrameListener: @escaping MediaAudioFrameListener = { _ in },
-        errorListener: @escaping XmaxErrorListener,
-        interactionListener: @escaping InteractionListener
-    ) {
-        self.rtcManager = rtcManager
-        cameraController = CameraController(
-            rtcManager: rtcManager,
-            mediaService: mediaService,
-            videoFrameListener: videoFrameListener,
-            errorListener: errorListener
-        )
-        externalController = ExternalVideoController(
-            rtcManager: rtcManager,
-            mediaService: mediaService,
-            videoFrameListener: videoFrameListener,
-            audioFrameListener: audioFrameListener,
-            errorListener: errorListener
-        )
-        interactionController = InteractionController(
-            listener: interactionListener
-        )
-    }
-
-    /// Creates a unified media controller with the specified components.
-    ///
-    /// - Parameters:
-    ///   - rtcManager: The RTC engine and media adapter.
-    ///   - cameraController: The camera media controller.
-    ///   - externalController: The external video input controller.
-    ///   - interactionListener: The callback receiving video pixel interaction coordinates.
-    init(
-        rtcManager: any RtcManaging,
-        cameraController: any CameraControlling,
-        externalController: (any ExternalVideoControlling)? = nil,
-        interactionListener: @escaping InteractionListener = { _, _ in }
-    ) {
-        self.rtcManager = rtcManager
-        self.cameraController = cameraController
-        self.externalController = externalController
-        interactionController = InteractionController(
-            listener: interactionListener
-        )
-    }
-
-    /// Lists currently available camera devices.
-    ///
-    /// - Returns: The currently selectable system video devices.
-    func listCameraDevices() -> [CameraDevice] {
-        cameraController.listCameraDevices()
-    }
 
     /// The active local video track, or nil without a media source.
     var currentTrack: RealtimeVideoTrack? {
@@ -130,6 +68,82 @@ actor MediaController: MediaControlling {
         default:
             return false
         }
+    }
+
+    /// Creates and connects camera and media interaction controllers.
+    ///
+    /// - Parameters:
+    ///   - rtcManager: The RTC engine and media adapter.
+    ///   - mediaService: The media service providing model dimension rules.
+    ///   - videoFrameListener: The callback receiving local video frames.
+    ///   - audioFrameListener: Receives converted external audio without local playback.
+    ///   - errorListener: The callback receiving media runtime errors.
+    ///   - microphoneDevices: Reads current audio input descriptions without opening devices.
+    ///   - interactionListener: The callback receiving video pixel interaction coordinates.
+    @MainActor
+    init(
+        rtcManager: any RtcManaging,
+        mediaService: any MediaServicing = MediaService(),
+        videoFrameListener: @escaping MediaVideoFrameListener,
+        audioFrameListener: @escaping MediaAudioFrameListener = { _ in },
+        errorListener: @escaping XmaxErrorListener,
+        microphoneDevices: @escaping @Sendable () -> [MicrophoneDevice] = { MicrophoneDeviceDiscovery.list() },
+        interactionListener: @escaping InteractionListener
+    ) {
+        self.rtcManager = rtcManager
+        self.microphoneDevices = microphoneDevices
+        cameraController = CameraController(
+            rtcManager: rtcManager,
+            mediaService: mediaService,
+            videoFrameListener: videoFrameListener,
+            errorListener: errorListener
+        )
+        externalController = ExternalVideoController(
+            rtcManager: rtcManager,
+            mediaService: mediaService,
+            videoFrameListener: videoFrameListener,
+            audioFrameListener: audioFrameListener,
+            errorListener: errorListener
+        )
+        interactionController = InteractionController(
+            listener: interactionListener
+        )
+    }
+
+    /// Creates a unified media controller with the specified components.
+    ///
+    /// - Parameters:
+    ///   - rtcManager: The RTC engine and media adapter.
+    ///   - cameraController: The camera media controller.
+    ///   - externalController: The external video input controller.
+    ///   - microphoneDevices: Reads current audio input descriptions without opening devices.
+    ///   - interactionListener: The callback receiving video pixel interaction coordinates.
+    init(
+        rtcManager: any RtcManaging,
+        cameraController: any CameraControlling,
+        externalController: (any ExternalVideoControlling)? = nil,
+        microphoneDevices: @escaping @Sendable () -> [MicrophoneDevice] = { MicrophoneDeviceDiscovery.list() },
+        interactionListener: @escaping InteractionListener = { _, _ in }
+    ) {
+        self.rtcManager = rtcManager
+        self.microphoneDevices = microphoneDevices
+        self.cameraController = cameraController
+        self.externalController = externalController
+        interactionController = InteractionController(
+            listener: interactionListener
+        )
+    }
+
+    /// Lists currently available camera devices.
+    ///
+    /// - Returns: The currently selectable system video devices.
+    func listCameraDevices() -> [CameraDevice] {
+        cameraController.listCameraDevices()
+    }
+
+    /// Lists current input UIDs and names without acquiring an RTC engine or microphone permission.
+    func listMicrophoneDevices() -> [MicrophoneDevice] {
+        microphoneDevices()
     }
 
     /// Sets a one-time internal readiness handler for the current camera stream.
@@ -172,19 +186,22 @@ actor MediaController: MediaControlling {
 
     /// Creates and retains a local camera stream, starting capture and local preview.
     ///
-    /// - Throws: An error if a source is already active or camera preparation fails.
+    /// Selects the microphone input before camera capture starts, without starting audio capture.
+    ///
+    /// - Throws: An error if a source is already active, camera preparation fails, or audio input selection fails.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
         mirror: Bool = false,
-        useMicrophone: Bool = false
+        microphone: RealtimeMicrophone = .disabled
     ) async throws -> RealtimeMediaStream {
         try await createSource(kind: .camera) {
-            try await self.cameraController.createLocalCameraStream(
+            try self.rtcManager.setMicrophoneDevice(microphone.deviceID)
+            return try await self.cameraController.createLocalCameraStream(
                 videoFormat: videoFormat,
                 deviceID: deviceID,
                 mirror: mirror,
-                useMicrophone: useMicrophone
+                useMicrophone: microphone.isEnabled
             )
         }
     }
@@ -229,6 +246,33 @@ actor MediaController: MediaControlling {
     func stopMicrophoneCapture() throws {
         guard activeSource?.kind == .camera else { return }
         try cameraController.stopMicrophoneCapture()
+    }
+
+    /// Changes only the active camera stream's audio input, preserving video capture and external sources.
+    func switchMicrophone(
+        to deviceID: String?
+    ) throws {
+        try requireCameraMicrophone()
+        try rtcManager.setMicrophoneDevice(deviceID)
+    }
+
+    /// Updates microphone intent and checks source validity across permission acquisition.
+    func setMicrophoneEnabled(
+        _ enabled: Bool,
+        capture: Bool,
+        ensureCurrent: @escaping @Sendable () throws -> Void
+    ) async throws {
+        try requireCameraMicrophone()
+        try await cameraController.setMicrophoneEnabled(enabled, capture: capture, ensureCurrent: ensureCurrent)
+    }
+
+    /// Rejects audio changes after source cleanup starts or for caller-owned external audio.
+    private func requireCameraMicrophone() throws {
+        guard let activeSource, activeSource.kind == .camera,
+            captureStopOperation?.sourceID != activeSource.id, stopOperation == nil
+        else {
+            throw XmaxError(code: .invalidConfiguration, message: "An active local camera stream is required")
+        }
     }
 
     /// Stops camera capture immediately without waiting for creation or remote operations.

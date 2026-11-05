@@ -48,6 +48,11 @@ protocol RtcPlatform: AnyObject, RtcCameraCapturing {
         deviceID: String?
     ) throws
 
+    /// Selects an input UID, or follows the system default when nil, without changing capture state.
+    func setMicrophoneDevice(
+        _ deviceID: String?
+    ) throws
+
     /// Stops microphone capture.
     ///
     /// - Throws: An error if the vendor engine fails to stop capture.

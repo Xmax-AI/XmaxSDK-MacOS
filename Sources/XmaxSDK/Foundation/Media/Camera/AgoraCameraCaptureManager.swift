@@ -34,6 +34,9 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
     /// The listener notified when native capture is usable.
     private var previewReadyListener: (@Sendable () -> Void)?
 
+    /// Whether capture feeds RTC directly without decoded frame submission.
+    var suppliesRTCVideo: Bool { true }
+
     /// Creates a native camera controller with device discovery and a readiness timeout.
     init(
         rtcManager: any RtcManaging,
@@ -44,9 +47,6 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
         self.listDevices = listDevices
         self.startupTimeout = startupTimeout
     }
-
-    /// Whether capture feeds RTC directly without decoded frame submission.
-    var suppliesRTCVideo: Bool { true }
 
     /// Lists camera devices without starting capture.
     func listCameraDevices() -> [CameraDevice] { listDevices() }

@@ -17,6 +17,7 @@ final class PermissionManagingStub: PermissionManaging, @unchecked Sendable {
     /// Test configuration
     private let cameraError: (any Error)?
     private let microphoneError: (any Error)?
+    private let microphoneHandler: (@Sendable () async throws -> Void)?
 
     /// Concurrent state
     private let lock = NSLock()
@@ -25,10 +26,12 @@ final class PermissionManagingStub: PermissionManaging, @unchecked Sendable {
 
     init(
         cameraError: (any Error)? = nil,
-        microphoneError: (any Error)? = nil
+        microphoneError: (any Error)? = nil,
+        microphoneHandler: (@Sendable () async throws -> Void)? = nil
     ) {
         self.cameraError = cameraError
         self.microphoneError = microphoneError
+        self.microphoneHandler = microphoneHandler
     }
 
     var cameraRequestCount: Int {
@@ -55,5 +58,6 @@ final class PermissionManagingStub: PermissionManaging, @unchecked Sendable {
                 throw microphoneError
             }
         }
+        try await microphoneHandler?()
     }
 }

@@ -15,6 +15,51 @@ import XCTest
 @testable import XmaxSDK
 
 final class RtcManagerTests: XCTestCase {
+    func testRuntimeMicrophoneRouteIsRetainedAcrossCaptureRestarts() async throws {
+        for deviceID: String? in ["usb-input", nil] {
+            let selected = expectation(description: "Runtime route applied")
+            let captured = expectation(description: "Runtime route reused")
+            captured.expectedFulfillmentCount = 2
+            let platform = RtcPlatformStub(onAudioCapture: { current in
+                XCTAssertEqual(current, deviceID)
+                captured.fulfill()
+            }, onMicrophoneDevice: { current in
+                XCTAssertEqual(current, deviceID)
+                selected.fulfill()
+            })
+            let engines = RtcEngineManager(appID: "test", makeEngine: { _ in platform }, destroyEngine: {})
+            let manager = RtcManager(engineManager: engines, microphoneDeviceID: "original")
+            try await manager.initialize()
+            try manager.setMicrophoneDevice(deviceID)
+            try manager.startAudioCapture()
+            try manager.stopAudioCapture()
+            try manager.startAudioCapture()
+            await fulfillment(of: [selected, captured], timeout: 1)
+            await manager.destroy()
+        }
+    }
+
+    func testFailedMicrophoneSwitchRestoresRouteAndRetainedSelection() async throws {
+        let failure = XmaxError(code: .mediaError, message: "Device removed")
+        let restored = expectation(description: "Original route restored")
+        let captured = expectation(description: "Original route retained for capture")
+        let platform = RtcPlatformStub(onAudioCapture: { current in
+            XCTAssertEqual(current, "original")
+            captured.fulfill()
+        }, onMicrophoneDevice: { current in
+            if current == "removed" { throw failure }
+            XCTAssertEqual(current, "original")
+            restored.fulfill()
+        })
+        let engines = RtcEngineManager(appID: "test", makeEngine: { _ in platform }, destroyEngine: {})
+        let manager = RtcManager(engineManager: engines, microphoneDeviceID: "original")
+        try await manager.initialize()
+        XCTAssertThrowsError(try manager.setMicrophoneDevice("removed"))
+        try manager.startAudioCapture()
+        await fulfillment(of: [restored, captured], timeout: 1)
+        await manager.destroy()
+    }
+
     func testMicrophoneInputSelectionIsRetainedAcrossCaptureRestarts() async throws {
         for deviceID: String? in [nil, "usb-input-uid"] {
             let captured = expectation(description: "Selected input reaches audio capture")

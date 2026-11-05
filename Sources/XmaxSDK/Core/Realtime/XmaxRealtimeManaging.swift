@@ -13,11 +13,6 @@ import Foundation
 /// Defines public realtime media and generation controls.
 public protocol XmaxRealtimeManaging: Sendable {
 
-    /// Lists available camera devices without starting capture.
-    ///
-    /// - Returns: Devices with their identifiers, names, and default status.
-    func listCameraDevices() async -> [CameraDevice]
-
     /// Realtime capability configuration.
     var options: RealtimeConfiguration { get }
 
@@ -34,6 +29,40 @@ public protocol XmaxRealtimeManaging: Sendable {
     var currentCameraPreset: RealtimeCameraPreset? {
         get async
     }
+
+    /// The applied uplink level, or `nil` before connection completes or after disconnection
+    /// begins.
+    var uplinkQualityLevel: RealtimeQualityLevel? {
+        get async
+    }
+
+    /// The submitted downlink level, or `nil` before connection completes or after disconnection
+    /// begins.
+    ///
+    /// The server may begin returning the new dimensions after this value changes.
+    var downlinkQualityLevel: RealtimeQualityLevel? {
+        get async
+    }
+
+    /// The effective remote video interpolation state.
+    var isFrameInterpolationEnabled: Bool { get async }
+
+    /// The remote generated audio playback volume in `0...1`.
+    /// Starts at 0 after camera stream creation; enable result audio when needed.
+    var remoteAudioVolume: Float { get async }
+
+    /// Whether the local camera stream is configured to capture microphone audio while connected.
+    var isMicrophoneEnabled: Bool { get async }
+
+    /// Lists available camera devices without starting capture.
+    ///
+    /// - Returns: Devices with their identifiers, names, and default status.
+    func listCameraDevices() async -> [CameraDevice]
+
+    /// Lists microphone inputs without starting capture or requesting microphone permission.
+    ///
+    /// - Returns: Physical and virtual inputs with stable UIDs, names, and default status.
+    func listMicrophoneDevices() async -> [MicrophoneDevice]
 
     /// Updates a ready, disconnected camera stream while preserving its track and view bindings.
     ///
@@ -56,20 +85,6 @@ public protocol XmaxRealtimeManaging: Sendable {
     func updateCameraFormat(
         _ preset: RealtimeCameraPreset
     ) async throws
-
-    /// The applied uplink level, or `nil` before connection completes or after disconnection
-    /// begins.
-    var uplinkQualityLevel: RealtimeQualityLevel? {
-        get async
-    }
-
-    /// The submitted downlink level, or `nil` before connection completes or after disconnection
-    /// begins.
-    ///
-    /// The server may begin returning the new dimensions after this value changes.
-    var downlinkQualityLevel: RealtimeQualityLevel? {
-        get async
-    }
 
     /// Changes the uplink encoding level during generation without changing capture or generation
     /// dimensions.
@@ -96,9 +111,6 @@ public protocol XmaxRealtimeManaging: Sendable {
         _ level: RealtimeQualityLevel
     ) async throws
 
-    /// The effective remote video interpolation state.
-    var isFrameInterpolationEnabled: Bool { get async }
-
     /// Sets beauty on generated result frames shared by preview and `setRemoteMediaFrameListener`.
     ///
     /// Disabled by default. Pass options to enable or nil to disable.
@@ -122,10 +134,6 @@ public protocol XmaxRealtimeManaging: Sendable {
     func setRemoteVideoBeautyErrorListener(
         _ listener: RealtimeVideoBeautyErrorListener?
     ) async
-
-    /// The remote generated audio playback volume in `0...1`.
-    /// Starts at 0 after camera stream creation; enable result audio when needed.
-    var remoteAudioVolume: Float { get async }
 
     /// Sets the realtime state listener.
     ///
@@ -224,18 +232,19 @@ public protocol XmaxRealtimeManaging: Sendable {
     ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
     ///   - mirror: Whether to mirror both native local preview and the encoded camera stream.
     ///     Generated output and frame callbacks retain the direction returned by the server.
-    ///   - useMicrophone: Whether to use the microphone; requests permission at creation, starts capture on connection,
-    ///     and stops on disconnect.
+    ///   - microphone: The initial microphone selection. Enabled inputs request permission at creation,
+    ///     start capture on connection, and stop on disconnect. Use `switchMicrophone(to:)`
+    ///     and `setMicrophoneEnabled(_:)` for runtime changes.
     ///
     /// - Returns: The media stream containing the local camera video track.
     ///
-    /// - Throws: An error on invalid configuration, denied permissions, conflicting operations, or capture startup
-    ///   failure.
+    /// - Throws: An error on invalid configuration, denied permissions, conflicting operations, input selection,
+    ///   or capture startup failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
         mirror: Bool,
-        useMicrophone: Bool
+        microphone: RealtimeMicrophone
     ) async throws -> RealtimeMediaStream
 
     /// Stops the local camera stream and updates media readiness.
@@ -291,6 +300,28 @@ public protocol XmaxRealtimeManaging: Sendable {
     func switchCamera(
         to deviceID: String
     ) async throws -> RealtimeMediaStream
+
+    /// Switches microphone input without restarting generation or the RTC connection.
+    ///
+    /// Requires a local camera stream. While microphone capture is disabled, only the input selection changes.
+    ///
+    /// - Parameter deviceID: The Core Audio input UID; nil follows the system default input.
+    /// - Throws: An error if media is unavailable, another operation is active, or device selection fails.
+    func switchMicrophone(
+        to deviceID: String?
+    ) async throws
+
+    /// Enables or disables microphone capture and publication while retaining video generation.
+    ///
+    /// Before connection, updates microphone intent without starting capture. Enabling requests permission.
+    /// Available for camera streams; caller-owned external audio is unaffected.
+    /// Disabling still stops capture when unpublication fails, and reports that publication error.
+    ///
+    /// - Parameter enabled: Whether to capture and publish the selected microphone while connected.
+    /// - Throws: An error on invalid state, denied permission, capture failure, or publication failure.
+    func setMicrophoneEnabled(
+        _ enabled: Bool
+    ) async throws
 
     /// Establishes a realtime connection with the local stream created by this manager.
     ///

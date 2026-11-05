@@ -3,11 +3,11 @@
 import CoreVideo
 import Foundation
 @preconcurrency import IOSurface
-import VideoBeautyBridge
-import VideoBeautyIPC
+import BeautyBridge
+import BeautyIPC
 
 /// Entry point for the signed, independently sandboxed beauty helper bundled by the host app.
-public enum XmaxRealtimeVideoBeautyWorker {
+public enum XmaxRealtimeBeautyWorker {
 
     /// Runs the private XPC service embedded in the host's Contents/XPCServices directory.
     /// Call only from the service executable's main entry point; this never creates an RTC connection.
@@ -31,7 +31,7 @@ private final class BeautyWorkerServer: NSObject, NSXPCListenerDelegate, @unchec
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
         let service = BeautyWorkerService(engine: engine)
-        connection.exportedInterface = VideoBeautyWorkerInterface.make()
+        connection.exportedInterface = BeautyWorkerInterface.make()
         connection.exportedObject = service
         connection.invalidationHandler = { service.close() }
         connection.resume()
@@ -51,14 +51,14 @@ private final class BeautyWorkerContext: @unchecked Sendable {
 /// Serializes all vendor calls; separate clients never initialize a second Agora service in this process.
 private final class BeautyWorkerEngine: @unchecked Sendable {
     let worker = DispatchQueue(label: "ai.xmax.beauty-worker", qos: .userInitiated)
-    var processor: VideoBeautyProcessor?
+    var processor: BeautyProcessor?
     var currentOptions: [String: NSNumber]?
 
-    func prepare(appID: String, options: [String: NSNumber]) throws -> VideoBeautyProcessor {
+    func prepare(appID: String, options: [String: NSNumber]) throws -> BeautyProcessor {
         if let processor {
             if currentOptions != options { try processor.updateOptions(options) }
         } else {
-            processor = try VideoBeautyProcessor(appID: appID, options: options)
+            processor = try BeautyProcessor(appID: appID, options: options)
         }
         currentOptions = options
         guard let processor else { throw WorkerError("Unable to create beauty processor") }
@@ -67,7 +67,7 @@ private final class BeautyWorkerEngine: @unchecked Sendable {
 }
 
 /// Serves one connection without sharing its settings or ownership leases with other connections.
-private final class BeautyWorkerService: NSObject, VideoBeautyWorkerProtocol, @unchecked Sendable {
+private final class BeautyWorkerService: NSObject, BeautyWorkerProtocol, @unchecked Sendable {
     private let engine: BeautyWorkerEngine
     private let context = BeautyWorkerContext()
 

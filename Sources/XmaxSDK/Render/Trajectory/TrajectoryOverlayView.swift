@@ -53,6 +53,28 @@ final class TrajectoryOverlayView: NSView {
     /// Whether this view accepts keyboard cancellation while dragging.
     override var acceptsFirstResponder: Bool { true }
 
+    /// Whether this viewport can accept interaction for the current binding.
+    private var available: Bool {
+        enabled && requested && binding != nil && window != nil && !isHiddenOrHasHiddenAncestor
+            && interactionFrame != nil
+    }
+
+    /// The complete displayed video rectangle before viewport clipping.
+    private var displayedFrame: CGRect? {
+        guard let resolvedMediaSize else { return nil }
+        return InteractionCoordinateMapper.displayedFrame(
+            viewportSize: bounds.size,
+            resolvedMediaSize: resolvedMediaSize,
+            contentMode: contentMode
+        )
+    }
+
+    /// The visible intersection of the video rectangle and viewport.
+    private var interactionFrame: CGRect? {
+        guard let frame = displayedFrame?.intersection(bounds), !frame.isEmpty, !frame.isNull else { return nil }
+        return frame
+    }
+
     /// Accepts the initial pointer press when the window is inactive.
     override func acceptsFirstMouse(
         for event: NSEvent?
@@ -247,28 +269,6 @@ final class TrajectoryOverlayView: NSView {
         activePoint = nil
         stopSampling()
         renderer.reset()
-    }
-
-    /// Whether this viewport can accept interaction for the current binding.
-    private var available: Bool {
-        enabled && requested && binding != nil && window != nil && !isHiddenOrHasHiddenAncestor
-            && interactionFrame != nil
-    }
-
-    /// The complete displayed video rectangle before viewport clipping.
-    private var displayedFrame: CGRect? {
-        guard let resolvedMediaSize else { return nil }
-        return InteractionCoordinateMapper.displayedFrame(
-            viewportSize: bounds.size,
-            resolvedMediaSize: resolvedMediaSize,
-            contentMode: contentMode
-        )
-    }
-
-    /// The visible intersection of the video rectangle and viewport.
-    private var interactionFrame: CGRect? {
-        guard let frame = displayedFrame?.intersection(bounds), !frame.isEmpty, !frame.isNull else { return nil }
-        return frame
     }
 
     /// Converts a window event into viewport and normalized media coordinates.

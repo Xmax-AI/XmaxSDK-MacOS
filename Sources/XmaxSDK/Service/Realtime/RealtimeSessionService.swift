@@ -188,6 +188,9 @@ private extension RealtimeSessionService {
         /// The response user identifier.
         let userUID: String?
 
+        /// The assigned model instance identifier.
+        let modelUID: String?
+
         /// The server-reported session state.
         let status: String?
 
@@ -205,6 +208,9 @@ private extension RealtimeSessionService {
 
             /// The server user identifier field.
             case userUID = "userUid"
+
+            /// The assigned model instance field.
+            case modelUID = "modelUid"
 
             /// The session state field.
             case status
@@ -232,6 +238,10 @@ private extension RealtimeSessionService {
             userUID = try? container.decode(
                 String.self,
                 forKey: .userUID
+            )
+            modelUID = try? container.decode(
+                String.self,
+                forKey: .modelUID
             )
             status = try? container.decode(
                 String.self,
@@ -474,7 +484,8 @@ private extension RealtimeSessionService {
             userID: userID,
             status: nonEmpty(payload.status),
             connection: connection,
-            closeReason: nonEmpty(payload.closeReason)
+            closeReason: nonEmpty(payload.closeReason),
+            modelID: nonEmpty(payload.modelUID)
         )
     }
 

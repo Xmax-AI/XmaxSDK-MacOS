@@ -57,6 +57,11 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
     /// The media retained by delivery operations across all revisions.
     private var pendingBytes = 0
 
+    /// Whether an application currently requests audio and video output.
+    var hasListener: Bool {
+        lock.withLock { listener != nil }
+    }
+
     /// Creates a bounded output queue.
     init(
         maximumPendingFrames: Int = 256,
@@ -69,11 +74,6 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
         self.maximumPendingFrames = maximumPendingFrames
         self.maximumPendingBytes = maximumPendingBytes
         queue = deliveryQueue
-    }
-
-    /// Whether an application currently requests audio and video output.
-    var hasListener: Bool {
-        lock.withLock { listener != nil }
     }
 
     /// Replaces the listener and rejects queued output from the previous listener.

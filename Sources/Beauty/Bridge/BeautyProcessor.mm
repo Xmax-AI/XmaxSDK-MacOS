@@ -1,6 +1,6 @@
 // Copyright (c) 2026 XMAX.AI PTE. LTD.
 
-#import "VideoBeautyProcessor.h"
+#import "BeautyProcessor.h"
 #include <AgoraRtcKit/IAgoraService.h>
 #include <AgoraRtcKit/NGIAgoraMediaNodeFactory.h>
 #include <AgoraRtcKit/NGIAgoraMediaNode.h>
@@ -130,7 +130,7 @@ bool fail(NSError **error, NSString *message, NSInteger code = -1) {
 }
 }
 
-@implementation VideoBeautyProcessor
+@implementation BeautyProcessor
 
 - (instancetype)initWithAppID:(NSString *)appID options:(NSDictionary<NSString *, NSNumber *> *)options error:(NSError **)error {
     self = [super init];
