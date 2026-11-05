@@ -23,6 +23,9 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// The selected input UID, or nil to follow the system default during microphone capture.
     private var microphoneDeviceID: String?
 
+    /// Coalesces physical input readings and invalidates callbacks across capture and listener changes.
+    private let microphoneLevels = MicrophoneLevelMonitor()
+
     /// The room join timeout, in nanoseconds.
     private let joinTimeout: UInt64
 
@@ -136,12 +139,15 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
         await leaveRoom()
         let resources = cameraOperationLock.withLock {
             operationLock.withLock {
-                stateLock.withLock { () -> (RtcEngineLease?, Initialization?) in
+                let resources = stateLock.withLock { () -> (RtcEngineLease?, Initialization?) in
                     let resources = (engineLease, initialization)
                     engineLease = nil
                     initialization = nil
                     return resources
                 }
+                microphoneLevels.endCapture()
+                resources.0?.engine.setMicrophoneLevelListener(nil)
+                return resources
             }
         }
 
@@ -301,7 +307,17 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     ///
     /// - Throws: An error on audio source switching or capture failure.
     func startAudioCapture() throws {
-        try withEngine { try $0.startAudioCapture(deviceID: microphoneDeviceID) }
+        try withEngine { platform in
+            do {
+                try platform.startAudioCapture(deviceID: microphoneDeviceID)
+                microphoneLevels.beginCapture()
+                platform.setMicrophoneLevelListener(microphoneLevels.sourceListener())
+            } catch {
+                microphoneLevels.endCapture()
+                platform.setMicrophoneLevelListener(nil)
+                throw error
+            }
+        }
     }
 
     /// Applies and retains input selection under the audio control lock, restoring the previous route on failure.
@@ -309,14 +325,38 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
         _ deviceID: String?
     ) throws {
         try withEngine { platform in
+            let wasCapturing = microphoneLevels.isCapturing
+            if wasCapturing {
+                microphoneLevels.endCapture()
+                platform.setMicrophoneLevelListener(nil)
+            }
             do {
                 try platform.setMicrophoneDevice(deviceID)
                 microphoneDeviceID = deviceID
             } catch {
-                do { try platform.setMicrophoneDevice(microphoneDeviceID) }
-                catch { XmaxLogger.realtime.error(message: "Failed to restore microphone input: \(error)") }
+                do {
+                    try platform.setMicrophoneDevice(microphoneDeviceID)
+                    if wasCapturing {
+                        microphoneLevels.beginCapture()
+                        platform.setMicrophoneLevelListener(microphoneLevels.sourceListener())
+                    }
+                } catch { XmaxLogger.realtime.error(message: "Failed to restore microphone input: \(error)") }
                 throw error
             }
+            if wasCapturing {
+                microphoneLevels.beginCapture()
+                platform.setMicrophoneLevelListener(microphoneLevels.sourceListener())
+            }
+        }
+    }
+
+    /// Replays input strength on the main actor, then updates native observation without acquiring an engine.
+    func setMicrophoneLevelListener(
+        _ listener: RealtimeMicrophoneLevelListener?
+    ) async {
+        await microphoneLevels.setListener(listener)
+        try? withOptionalEngine { platform in
+            platform.setMicrophoneLevelListener(microphoneLevels.sourceListener())
         }
     }
 
@@ -324,14 +364,24 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     ///
     /// - Throws: An error if the vendor engine fails to stop capture.
     func stopAudioCapture() throws {
-        try withOptionalEngine { try $0.stopAudioCapture() }
+        try operationLock.withLock {
+            microphoneLevels.endCapture()
+            try withOptionalEngine { platform in
+                platform.setMicrophoneLevelListener(nil)
+                try platform.stopAudioCapture()
+            }
+        }
     }
 
     /// Enables external PCM input.
     ///
     /// - Throws: An error if external audio track creation fails.
     func startExternalAudioSource() throws {
-        try withEngine { try $0.startExternalAudioSource() }
+        try withEngine { platform in
+            microphoneLevels.endCapture()
+            platform.setMicrophoneLevelListener(nil)
+            try platform.startExternalAudioSource()
+        }
     }
 
     /// Stops external PCM input and releases the audio track.
@@ -400,6 +450,9 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// Leaves the current RTC room.
     func leaveRoom() async {
         operationLock.withLock {
+            microphoneLevels.endCapture()
+            let platform = stateLock.withLock { engineLease?.engine }
+            platform?.setMicrophoneLevelListener(nil)
             let resources = stateLock.withLock { () -> (RoomContext?, PendingJoin?) in
                 let result = (activeRoom, pendingJoin)
                 activeRoom = nil

@@ -13,6 +13,19 @@ import Foundation
 /// Receives remote video frames in SDK-owned pixel buffers.
 typealias RtcRemoteVideoFrameListener = @Sendable (RealtimeVideoFrame) -> Void
 
+/// Receives normalized native input metadata; application delivery belongs to the microphone monitor.
+typealias RtcMicrophoneLevelListener = @Sendable (Float?) -> Void
+
+/// The local microphone metadata supplied by native engine or channel delegates.
+enum RtcMicrophoneEvent: Sendable {
+
+    /// The normalized strength of the physical local input.
+    case level(Float)
+
+    /// Whether native capture remains able to supply usable readings.
+    case availability(Bool)
+}
+
 /// Isolates third-party RTC capabilities from connection waits, timeouts, and lease management.
 protocol RtcPlatform: AnyObject, RtcCameraCapturing {
 
@@ -52,6 +65,11 @@ protocol RtcPlatform: AnyObject, RtcCameraCapturing {
     func setMicrophoneDevice(
         _ deviceID: String?
     ) throws
+
+    /// Configures best-effort local input observation without enabling audio capture.
+    func setMicrophoneLevelListener(
+        _ listener: RtcMicrophoneLevelListener?
+    )
 
     /// Stops microphone capture.
     ///

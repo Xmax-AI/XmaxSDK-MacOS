@@ -277,6 +277,13 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         }
     }
 
+    /// Observes microphone input through local media without starting capture or initializing RTC.
+    func setMicrophoneLevelListener(
+        _ listener: RealtimeMicrophoneLevelListener?
+    ) async {
+        await mediaController.setMicrophoneLevelListener(listener)
+    }
+
     /// Sets the realtime state listener.
     ///
     /// - Parameter listener: The realtime state callback; `nil` clears the listener.

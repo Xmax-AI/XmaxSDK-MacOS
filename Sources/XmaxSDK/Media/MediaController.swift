@@ -146,6 +146,13 @@ actor MediaController: MediaControlling {
         microphoneDevices()
     }
 
+    /// Observes physical input strength without creating a local stream or acquiring the RTC engine.
+    func setMicrophoneLevelListener(
+        _ listener: RealtimeMicrophoneLevelListener?
+    ) async {
+        await rtcManager.setMicrophoneLevelListener(listener)
+    }
+
     /// Sets a one-time internal readiness handler for the current camera stream.
     ///
     /// - Parameter handler: Called after capture is ready and preview is bound; an empty value clears it.

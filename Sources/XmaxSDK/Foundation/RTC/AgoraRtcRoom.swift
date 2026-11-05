@@ -122,10 +122,18 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
                 )
             }
             account = configuration.userID
-            let bridge = RtcRoomEventBridge { [weak self] event in
-                // Return to Agora immediately; lifecycle handling can acquire control locks or call the engine.
-                self?.enqueue(event)
-            }
+            let bridge = RtcRoomEventBridge(
+                microphoneListener: { [weak self] event in
+                    guard let self,
+                        self.callbackLock.withLock({ !self.callbackState.isClosed && self.callbackState.isJoined })
+                    else { return }
+                    self.platform.receiveMicrophoneEvent(event)
+                },
+                handler: { [weak self] event in
+                    // Return to Agora immediately; lifecycle handling can acquire control locks or call the engine.
+                    self?.enqueue(event)
+                }
+            )
             self.bridge = bridge
 
             let sink = RtcRemoteVideoSink { [weak self] uid, channelID, frame in
@@ -592,6 +600,7 @@ private extension AgoraRtcRoom {
         callbackLock.withLock {
             if !callbackState.isClosed { callbackState.isJoined = true }
         }
+        platform.refreshMicrophoneLevelObservation()
     }
 
     /// Sends an event to a valid room listener.

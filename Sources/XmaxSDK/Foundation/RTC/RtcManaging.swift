@@ -54,6 +54,11 @@ protocol RtcManaging: RtcCameraCapturing {
         _ deviceID: String?
     ) throws
 
+    /// Replaces the main-actor microphone receiver and replays the latest reading without starting capture.
+    func setMicrophoneLevelListener(
+        _ listener: RealtimeMicrophoneLevelListener?
+    ) async
+
     /// Stops microphone capture.
     ///
     /// - Throws: An error if the vendor engine fails to stop capture.

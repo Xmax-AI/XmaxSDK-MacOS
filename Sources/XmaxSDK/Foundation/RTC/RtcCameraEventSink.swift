@@ -11,8 +11,8 @@
 @preconcurrency import AgoraRtcKit
 import Foundation
 
-/// Native rendering metadata is independent of the raw video frame observer.
-/// Vendor callbacks return immediately; application callbacks use a separate serial queue.
+/// Receives native camera readiness and microphone metadata independently of raw media frame observation.
+/// Camera events use a serial queue; the microphone monitor owns application level delivery.
 final class RtcCameraEventSink: NSObject, AgoraRtcEngineDelegate, @unchecked Sendable {
 
     /// Readiness, failure, and first-frame delivery state for one native camera startup.
@@ -45,6 +45,58 @@ final class RtcCameraEventSink: NSObject, AgoraRtcEngineDelegate, @unchecked Sen
 
     /// The current camera startup callbacks and delivery flags.
     private var session: Session?
+
+    /// The physical microphone observer; input lifecycle and stale-source checks belong to RtcManager.
+    private var microphoneLevelListener: RtcMicrophoneLevelListener?
+
+    /// Whether native microphone readings remain valid after the most recent audio state event.
+    private var microphoneInputAvailable = true
+
+    /// Replaces the microphone metadata receiver independently of camera preview readiness.
+    func setMicrophoneLevelListener(
+        _ listener: RtcMicrophoneLevelListener?
+    ) {
+        lock.withLock {
+            microphoneLevelListener = listener
+        }
+    }
+
+    /// Forwards only the local input entry, excluding remote speaker and mixed playback totals.
+    func rtcEngine(
+        _ engine: AgoraRtcEngineKit,
+        reportAudioVolumeIndicationOfSpeakers speakers: [AgoraRtcAudioVolumeInfo],
+        totalVolume: Int
+    ) {
+        guard let local = speakers.first(where: { $0.uid == 0 }) else { return }
+        receiveMicrophoneEvent(.level(min(1, Float(local.volume) / 255)))
+    }
+
+    /// Clears the input reading when native capture stops or fails, without stopping video.
+    func rtcEngine(
+        _ engine: AgoraRtcEngineKit,
+        localAudioStateChanged state: AgoraAudioLocalState,
+        reason: AgoraAudioLocalReason
+    ) {
+        let unavailable = state == .stopped || state == .failed
+        receiveMicrophoneEvent(.availability(!unavailable))
+    }
+
+    /// Shares microphone validity between global-engine and connection-specific native callbacks.
+    func receiveMicrophoneEvent(
+        _ event: RtcMicrophoneEvent
+    ) {
+        switch event {
+        case .level(let level):
+            let callback = lock.withLock { microphoneInputAvailable ? microphoneLevelListener : nil }
+            callback?(level)
+        case .availability(let available):
+            let callback = lock.withLock {
+                microphoneInputAvailable = available
+                return microphoneLevelListener
+            }
+            if !available { callback?(nil) }
+        }
+    }
 
     /// Installs a new callback session, invalidating callbacks from earlier startups.
     func beginSession(

@@ -5,6 +5,99 @@ import XCTest
 @testable import XmaxSDK
 
 final class AgoraRtcRoomConcurrencyTests: XCTestCase, @unchecked Sendable {
+    func testMicrophoneObservationMovesToTheJoinedConnectionAndReceivesChannelMetadata() async throws {
+        let (room, engine, platform, recorder) = try await joinedMeterRoom()
+        let delegate = try XCTUnwrap(engine.roomDelegate)
+        let local = AgoraRtcAudioVolumeInfo()
+        local.uid = 0
+        local.volume = 128
+        delegate.rtcEngine?(engine.vendor, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
+        XCTAssertEqual(recorder.values, [Float(128) / 255])
+        XCTAssertEqual(recorder.configurations, ["200:global", "0:global", "200:room/1"])
+        platform.setMicrophoneLevelListener(nil)
+        XCTAssertEqual(recorder.configurations.last, "0:room/1")
+        room.destroy()
+    }
+
+    func testMicrophoneChannelCallbackReturnsDuringControlCallsAndRejectsClosedRoomEvents() async throws {
+        let (room, engine, platform, recorder) = try await joinedMeterRoom()
+        let delegate = try XCTUnwrap(engine.roomDelegate)
+        engine.onUpdate = {
+            engine.waitForCallback {
+                let local = AgoraRtcAudioVolumeInfo()
+                local.uid = 0
+                local.volume = 255
+                delegate.rtcEngine?(engine.vendor, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
+            }
+        }
+        try room.publishLocalVideo(false)
+        XCTAssertEqual(engine.callbackReturned, true)
+        XCTAssertEqual(recorder.values, [1])
+        platform.setMicrophoneLevelListener(nil)
+        room.destroy()
+        platform.setMicrophoneLevelListener { recorder.append($0) }
+        let local = AgoraRtcAudioVolumeInfo()
+        local.uid = 0
+        local.volume = 128
+        delegate.rtcEngine?(engine.vendor, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 128)
+        XCTAssertEqual(recorder.values, [1], "A retired connection cannot feed a replacement input observer")
+        platform.setMicrophoneLevelListener(nil)
+    }
+
+    func testMicrophoneChannelFailureAndRecoveryShareInputValidity() async throws {
+        let (room, engine, platform, recorder) = try await joinedMeterRoom()
+        let delegate = try XCTUnwrap(engine.roomDelegate)
+        let local = AgoraRtcAudioVolumeInfo()
+        local.uid = 0
+        local.volume = 255
+        delegate.rtcEngine?(engine.vendor, localAudioStateChanged: .failed, reason: .recordFailure)
+        delegate.rtcEngine?(engine.vendor, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
+        XCTAssertEqual(recorder.values.count, 1)
+        XCTAssertNil(recorder.values[0])
+        delegate.rtcEngine?(engine.vendor, localAudioStateChanged: .recording, reason: .OK)
+        delegate.rtcEngine?(engine.vendor, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
+        XCTAssertEqual(recorder.values, [nil, 1])
+        platform.setMicrophoneLevelListener(nil)
+        room.destroy()
+    }
+
+    func testRejectedConnectionLevelObservationDoesNotFailTheRoomJoin() async throws {
+        let (room, _, platform, recorder) = try await joinedMeterRoom(rejectObservation: true)
+        XCTAssertTrue(room.isJoined)
+        XCTAssertEqual(recorder.values.count, 1)
+        XCTAssertNil(recorder.values[0])
+        platform.setMicrophoneLevelListener(nil)
+        room.destroy()
+    }
+
+    private func joinedMeterRoom(
+        rejectObservation: Bool = false
+    ) async throws -> (AgoraRtcRoom, CallbackWaitingAgoraEngine, AgoraRtcPlatform, RoomMicrophoneLevelRecorder) {
+        let engine = CallbackWaitingAgoraEngine()
+        let recorder = RoomMicrophoneLevelRecorder()
+        let platform = AgoraRtcPlatform(
+            engine: engine.vendor,
+            cameraEvents: RtcCameraEventSink(),
+            roomEngine: engine,
+            microphoneLevelIndication: { interval, smooth, vad, connection in
+                XCTAssertEqual(smooth, 3)
+                XCTAssertFalse(vad)
+                recorder.record(interval, connection: connection)
+                return interval > 0 && connection != nil && rejectObservation ? -1 : 0
+            }
+        )
+        platform.setMicrophoneLevelListener { recorder.append($0) }
+        let room = try XCTUnwrap(platform.createRoom(roomID: "room") as? AgoraRtcRoom)
+        let joined = expectation(description: "Joined room with microphone observation")
+        room.setEventListener { event in
+            if case .joined = event { joined.fulfill() }
+            if case .failure(let error) = event { XCTFail("Observation must not fail joining: \(error)") }
+        }
+        try room.join(configuration: RoomJoinConfiguration(roomID: "room", userID: "host", token: "test"))
+        await fulfillment(of: [joined], timeout: 2)
+        return (room, engine, platform, recorder)
+    }
+
     func testIncomingDataStreamResolvesSenderAccountAndIgnoresDestroyedRoom() async throws {
         let (room, engine) = try await joinedRoom()
         let delivered = expectation(description: "Room signaling delivered")
@@ -320,6 +413,19 @@ private final class CallbackWaitingRoomPlatform: AgoraRtcRoomPlatform, @unchecke
         self.usesCameraTrack = usesCameraTrack
     }
     func reapplyVideoConfiguration() throws {}
+}
+
+private final class RoomMicrophoneLevelRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var readings: [Float?] = []
+    private var calls: [String] = []
+    var values: [Float?] { lock.withLock { readings } }
+    var configurations: [String] { lock.withLock { calls } }
+    func append(_ value: Float?) { lock.withLock { readings.append(value) } }
+    func record(_ interval: Int, connection: AgoraRtcConnection?) {
+        let target = connection.map { ($0.channelId ?? "") + "/" + String($0.localUid) } ?? "global"
+        lock.withLock { calls.append(String(interval) + ":" + target) }
+    }
 }
 
 private extension CallbackWaitingAgoraEngine {

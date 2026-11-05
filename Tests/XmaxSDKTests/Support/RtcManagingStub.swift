@@ -78,12 +78,26 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     private let setRemoteAudioFrameListenerError: (any Error)?
     private var storedRemoteAudioFrameStream: RemoteStream?
     private var storedRemoteAudioFrameListener: RtcRemoteAudioFrameListener?
+    private var microphoneLevelListener: RealtimeMicrophoneLevelListener?
     private var nextAudioRemovalError: (any Error)?
     var flushHandler: (@Sendable () async throws -> Void)?
     var commandSendHandler: (@Sendable () async throws -> Void)?
     var audioControlHandler: (@Sendable () -> Void)?
     var reportsCameraReadyOnStart = true
     var cameraStartHandler: (@Sendable () -> Void)?
+
+    func setMicrophoneLevelListener(_ listener: RealtimeMicrophoneLevelListener?) async {
+        await MainActor.run {
+            self.lock.withLock { self.microphoneLevelListener = listener }
+            listener?(nil)
+        }
+    }
+
+    @MainActor
+    func emitMicrophoneLevel(_ level: Float?) {
+        let callback = lock.withLock { microphoneLevelListener }
+        callback?(level)
+    }
 
     /// Concurrent state
     private let lock = NSLock()

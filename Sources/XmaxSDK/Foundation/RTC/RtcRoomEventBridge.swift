@@ -48,6 +48,9 @@ final class RtcRoomEventBridge: NSObject, AgoraRtcEngineDelegate {
     /// The converted event handler.
     private let handler: @Sendable (Event) -> Void
 
+    /// Receives local microphone metadata independently of queued room lifecycle events.
+    private let microphoneListener: (@Sendable (RtcMicrophoneEvent) -> Void)?
+
     /// Forwards a native data-stream message without interpreting its business protocol.
     func rtcEngine(
         _ engine: AgoraRtcEngineKit,
@@ -60,9 +63,30 @@ final class RtcRoomEventBridge: NSObject, AgoraRtcEngineDelegate {
 
     /// Creates a room event bridge.
     init(
+        microphoneListener: (@Sendable (RtcMicrophoneEvent) -> Void)? = nil,
         handler: @escaping @Sendable (Event) -> Void
     ) {
+        self.microphoneListener = microphoneListener
         self.handler = handler
+    }
+
+    /// Forwards local input strength from the connection delegate while excluding remote speaker totals.
+    func rtcEngine(
+        _ engine: AgoraRtcEngineKit,
+        reportAudioVolumeIndicationOfSpeakers speakers: [AgoraRtcAudioVolumeInfo],
+        totalVolume: Int
+    ) {
+        guard let local = speakers.first(where: { $0.uid == 0 }) else { return }
+        microphoneListener?(.level(min(1, Float(local.volume) / 255)))
+    }
+
+    /// Forwards native microphone validity from the connection-specific callback path.
+    func rtcEngine(
+        _ engine: AgoraRtcEngineKit,
+        localAudioStateChanged state: AgoraAudioLocalState,
+        reason: AgoraAudioLocalReason
+    ) {
+        microphoneListener?(.availability(state != .stopped && state != .failed))
     }
 
     /// Forwards successful local room join events.

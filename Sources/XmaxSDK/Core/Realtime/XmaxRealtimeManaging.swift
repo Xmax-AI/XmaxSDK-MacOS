@@ -64,6 +64,20 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// - Returns: Physical and virtual inputs with stable UIDs, names, and default status.
     func listMicrophoneDevices() async -> [MicrophoneDevice]
 
+    /// Observes physical microphone input strength without starting capture or requesting permission.
+    ///
+    /// Registration immediately replays the latest reading on the main actor. Native samples arrive
+    /// approximately every 200 ms while the microphone is captured and native readings are available.
+    /// Pending samples are coalesced. `nil` clears stale input on stop, disconnect, input replacement,
+    /// or native capture failure; a measured zero means silence. External and remote audio are excluded.
+    /// Observation survives capture restarts until replaced or explicitly removed.
+    ///
+    /// - Parameter listener: The input-strength receiver. Pass nil to remove it and invalidate queued delivery;
+    ///   after removal returns, no queued callback is delivered to the previous listener.
+    func setMicrophoneLevelListener(
+        _ listener: RealtimeMicrophoneLevelListener?
+    ) async
+
     /// Updates a ready, disconnected camera stream while preserving its track and view bindings.
     ///
     /// - Parameter videoFormat: The new capture dimensions, frame rate, and encoding settings.

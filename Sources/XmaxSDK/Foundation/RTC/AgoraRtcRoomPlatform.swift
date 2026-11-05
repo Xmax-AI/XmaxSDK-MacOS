@@ -33,6 +33,14 @@ protocol AgoraRtcRoomPlatform: AnyObject, Sendable {
 
     /// Reapplies stored encoding settings after source or publication changes.
     func reapplyVideoConfiguration() throws
+
+    /// Reconfigures level observation after a connection receives its native local UID.
+    func refreshMicrophoneLevelObservation()
+
+    /// Forwards current-connection input metadata without acquiring room control locks.
+    func receiveMicrophoneEvent(
+        _ event: RtcMicrophoneEvent
+    )
 }
 
 extension AgoraRtcRoomPlatform {
@@ -44,6 +52,14 @@ extension AgoraRtcRoomPlatform {
     func setRemoteVideoSink(
         _ sink: RtcRemoteVideoSink?
     ) -> Bool { roomEngine.setVideoFrameDelegate(sink) }
+
+    /// Leaves optional microphone observation unused in platforms that provide no input metadata.
+    func refreshMicrophoneLevelObservation() {}
+
+    /// Ignores optional input metadata when the platform does not expose microphone observation.
+    func receiveMicrophoneEvent(
+        _ event: RtcMicrophoneEvent
+    ) {}
 }
 
 /// The native channel, subscription, and signaling operations used by the room adapter.

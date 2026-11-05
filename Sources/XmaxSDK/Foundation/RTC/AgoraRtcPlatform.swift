@@ -25,6 +25,9 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     /// The native camera operations used by the capture adapter.
     private let cameraEngine: any AgoraRtcCameraEngine
 
+    /// Configures native level metadata under the platform lock, independently of microphone capture.
+    private let configureMicrophoneLevelIndication: (Int, Int, Bool, AgoraRtcConnection?) -> Int32
+
     /// Serializes room operations and shared configuration, separately from native camera calls.
     let lock = NSRecursiveLock()
 
@@ -52,6 +55,15 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     /// Whether the engine has accepted the remote frame observer.
     private var videoObserverRegistered = false
 
+    /// Whether native microphone level reporting is enabled, protected by the platform lock.
+    private var microphoneLevelsEnabled = false
+
+    /// The native connection currently supplying level metadata; nil selects global engine observation.
+    private var microphoneLevelConnection: AgoraRtcConnection?
+
+    /// The raw input receiver retained while observation waits for room connection or native recovery.
+    private var microphoneLevelListener: RtcMicrophoneLevelListener?
+
     /// The active native camera configuration under the camera control lock.
     private var cameraConfiguration: RtcCameraConfiguration?
 
@@ -75,17 +87,39 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
 
     /// Wraps an Agora engine with the SDK platform interface.
     ///
-    /// - Parameter engine: The initialized Agora engine.
+    /// - Parameters:
+    ///   - engine: The initialized Agora engine.
+    ///   - cameraEvents: Receives native camera readiness and microphone metadata.
+    ///   - roomEngine: The room operations adapter; nil uses the native engine.
+    ///   - cameraEngine: The camera operations adapter; nil uses the native engine.
+    ///   - microphoneLevelIndication: The level reporting configuration; nil uses the native engine.
     init(
         engine: AgoraRtcEngineKit,
         cameraEvents: RtcCameraEventSink,
         roomEngine: (any AgoraRtcRoomEngine)? = nil,
-        cameraEngine: (any AgoraRtcCameraEngine)? = nil
+        cameraEngine: (any AgoraRtcCameraEngine)? = nil,
+        microphoneLevelIndication: ((Int, Int, Bool, AgoraRtcConnection?) -> Int32)? = nil
     ) {
         self.engine = engine
         self.cameraEvents = cameraEvents
         self.roomEngine = roomEngine ?? engine
         self.cameraEngine = cameraEngine ?? engine
+        self.configureMicrophoneLevelIndication =
+            microphoneLevelIndication ?? { interval, smooth, reportVad, connection in
+                if let connection {
+                    return engine.enableAudioVolumeIndicationEx(
+                        interval,
+                        smooth: smooth,
+                        reportVad: reportVad,
+                        connection: connection
+                    )
+                }
+                return engine.enableAudioVolumeIndication(
+                    interval,
+                    smooth: smooth,
+                    reportVad: reportVad
+                )
+            }
     }
 
     /// Creates an Agora engine with default camera and microphone capture disabled.
@@ -473,6 +507,62 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
                 )
             }
         }
+    }
+
+    /// Enables only level reporting; a rejected observer leaves microphone capture unchanged.
+    func setMicrophoneLevelListener(
+        _ listener: RtcMicrophoneLevelListener?
+    ) {
+        let accepted = lock.withLock { () -> Bool in
+            microphoneLevelListener = listener
+            cameraEvents.setMicrophoneLevelListener(nil)
+            let connection = room.flatMap { $0.isJoined && !$0.isClosed ? $0.connection : nil }
+            let changedConnection =
+                connection?.channelId != microphoneLevelConnection?.channelId
+                || connection?.localUid != microphoneLevelConnection?.localUid
+            if microphoneLevelsEnabled && changedConnection {
+                let result = configureMicrophoneLevelIndication(
+                    0,
+                    3,
+                    false,
+                    microphoneLevelConnection
+                )
+                if result != 0 {
+                    XmaxLogger.realtime.error(
+                        message: "Previous microphone level source could not be disabled (code: \(result))"
+                    )
+                }
+                microphoneLevelsEnabled = false
+            }
+            if listener == nil && !microphoneLevelsEnabled { return true }
+            let result = configureMicrophoneLevelIndication(
+                listener == nil ? 0 : 200,
+                3,
+                false,
+                connection
+            )
+            guard result == 0 else {
+                XmaxLogger.realtime.error(message: "Microphone level observation failed (code: \(result))")
+                return false
+            }
+            microphoneLevelsEnabled = listener != nil
+            microphoneLevelConnection = listener == nil ? nil : connection
+            cameraEvents.setMicrophoneLevelListener(listener)
+            return true
+        }
+        if !accepted { listener?(nil) }
+    }
+
+    /// Moves level reporting to the joined connection without changing microphone capture.
+    func refreshMicrophoneLevelObservation() {
+        lock.withLock { setMicrophoneLevelListener(microphoneLevelListener) }
+    }
+
+    /// Shares microphone validity without entering native engine or room control locks.
+    func receiveMicrophoneEvent(
+        _ event: RtcMicrophoneEvent
+    ) {
+        cameraEvents.receiveMicrophoneEvent(event)
     }
 
     /// Resolves a stable Core Audio UID to an ID currently enumerated by Agora.
