@@ -45,17 +45,31 @@ final class BeautyColorConverterTests: XCTestCase, @unchecked Sendable {
         }
     }
 
-    func testSharedOutputPreservesHDRWithoutInitializingBeauty() throws {
-        let converter = BeautyColorConverter(bufferLimit: 16)
-        defer { converter.close() }
+    func testDisabledBeautyPreservesTaggedHDRFrames() async throws {
         for transfer in [kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ,
                          kCVImageBufferTransferFunction_ITU_R_2100_HLG] {
             let input = try makeFrame()
             setColors(input.pixelBuffer, transfer: transfer)
-            let output = try converter.prepareOutput(input)
-            XCTAssertTrue(output.pixelBuffer === input.pixelBuffer)
-            XCTAssertEqual(output.presentationTimeStamp, input.presentationTimeStamp)
-            XCTAssertEqual(output.duration, input.duration)
+            let transferName = transfer as String
+            let output = expectation(description: "Original HDR frame")
+            let pipeline = RemoteVideoFramePipeline(
+                interpolationEnabled: false,
+                outputToken: 0,
+                beautyProcessorFactory: { _ in
+                    XCTFail("Disabled beauty must not initialize a processor")
+                    throw XmaxError(code: .internalError, message: "Unexpected processor")
+                },
+                outputListener: { frame, _ in
+                    XCTAssertTrue(frame.pixelBuffer === input.pixelBuffer)
+                    XCTAssertEqual(CVBufferCopyAttachment(frame.pixelBuffer, kCVImageBufferTransferFunctionKey, nil) as? String,
+                                   transferName)
+                    output.fulfill()
+                },
+                errorListener: { _ in XCTFail("Unexpected failure") }
+            )
+            await pipeline.enqueue(input)
+            await fulfillment(of: [output], timeout: 2)
+            await pipeline.closeBeauty()
         }
     }
 
@@ -99,6 +113,16 @@ final class BeautyColorConverterTests: XCTestCase, @unchecked Sendable {
         let input = try makeFrame()
         setColors(input.pixelBuffer, primaries: kCVImageBufferColorPrimaries_SMPTE_C,
                   matrix: kCVImageBufferYCbCrMatrix_ITU_R_601_4)
+        CVPixelBufferLockBaseAddress(input.pixelBuffer, [])
+        let chroma = CVPixelBufferGetBaseAddressOfPlane(input.pixelBuffer, 1)!.assumingMemoryBound(to: UInt8.self)
+        let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(input.pixelBuffer, 1)
+        for row in 0..<120 {
+            for column in stride(from: 0, to: 320, by: 2) {
+                chroma[row * rowBytes + column] = 80
+                chroma[row * rowBytes + column + 1] = 170
+            }
+        }
+        CVPixelBufferUnlockBaseAddress(input.pixelBuffer, [])
         let originalColors = render(input.pixelBuffer)
         let processor = ColorReferenceBeautyProcessor()
         let recorder = ResultColorFrameRecorder()
