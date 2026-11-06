@@ -69,10 +69,6 @@ final class OfflineBeautyProcessor: BeautyProcessing, @unchecked Sendable {
         var connection: NSXPCConnection?
         /// Converts supported SDR colors before transferring their surfaces to ClearVision.
         let colorConverter = BeautyColorConverter()
-        #if DEBUG
-        /// The explicitly applied strengths included in the temporary local color diagnostic.
-        var diagnosticOptions: RealtimeVideoBeautyOptions?
-        #endif
         /// Prevents a closed processor from activating another connection.
         var closed = false
 
@@ -141,9 +137,6 @@ final class OfflineBeautyProcessor: BeautyProcessing, @unchecked Sendable {
                         throw Self.error("Invalid beauty helper configuration reply")
                     }
                     if let error { throw Self.error(error) }
-                    #if DEBUG
-                    storage.diagnosticOptions = options
-                    #endif
                     continuation.resume()
                 } catch {
                     storage.shutdown()
@@ -191,11 +184,6 @@ final class OfflineBeautyProcessor: BeautyProcessing, @unchecked Sendable {
                                           kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
                     CVBufferSetAttachment(output, kCVImageBufferTransferFunctionKey,
                                           kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
-                    #if DEBUG
-                    if let options = storage.diagnosticOptions {
-                        TemporaryBeautyColorCapture.save(original: frame, prepared: input, output: output, options: options)
-                    }
-                    #endif
                     continuation.resume(returning: RealtimeVideoFrame(
                         pixelBuffer: output,
                         presentationTimeStamp: frame.presentationTimeStamp,

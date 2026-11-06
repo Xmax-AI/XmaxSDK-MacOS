@@ -50,6 +50,12 @@ actor RemoteVideoFramePipeline {
     /// Creates an isolated beauty processor when enabled result processing first needs it.
     typealias BeautyProcessorFactory = @Sendable (RealtimeVideoBeautyOptions) async throws -> any BeautyProcessing
 
+    /// Shares the existing zero-strength color preparation across enabled and disabled SDR results.
+    private let outputColorConverter = BeautyColorConverter(bufferLimit: 16)
+
+    /// Avoids repeating a persistent output color preparation failure on every frame.
+    private var reportedColorFailure = false
+
     /// The injectable offline beauty graph factory.
     private let beautyProcessorFactory: BeautyProcessorFactory
 
@@ -305,6 +311,8 @@ private extension RemoteVideoFramePipeline {
     ) {
         generation += 1
         self.outputToken = outputToken
+        outputColorConverter.close()
+        reportedColorFailure = false
         drainTask?.cancel()
         let previousDrainTask = drainTask
         let previousCleanupTask = cleanupTask
@@ -357,7 +365,22 @@ private extension RemoteVideoFramePipeline {
                 else {
                     break
                 }
-                guard let finalFrame = await processBeauty(outputFrame, generation: activeGeneration),
+                let preparedFrame: RealtimeVideoFrame
+                do {
+                    preparedFrame = try outputColorConverter.prepareOutput(outputFrame)
+                    reportedColorFailure = false
+                } catch BeautyProcessingError.outputBackpressure {
+                    continue
+                } catch {
+                    if !reportedColorFailure {
+                        XmaxLogger.render.error(
+                            message: "Result output color preparation failed: \(error.localizedDescription)"
+                        )
+                        reportedColorFailure = true
+                    }
+                    preparedFrame = outputFrame
+                }
+                guard let finalFrame = await processBeauty(preparedFrame, generation: activeGeneration),
                     !Task.isCancelled, generation == activeGeneration else { continue }
                 await outputListener(
                     finalFrame,

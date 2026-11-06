@@ -45,6 +45,20 @@ final class BeautyColorConverterTests: XCTestCase, @unchecked Sendable {
         }
     }
 
+    func testSharedOutputPreservesHDRWithoutInitializingBeauty() throws {
+        let converter = BeautyColorConverter(bufferLimit: 16)
+        defer { converter.close() }
+        for transfer in [kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ,
+                         kCVImageBufferTransferFunction_ITU_R_2100_HLG] {
+            let input = try makeFrame()
+            setColors(input.pixelBuffer, transfer: transfer)
+            let output = try converter.prepareOutput(input)
+            XCTAssertTrue(output.pixelBuffer === input.pixelBuffer)
+            XCTAssertEqual(output.presentationTimeStamp, input.presentationTimeStamp)
+            XCTAssertEqual(output.duration, input.duration)
+        }
+    }
+
     func testHDRTransferFunctionsFailWithTheirActualValues() throws {
         let converter = BeautyColorConverter()
         for transfer in [kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ,
@@ -79,6 +93,115 @@ final class BeautyColorConverterTests: XCTestCase, @unchecked Sendable {
         assertCompatible(recovered)
         converter.close()
         XCTAssertEqual(render(retained[0].pixelBuffer), before)
+    }
+
+    func testDisabledAndZeroStrengthBeautyShareTheSameResultColorProfile() async throws {
+        let input = try makeFrame()
+        setColors(input.pixelBuffer, primaries: kCVImageBufferColorPrimaries_SMPTE_C,
+                  matrix: kCVImageBufferYCbCrMatrix_ITU_R_601_4)
+        let originalColors = render(input.pixelBuffer)
+        let processor = ColorReferenceBeautyProcessor()
+        let recorder = ResultColorFrameRecorder()
+        let first = expectation(description: "Initially disabled result")
+        let second = expectation(description: "Explicit zero-strength result")
+        let third = expectation(description: "Disabled again result")
+        let initialized = expectation(description: "Only explicit beauty initializes the processor")
+        let pipeline = RemoteVideoFramePipeline(
+            interpolationEnabled: false,
+            outputToken: 0,
+            beautyProcessorFactory: { options in
+                XCTAssertEqual(options, RealtimeVideoBeautyOptions())
+                initialized.fulfill()
+                return processor
+            },
+            outputListener: { frame, _ in
+                await recorder.append(frame)
+                switch frame.presentationTimeStamp.value {
+                case 123: first.fulfill()
+                case 124: second.fulfill()
+                case 125: third.fulfill()
+                default: XCTFail("Unexpected output timestamp")
+                }
+            },
+            errorListener: { _ in XCTFail("Output color preparation must not end generation") }
+        )
+        await pipeline.enqueue(input)
+        await fulfillment(of: [first], timeout: 2)
+        try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions())
+        await pipeline.enqueue(RealtimeVideoFrame(pixelBuffer: input.pixelBuffer,
+                                                 presentationTimeStamp: CMTime(value: 124, timescale: 24),
+                                                 duration: input.duration))
+        await fulfillment(of: [initialized, second], timeout: 2)
+        try await pipeline.setRemoteVideoBeauty(nil)
+        await pipeline.enqueue(RealtimeVideoFrame(pixelBuffer: input.pixelBuffer,
+                                                 presentationTimeStamp: CMTime(value: 125, timescale: 24),
+                                                 duration: input.duration))
+        await fulfillment(of: [third], timeout: 2)
+        let frames = await recorder.values()
+        XCTAssertEqual(frames.count, 3)
+        let reference = render(frames[1].pixelBuffer)
+        for frame in frames {
+            assertCompatible(frame)
+            XCTAssertTrue(render(frame.pixelBuffer) == reference, "Beauty switching must preserve the shared output color profile")
+            XCTAssertEqual(frame.duration, input.duration)
+        }
+        XCTAssertEqual(render(input.pixelBuffer), originalColors, "The incoming frame must remain immutable")
+        XCTAssertNotEqual(originalColors, reference, "This fixture must expose the differing BT.601 and BT.709 interpretation")
+        await pipeline.closeBeauty()
+    }
+
+    func testStaticInterpolationPreservesDisplayedSDRColorsBeforeBeauty() async throws {
+        guard #available(macOS 26.0, *), FrameInterpolationSupport.isSupported else {
+            throw XCTSkip("Native interpolation is unavailable")
+        }
+        for format in [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                       kCVPixelFormatType_420YpCbCr8BiPlanarFullRange] {
+            for matrix in [kCVImageBufferYCbCrMatrix_ITU_R_601_4, kCVImageBufferYCbCrMatrix_ITU_R_709_2] {
+                let input = try makeFrame(format: format)
+                setColors(input.pixelBuffer,
+                          primaries: matrix == kCVImageBufferYCbCrMatrix_ITU_R_601_4
+                            ? kCVImageBufferColorPrimaries_SMPTE_C : kCVImageBufferColorPrimaries_ITU_R_709_2,
+                          matrix: matrix)
+                CVPixelBufferLockBaseAddress(input.pixelBuffer, [])
+                let chroma = CVPixelBufferGetBaseAddressOfPlane(input.pixelBuffer, 1)!.assumingMemoryBound(to: UInt8.self)
+                let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(input.pixelBuffer, 1)
+                for row in 0..<120 {
+                    for column in stride(from: 0, to: 320, by: 2) {
+                        chroma[row * rowBytes + column] = 80
+                        chroma[row * rowBytes + column + 1] = 170
+                    }
+                }
+                CVPixelBufferUnlockBaseAddress(input.pixelBuffer, [])
+                let before = render(input.pixelBuffer)
+                let interpolation = try FrameInterpolationManager(frame: input)
+                do {
+                    let frames = try await interpolation.process(input, sourceDuration: input.duration)
+                    let next = RealtimeVideoFrame(pixelBuffer: input.pixelBuffer,
+                                                  presentationTimeStamp: input.presentationTimeStamp + input.duration,
+                                                  duration: input.duration)
+                    let interpolated = try await interpolation.process(next, sourceDuration: input.duration)
+                    XCTAssertEqual(frames.count, 1)
+                    XCTAssertEqual(interpolated.count, 2)
+                    for (index, copied) in (frames + interpolated).enumerated() {
+                        let after = render(copied.pixelBuffer)
+                        let center = (120 * 320 + 160) * 4
+                        let centerError = zip(before[center..<center+3], after[center..<center+3])
+                            .map { abs(Int($0) - Int($1)) }.max() ?? 0
+                        let meanError = zip(before, after).reduce(0.0) {
+                            $0 + Double(abs(Int($1.0) - Int($1.1)))
+                        } / Double(320 * 240 * 3)
+                        // Native optical-flow interpolation can alter a few edge pixels on a static field.
+                        // A color-interpretation regression instead changes both its center and global mean.
+                        XCTAssertLessThanOrEqual(centerError, 3, "Static interpolation changed center colors: \(format), \(matrix), frame \(index)")
+                        XCTAssertLessThanOrEqual(meanError, 2, "Static interpolation changed displayed colors: \(format), \(matrix), frame \(index)")
+                    }
+                    await interpolation.close()
+                } catch {
+                    await interpolation.close()
+                    throw error
+                }
+            }
+        }
     }
 
     func testInterpolatedSDRFramesCanBePreparedForBeauty() async throws {
@@ -162,4 +285,17 @@ final class BeautyColorConverterTests: XCTestCase, @unchecked Sendable {
         }
         return pixels
     }
+}
+
+private actor ColorReferenceBeautyProcessor: BeautyProcessing {
+    private let converter = BeautyColorConverter()
+    func update(_ options: RealtimeVideoBeautyOptions) {}
+    func process(_ frame: RealtimeVideoFrame) async throws -> RealtimeVideoFrame { try converter.prepare(frame) }
+    func close() { converter.close() }
+}
+
+private actor ResultColorFrameRecorder {
+    private var frames: [RealtimeVideoFrame] = []
+    func append(_ frame: RealtimeVideoFrame) { frames.append(frame) }
+    func values() -> [RealtimeVideoFrame] { frames }
 }

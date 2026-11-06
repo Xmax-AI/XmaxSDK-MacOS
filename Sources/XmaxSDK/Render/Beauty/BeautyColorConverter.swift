@@ -13,21 +13,59 @@ import CoreVideo
 import Foundation
 import VideoToolbox
 
-/// Converts SDR frames to the beauty worker's BT.709 input on its serial worker queue.
+/// Prepares shared SDR result colors and beauty input as BT.709 on a serial owner.
 final class BeautyColorConverter {
+
+    /// The maximum number of converted surfaces retained by downstream consumers.
+    private let bufferLimit: Int
+
+    /// The SDR transfer functions supported by the result preparation step.
+    private static let sdrTransfers = [
+        kCVImageBufferTransferFunction_ITU_R_709_2,
+        kCVImageBufferTransferFunction_ITU_R_2020,
+        kCVImageBufferTransferFunction_sRGB,
+        kCVImageBufferTransferFunction_SMPTE_240M_1995,
+        kCVImageBufferTransferFunction_Linear,
+        kCVImageBufferTransferFunction_UseGamma,
+        kCVImageBufferTransferFunction_SMPTE_ST_428_1
+    ] as [String]
 
     /// The reusable system color conversion session, created only for incompatible SDR color tags.
     private var session: VTPixelTransferSession?
 
-    /// The IOSurface-backed pool used only for converted input frames.
+    /// The IOSurface-backed pool used only for converted result frames.
     private var pool: CVPixelBufferPool?
 
     /// The dimensions of the conversion pool.
     private var dimensions = CGSize.zero
 
+    /// Creates a bounded converter for either output delivery or short-lived worker input.
+    init(
+        bufferLimit: Int = 3
+    ) {
+        self.bufferLimit = max(1, bufferLimit)
+    }
+
     /// Releases a conversion session if the owner omits explicit cleanup.
     deinit {
         if let session { VTPixelTransferSessionInvalidate(session) }
+    }
+
+    /// Prepares supported SDR output independently of the beauty switch.
+    /// HDR and other formats remain unchanged unless an enabled effect explicitly requests validation.
+    func prepareOutput(
+        _ frame: RealtimeVideoFrame
+    ) throws -> RealtimeVideoFrame {
+        let input = frame.pixelBuffer
+        let format = CVPixelBufferGetPixelFormatType(input)
+        guard [kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+               kCVPixelFormatType_420YpCbCr8BiPlanarFullRange].contains(format),
+            CVPixelBufferGetWidth(input).isMultiple(of: 2),
+            CVPixelBufferGetHeight(input).isMultiple(of: 2)
+        else { return frame }
+        if let transfer = CVBufferCopyAttachment(input, kCVImageBufferTransferFunctionKey, nil) as? String,
+            !Self.sdrTransfers.contains(transfer) { return frame }
+        return try prepare(frame)
     }
 
     /// Preserves compatible buffers or converts their SDR colors without changing frame timing or input pixels.
@@ -50,16 +88,7 @@ final class BeautyColorConverter {
             throw Self.error("Beauty requires even-sized NV12 or BGRA frames")
         }
         let transfer = CVBufferCopyAttachment(input, kCVImageBufferTransferFunctionKey, nil) as? String
-        let sdrTransfers = [
-            kCVImageBufferTransferFunction_ITU_R_709_2,
-            kCVImageBufferTransferFunction_ITU_R_2020,
-            kCVImageBufferTransferFunction_sRGB,
-            kCVImageBufferTransferFunction_SMPTE_240M_1995,
-            kCVImageBufferTransferFunction_Linear,
-            kCVImageBufferTransferFunction_UseGamma,
-            kCVImageBufferTransferFunction_SMPTE_ST_428_1
-        ] as [String]
-        if let transfer, !sdrTransfers.contains(transfer) {
+        if let transfer, !Self.sdrTransfers.contains(transfer) {
             throw Self.error("Result beauty requires SDR video; unsupported transfer function: \(transfer)")
         }
 
@@ -75,6 +104,7 @@ final class BeautyColorConverter {
 
         let session = try conversionSession()
         let output = try makeOutputBuffer(input: input)
+        CVBufferRemoveAllAttachments(output)
         let status = VTPixelTransferSessionTransferImage(
             session,
             from: input,
@@ -182,7 +212,7 @@ final class BeautyColorConverter {
         let status = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
             nil,
             pool,
-            [kCVPixelBufferPoolAllocationThresholdKey: 3] as CFDictionary,
+            [kCVPixelBufferPoolAllocationThresholdKey: bufferLimit] as CFDictionary,
             &output
         )
         if status == kCVReturnWouldExceedAllocationThreshold {

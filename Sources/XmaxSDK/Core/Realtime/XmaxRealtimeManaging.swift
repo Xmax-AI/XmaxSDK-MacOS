@@ -127,12 +127,13 @@ public protocol XmaxRealtimeManaging: Sendable {
 
     /// Sets beauty on generated result frames shared by preview and `setRemoteMediaFrameListener`.
     ///
-    /// Disabled by default. Pass options to enable or nil to disable.
+    /// Disabled by default. Pass options to enable or nil to disable. SDR output color preparation
+    /// is shared by both settings, so changing beauty does not change the result's color interpretation.
     /// Can be configured before connection or changed during generation. Options survive result
     /// replacement and reconnection; `close()` restores disabled beauty.
     /// Runtime failures automatically disable beauty, retain generation, and notify the independent listener.
     ///
-    /// - Parameter options: Finite strengths in `0...1`, or nil for unchanged result pixels.
+    /// - Parameter options: Finite strengths in `0...1`, or nil to disable beauty processing.
     ///
     /// - Throws: An error for invalid strengths, unavailable processing, configuration failure, or cancellation.
     func setRemoteVideoBeauty(
