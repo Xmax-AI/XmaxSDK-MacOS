@@ -207,9 +207,11 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
                     useTexture: false,
                     sourceType: .videoFrame
                 )
-                cameraStateLock.withLock { videoMirrorMode = .disabled }
+                cameraStateLock.withLock {
+                    videoMirrorMode = .disabled
+                    storedUsesCameraTrack = false
+                }
                 try reapplyVideoConfiguration()
-                cameraStateLock.withLock { storedUsesCameraTrack = false }
             }
         }
     }
@@ -321,7 +323,8 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
                 width: configuration.width,
                 height: configuration.height,
                 frameRate: configuration.frameRate
-            )
+            ),
+            usesCameraTrack: true
         )
         previewEncoding.mirrorMode = cameraStateLock.withLock { videoMirrorMode }
         try Self.checkResult(
@@ -780,8 +783,12 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     private func applyVideoConfiguration(
         _ configuration: VideoEncodingConfiguration
     ) throws {
-        let rtcConfiguration = RtcVideoConverter.makeEncoderConfiguration(configuration)
-        rtcConfiguration.mirrorMode = cameraStateLock.withLock { videoMirrorMode }
+        let (usesCameraTrack, mirrorMode) = cameraStateLock.withLock { (storedUsesCameraTrack, videoMirrorMode) }
+        let rtcConfiguration = RtcVideoConverter.makeEncoderConfiguration(
+            configuration,
+            usesCameraTrack: usesCameraTrack
+        )
+        rtcConfiguration.mirrorMode = mirrorMode
         let result: Int32
         if let room, room.isJoined, !room.isClosed {
             result = cameraEngine.setVideoEncoderConfigurationEx(

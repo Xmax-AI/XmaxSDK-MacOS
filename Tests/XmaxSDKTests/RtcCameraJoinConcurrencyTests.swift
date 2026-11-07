@@ -54,6 +54,33 @@ final class RtcCameraJoinConcurrencyTests: XCTestCase, @unchecked Sendable {
         )
         XCTAssertEqual(engine.encoderSizesAtCapture, [CGSize(width: 1408, height: 1408)])
         XCTAssertEqual(engine.encodedMirrors, [.enabled, .enabled])
+        XCTAssertEqual(engine.encodedOrientations, [.adaptative, .adaptative])
+        await manager.destroy()
+    }
+
+    func testPortraitCameraKeepsPortraitOrientationFromCaptureThroughUplinkChanges() async throws {
+        let engine = BlockingCameraAgoraEngine(onCameraStart: {})
+        let manager = makeManager(engine)
+        try await manager.initialize()
+        try manager.startCameraCapture(
+            configuration: RtcCameraConfiguration(deviceID: "camera", width: 1080, height: 1920, frameRate: 30),
+            previewReadyListener: {},
+            errorListener: { _ in }
+        )
+        XCTAssertEqual(engine.encoderSizesAtCapture, [CGSize(width: 1080, height: 1920)])
+        XCTAssertEqual(engine.encodedOrientations, [.fixedPortrait])
+
+        let format = VideoEncodingConfiguration(width: 972, height: 1728, frameRate: 24)
+        try manager.configureVideoEncoding(format)
+        XCTAssertEqual(engine.encodedOrientations, [.fixedPortrait, .fixedPortrait])
+        try await manager.joinRoom(configuration: RoomJoinConfiguration(roomID: "room", userID: "host", token: "test"))
+        try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 720, height: 1280, frameRate: 20))
+        XCTAssertEqual(engine.encodedOrientations, [.fixedPortrait, .fixedPortrait, .fixedPortrait])
+
+        await manager.leaveRoom()
+        try manager.stopCameraCapture()
+        try manager.useExternalVideoSource()
+        XCTAssertEqual(engine.encodedOrientations.last, .adaptative)
         await manager.destroy()
     }
 
@@ -279,6 +306,8 @@ private final class BlockingCameraAgoraEngine: AgoraRtcCameraEngine, AgoraRtcRoo
     var cameraReturned: Bool { stateLock.withLock { returned } }
     private var storedEncodedMirrors: [AgoraVideoMirrorMode] = []
     var encodedMirrors: [AgoraVideoMirrorMode] { stateLock.withLock { storedEncodedMirrors } }
+    private var storedEncodedOrientations: [AgoraVideoOutputOrientationMode] = []
+    var encodedOrientations: [AgoraVideoOutputOrientationMode] { stateLock.withLock { storedEncodedOrientations } }
     private var encoderSize: CGSize?
     private var storedEncoderSizesAtCapture: [CGSize?] = []
     var encoderSizesAtCapture: [CGSize?] { stateLock.withLock { storedEncoderSizesAtCapture } }
@@ -286,6 +315,7 @@ private final class BlockingCameraAgoraEngine: AgoraRtcCameraEngine, AgoraRtcRoo
     func setVideoEncoderConfiguration(_ config: AgoraVideoEncoderConfiguration) -> Int32 {
         stateLock.withLock {
             storedEncodedMirrors.append(config.mirrorMode)
+            storedEncodedOrientations.append(config.orientationMode)
             guard !failingEncoderCalls.contains(storedEncodedMirrors.count) else { return -1 }
             encoderSize = config.dimensions
             return 0
