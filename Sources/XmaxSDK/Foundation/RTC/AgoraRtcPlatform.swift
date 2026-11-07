@@ -193,7 +193,9 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     /// Enables external video input without applying camera mirroring to caller-owned pixels.
     ///
     /// - Throws: An error if video source configuration fails.
-    func useExternalVideoSource() throws {
+    func useExternalVideoSource(
+        useTexture: Bool
+    ) throws {
         try cameraControlLock.withLock {
             guard cameraConfiguration == nil else {
                 throw XmaxError(
@@ -204,7 +206,7 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
             try lock.withLock {
                 engine.setExternalVideoSource(
                     true,
-                    useTexture: false,
+                    useTexture: useTexture,
                     sourceType: .videoFrame
                 )
                 cameraStateLock.withLock {
@@ -688,7 +690,8 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     ) throws {
         try lock.withLock {
             let converted = try RtcVideoConverter.convertFrame(frame)
-            _ = withExtendedLifetime(converted) {
+            // AgoraVideoFrame.textureBuf does not retain the pixel buffer.
+            _ = withExtendedLifetime(frame) {
                 engine.pushExternalVideoFrame(
                     converted,
                     videoTrackId: 0

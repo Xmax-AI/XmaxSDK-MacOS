@@ -91,7 +91,8 @@ final class XmaxRealtimeVideoViewFadeInTests: XCTestCase {
         view.clearDecodedVideoPreview()
         XCTAssertNil(fade(in: view))
         view.fadeInDuration = 0.7
-        view.displayDecodedVideoFrame(local, contentMode: .fit)
+        let native = try VideoFrame(format: local.format, timestampUs: 0, pixelBuffer: frame().pixelBuffer)
+        view.displayDecodedVideoFrame(native, contentMode: .fit)
         try assertFade(in: view, duration: 0.7)
     }
 

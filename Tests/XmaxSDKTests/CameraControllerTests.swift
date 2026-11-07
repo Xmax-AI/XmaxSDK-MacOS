@@ -5,6 +5,7 @@
 //
 
 import AppKit
+import AVFoundation
 import XCTest
 @testable import XmaxSDK
 
@@ -15,7 +16,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
     private let format = RealtimeVideoFormat(width: 1920, height: 1080, fps: 30)
 
     func testDefaultCameraUsesSystemDefaultInsteadOfFirstDevice() async throws {
-        let capture = CameraCaptureManagingStub(devices: [external, builtIn])
+        let capture = CameraCaptureControllingStub(devices: [external, builtIn])
         let controller = makeController(capture)
         let stream = try await controller.createLocalCameraStream(videoFormat: format, deviceID: nil)
         XCTAssertEqual(stream.videoTrack?.device, builtIn)
@@ -24,7 +25,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testExplicitUnavailableDeviceDoesNotFallBackToDefault() async {
-        let capture = CameraCaptureManagingStub(devices: [builtIn])
+        let capture = CameraCaptureControllingStub(devices: [builtIn])
         let controller = makeController(capture)
         do {
             _ = try await controller.createLocalCameraStream(videoFormat: format, deviceID: "removed")
@@ -41,16 +42,17 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
         for position in [CameraPosition.front, .back, .unspecified] {
             for mirror in [false, true] {
                 let device = CameraDevice(id: "camera", name: "Camera", isDefault: true, position: position)
-                let capture = CameraCaptureManagingStub(devices: [device])
+                let capture = CameraCaptureControllingStub(devices: [device])
                 let rtc = RtcManagingStub()
                 let controller = makeController(capture, rtc: rtc)
                 let stream = try await controller.createLocalCameraStream(videoFormat: format, deviceID: nil, mirror: mirror)
                 let track = try XCTUnwrap(stream.videoTrack)
                 let view = XmaxRealtimeVideoView()
                 try VideoRenderRegistry.binding(for: track)?.attach(to: view, contentMode: .fit)
-                XCTAssertEqual(view.subviews.count, 1)
+                let layer = try XCTUnwrap(view.layer?.sublayers?.first { $0 is AVSampleBufferDisplayLayer })
+                XCTAssertEqual(layer.affineTransform().a, mirror ? -1 : 1)
                 XCTAssertEqual(rtc.cameraMirrors, [mirror])
-                XCTAssertEqual(rtc.calls, [.attachCameraPreview(.fit, mirrored: mirror)])
+                XCTAssertEqual(rtc.calls, [.useExternalVideoSource])
                 await controller.stopLocalCameraStream()
             }
         }
@@ -58,26 +60,26 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
 
     @MainActor
     func testCameraSwitchKeepsTrackIdentityAndUpdatesDevice() async throws {
-        let capture = CameraCaptureManagingStub(devices: [builtIn, external])
+        let capture = CameraCaptureControllingStub(devices: [builtIn, external])
         let rtc = RtcManagingStub()
         let controller = makeController(capture, rtc: rtc)
         let local = try await controller.createLocalCameraStream(videoFormat: format, deviceID: "builtin", mirror: true)
         let track = try XCTUnwrap(local.videoTrack)
         let view = XmaxRealtimeVideoView()
         try VideoRenderRegistry.binding(for: track)?.attach(to: view, contentMode: .fit)
-        let canvas = try XCTUnwrap(view.subviews.first)
+        let canvas = try XCTUnwrap(view.layer?.sublayers?.first { $0 is AVSampleBufferDisplayLayer })
         let switched = try await controller.switchCamera(to: "usb")
         XCTAssertTrue(local.videoTrack === switched.videoTrack)
         XCTAssertEqual(switched.videoTrack?.device, external)
-        XCTAssertTrue(view.subviews.first === canvas)
+        XCTAssertTrue(view.layer?.sublayers?.contains { $0 === canvas } ?? false)
         XCTAssertEqual(rtc.cameraMirrors, [true])
         XCTAssertEqual(capture.calls, [.start("builtin"), .switchCamera("usb")])
-        XCTAssertEqual(rtc.calls, [.attachCameraPreview(.fit, mirrored: true), .attachCameraPreview(.fit, mirrored: true)])
+        XCTAssertEqual(rtc.calls, [.useExternalVideoSource])
         await controller.stopLocalCameraStream()
     }
 
     func testFailedSwitchPreservesCurrentDevice() async throws {
-        let capture = CameraCaptureManagingStub(
+        let capture = CameraCaptureControllingStub(
             devices: [builtIn, external], startError: nil,
             switchError: XmaxError(code: .mediaError, message: "Device unavailable")
         )
@@ -93,7 +95,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testCaptureFailureReleasesTrackAndRenderBinding() async {
-        let capture = CameraCaptureManagingStub(
+        let capture = CameraCaptureControllingStub(
             devices: [builtIn], startError: XmaxError(code: .mediaError, message: "Capture failed")
         )
         let controller = makeController(capture)
@@ -108,7 +110,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
 
     @MainActor
     func testReadyRequiresNativeCaptureAndPreviewBindingAndBecomesInvalidAfterStop() async throws {
-        let capture = CameraCaptureManagingStub(devices: [builtIn])
+        let capture = CameraCaptureControllingStub(devices: [builtIn])
         let controller = makeController(capture)
         let stream = try await controller.createLocalCameraStream(videoFormat: format, deviceID: nil)
         let track = try XCTUnwrap(stream.videoTrack)
@@ -137,20 +139,20 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
 
     @MainActor
     func testFormatUpdatePreservesTrackDeviceAndPreviewCanvas() async throws {
-        let capture = CameraCaptureManagingStub(devices: [builtIn])
+        let capture = CameraCaptureControllingStub(devices: [builtIn])
         let controller = makeController(capture)
         let local = try await controller.createLocalCameraStream(videoFormat: format, deviceID: nil)
         let track = try XCTUnwrap(local.videoTrack)
         let binding = try XCTUnwrap(VideoRenderRegistry.binding(for: track))
         let view = XmaxRealtimeVideoView()
         try binding.attach(to: view, contentMode: .fit)
-        let canvas = try XCTUnwrap(view.subviews.first)
+        let canvas = try XCTUnwrap(view.layer?.sublayers?.first { $0 is AVSampleBufferDisplayLayer })
         let updated = RealtimeVideoFormat(width: 1080, height: 1920, fps: 24, maximumBitrate: 1200)
         try await controller.updateVideoFormat(updated)
         XCTAssertTrue(controller.currentTrack === track)
         XCTAssertEqual(track.videoFormat, updated)
         XCTAssertEqual(track.device, builtIn)
-        XCTAssertTrue(view.subviews.first === canvas)
+        XCTAssertTrue(view.layer?.sublayers?.contains { $0 === canvas } ?? false)
         XCTAssertNotNil(VideoRenderRegistry.binding(for: track))
         XCTAssertEqual(capture.calls, [.start("builtin"), .updateFormat(
             try VideoFormat(width: 1080, height: 1920, pixelFormat: .nv12), 24
@@ -159,7 +161,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testUnsupportedFormatDoesNotChangeCaptureOrTrack() async throws {
-        let capture = CameraCaptureManagingStub(devices: [builtIn])
+        let capture = CameraCaptureControllingStub(devices: [builtIn])
         let controller = makeController(capture)
         let local = try await controller.createLocalCameraStream(videoFormat: format, deviceID: nil)
         do {
@@ -172,7 +174,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     func testFailedFormatUpdateRetainsPreviousFormatAndCanRetry() async throws {
-        let capture = CameraCaptureManagingStub(devices: [builtIn])
+        let capture = CameraCaptureControllingStub(devices: [builtIn])
         capture.updateError = XmaxError(code: .mediaError, message: "Reconfiguration failed")
         let controller = makeController(capture)
         let local = try await controller.createLocalCameraStream(videoFormat: format, deviceID: nil)
@@ -191,7 +193,7 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
 
     func testStoppedCameraCannotCommitLateFormatUpdate() async throws {
         let gate = CameraFormatGate()
-        let capture = CameraCaptureManagingStub(devices: [builtIn])
+        let capture = CameraCaptureControllingStub(devices: [builtIn])
         capture.updateHandler = { await gate.wait() }
         let controller = makeController(capture)
         let local = try await controller.createLocalCameraStream(videoFormat: format, deviceID: nil)
@@ -212,12 +214,14 @@ final class CameraControllerTests: XCTestCase, @unchecked Sendable {
     }
 
     private func makeController(
-        _ capture: CameraCaptureManagingStub,
+        _ capture: CameraCaptureControllingStub,
         rtc: RtcManagingStub = RtcManagingStub()
     ) -> CameraController {
         CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(),
-            mediaService: MediaService(), captureManager: capture
+            mediaService: MediaService(),
+            cameraCapture: capture,
+            microphoneCapture: MicrophoneCaptureControllingStub()
         )
     }
 }

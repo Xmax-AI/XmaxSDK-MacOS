@@ -69,7 +69,8 @@ final class ExternalVideoFrameSinkTests: XCTestCase {
         let frame = try XCTUnwrap(recorder.frames.first)
         XCTAssertEqual(frame.timestampUs, 12345000)
         XCTAssertEqual(frame.format.pixelFormat, .bgra)
-        XCTAssertEqual(frame.planes.first?.data.first, 42)
+        guard case .planes(let planes) = frame.storage else { return XCTFail("Expected owned byte planes") }
+        XCTAssertEqual(planes.first?.data.first, 42)
         XCTAssertTrue(recorder.errors.isEmpty)
     }
 
@@ -129,7 +130,8 @@ final class ExternalVideoFrameSinkTests: XCTestCase {
             XCTAssertEqual(frame.format.width, 4)
             XCTAssertEqual(frame.format.height, 4)
             XCTAssertEqual(frame.timestampUs, 10000000)
-            XCTAssertEqual(frame.planes[0].data.first, pixelFormat == kCVPixelFormatType_32BGRA ? 42 : 64)
+            guard case .planes(let planes) = frame.storage else { return XCTFail("Expected owned byte planes") }
+            XCTAssertEqual(planes.first?.data.first, pixelFormat == kCVPixelFormatType_32BGRA ? 42 : 64)
             XCTAssertTrue(recorder.errors.isEmpty)
             XCTAssertTrue(sink.isRequestingFrames)
         }
@@ -226,7 +228,10 @@ final class ExternalVideoFrameSinkTests: XCTestCase {
         let nv12 = try makeBuffer(pixelFormat: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
         sink.pushVideo(nv12, timestamp: .zero)
         XCTAssertEqual(recorder.frames.first?.format.pixelFormat, .nv12)
-        XCTAssertEqual(recorder.frames.first?.planes.count, 2)
+        guard case .planes(let planes) = try XCTUnwrap(recorder.frames.first).storage else {
+            return XCTFail("Expected owned byte planes")
+        }
+        XCTAssertEqual(planes.count, 2)
         let fullRange = try makeBuffer(pixelFormat: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)
         sink.pushVideo(fullRange, timestamp: CMTime(value: 1, timescale: 1))
         XCTAssertEqual(recorder.errors.count, 1)

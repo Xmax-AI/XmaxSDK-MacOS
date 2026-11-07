@@ -50,7 +50,9 @@ protocol RtcPlatform: AnyObject, RtcCameraCapturing {
     /// Enables external video input.
     ///
     /// - Throws: An error if video source configuration fails.
-    func useExternalVideoSource() throws
+    func useExternalVideoSource(
+        useTexture: Bool
+    ) throws
 
     /// Switches to microphone input and starts capture.
     ///

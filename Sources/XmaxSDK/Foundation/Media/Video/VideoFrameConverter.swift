@@ -12,7 +12,7 @@ import Accelerate
 import CoreVideo
 import Foundation
 
-/// Copies upright external pixels into the resolved video dimensions.
+/// Crops and scales upright pixels into owned storage.
 enum VideoFrameConverter {
 
     /// Center-crops and scales pixels to the requested dimensions.
@@ -22,6 +22,7 @@ enum VideoFrameConverter {
     ///   - outputWidth: The positive, even output width, in pixels.
     ///   - outputHeight: The positive, even output height, in pixels.
     ///   - timestampUs: The output timestamp, in microseconds.
+    ///   - outputPixelBuffer: An exclusive destination buffer, or nil for owned byte planes.
     ///
     /// - Returns: An independently owned frame retaining the input pixel format.
     ///
@@ -30,22 +31,28 @@ enum VideoFrameConverter {
         pixelBuffer: CVPixelBuffer,
         outputWidth: Int,
         outputHeight: Int,
-        timestampUs: Int64
+        timestampUs: Int64,
+        outputPixelBuffer: CVPixelBuffer? = nil
     ) throws -> VideoFrame {
+        guard outputPixelBuffer !== pixelBuffer else {
+            throw mediaError("Video source and destination buffers must be distinct")
+        }
         switch CVPixelBufferGetPixelFormatType(pixelBuffer) {
         case kCVPixelFormatType_32BGRA:
             return try convertBGRA(
                 pixelBuffer,
                 outputWidth: outputWidth,
                 outputHeight: outputHeight,
-                timestampUs: timestampUs
+                timestampUs: timestampUs,
+                outputPixelBuffer: outputPixelBuffer
             )
         case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
             return try convertNV12(
                 pixelBuffer: pixelBuffer,
                 outputWidth: outputWidth,
                 outputHeight: outputHeight,
-                timestampUs: timestampUs
+                timestampUs: timestampUs,
+                outputPixelBuffer: outputPixelBuffer
             )
         default:
             throw mediaError("External video requires NV12 video-range (420v) or BGRA pixels")
@@ -57,7 +64,8 @@ enum VideoFrameConverter {
         pixelBuffer: CVPixelBuffer,
         outputWidth: Int,
         outputHeight: Int,
-        timestampUs: Int64
+        timestampUs: Int64,
+        outputPixelBuffer: CVPixelBuffer?
     ) throws -> VideoFrame {
         guard CVPixelBufferGetPlaneCount(pixelBuffer) == 2 else {
             throw mediaError("External video requires video-range NV12 or BGRA pixels")
@@ -136,39 +144,34 @@ enum VideoFrameConverter {
             targetHeight: outputHeight
         )
 
-        let data = try scale(
-            lumaBaseAddress: lumaBaseAddress,
-            lumaStride: lumaStride,
-            chromaBaseAddress: chromaBaseAddress,
-            chromaStride: chromaStride,
-            crop: crop,
-            outputWidth: outputWidth,
-            outputHeight: outputHeight
-        )
-
-        let lumaLength = outputWidth * outputHeight
-
-        return try VideoFrame(
-            format: VideoFormat(
-                width: outputWidth,
-                height: outputHeight,
-                pixelFormat: .nv12
-            ),
+        let format = try VideoFormat(width: outputWidth, height: outputHeight, pixelFormat: .nv12)
+        return try renderFrame(
+            format: format,
             timestampUs: timestampUs,
-            planes: [
-                VideoFramePlane(
-                    data: data,
-                    stride: outputWidth,
-                    byteLength: lumaLength
+            outputPixelBuffer: outputPixelBuffer
+        ) { targetLuma, targetChroma in
+            guard let targetChroma else { throw mediaError("NV12 destination has no chroma plane") }
+            try scale(
+                source: vImage_Buffer(
+                    data: lumaBaseAddress.advanced(by: crop.y * lumaStride + crop.x),
+                    height: vImagePixelCount(crop.height),
+                    width: vImagePixelCount(crop.width),
+                    rowBytes: lumaStride
                 ),
-                VideoFramePlane(
-                    data: data,
-                    stride: outputWidth,
-                    byteOffset: lumaLength,
-                    byteLength: lumaLength / 2
-                )
-            ]
-        )
+                destination: targetLuma,
+                bytesPerPixel: 1
+            )
+            try scale(
+                source: vImage_Buffer(
+                    data: chromaBaseAddress.advanced(by: crop.y / 2 * chromaStride + crop.x),
+                    height: vImagePixelCount(crop.height / 2),
+                    width: vImagePixelCount(crop.width / 2),
+                    rowBytes: chromaStride
+                ),
+                destination: targetChroma,
+                bytesPerPixel: 2
+            )
+        }
     }
 
     /// Creates a cropped and scaled frame from BGRA pixels.
@@ -178,6 +181,7 @@ enum VideoFrameConverter {
     ///   - outputWidth: The final display width.
     ///   - outputHeight: The final display height.
     ///   - timestampUs: The monotonic timestamp, in microseconds.
+    ///   - outputPixelBuffer: An exclusive destination buffer, or nil for owned byte planes.
     ///
     /// - Returns: A frame owning the processed BGRA pixels.
     ///
@@ -186,18 +190,15 @@ enum VideoFrameConverter {
         _ pixelBuffer: CVPixelBuffer,
         outputWidth: Int,
         outputHeight: Int,
-        timestampUs: Int64
+        timestampUs: Int64,
+        outputPixelBuffer: CVPixelBuffer?
     ) throws -> VideoFrame {
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
         let (sourceRowBytes, sourceOverflow) = width.multipliedReportingOverflow(by: 4)
-        let (outputPixels, pixelOverflow) = outputWidth.multipliedReportingOverflow(
-            by: outputHeight
-        )
-        let (byteCount, byteOverflow) = outputPixels.multipliedReportingOverflow(by: 4)
         guard width > 0, height > 0, outputWidth > 0, outputHeight > 0,
             outputWidth.isMultiple(of: 2), outputHeight.isMultiple(of: 2),
-            !sourceOverflow, !pixelOverflow, !byteOverflow,
+            !sourceOverflow,
             CVPixelBufferGetBytesPerRow(pixelBuffer) >= sourceRowBytes,
             CVPixelBufferLockBaseAddress(
                 pixelBuffer,
@@ -225,171 +226,156 @@ enum VideoFrameConverter {
         )
         let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
         let start = source.advanced(by: crop.y * stride + crop.x * 4)
-        var data = Data(count: byteCount)
-
-        try data.withUnsafeMutableBytes { bytes in
-            guard let destination = bytes.baseAddress else {
-                throw mediaError("Failed to allocate BGRA video data")
-            }
-
-            let rowBytes = outputWidth * 4
-            if crop.width == outputWidth, crop.height == outputHeight {
-                for row in 0..<outputHeight {
-                    memcpy(
-                        destination.advanced(by: row * rowBytes),
-                        start.advanced(by: row * stride),
-                        rowBytes
-                    )
-                }
-                return
-            }
-
-            var input = vImage_Buffer(
-                data: start,
-                height: vImagePixelCount(crop.height),
-                width: vImagePixelCount(crop.width),
-                rowBytes: stride
-            )
-            var output = vImage_Buffer(
-                data: destination,
-                height: vImagePixelCount(outputHeight),
-                width: vImagePixelCount(outputWidth),
-                rowBytes: rowBytes
-            )
-            guard
-                vImageScale_ARGB8888(
-                    &input,
-                    &output,
-                    nil,
-                    vImage_Flags(kvImageHighQualityResampling)
-                ) == kvImageNoError
-            else {
-                throw mediaError("Failed to scale BGRA video pixels")
-            }
-        }
-
-        return try VideoFrame(
-            format: VideoFormat(
-                width: outputWidth,
-                height: outputHeight,
-                pixelFormat: .bgra
-            ),
+        let format = try VideoFormat(width: outputWidth, height: outputHeight, pixelFormat: .bgra)
+        return try renderFrame(
+            format: format,
             timestampUs: timestampUs,
-            planes: [
-                VideoFramePlane(
-                    data: data,
-                    stride: outputWidth * 4
-                )
-            ]
-        )
+            outputPixelBuffer: outputPixelBuffer
+        ) { destination, _ in
+            try scale(
+                source: vImage_Buffer(
+                    data: start,
+                    height: vImagePixelCount(crop.height),
+                    width: vImagePixelCount(crop.width),
+                    rowBytes: stride
+                ),
+                destination: destination,
+                bytesPerPixel: 4
+            )
+        }
     }
 
-    /// Crops and scales the NV12 luma and chroma planes.
-    ///
-    /// - Parameters:
-    ///   - lumaBaseAddress: The source luma address.
-    ///   - lumaStride: The source luma row stride.
-    ///   - chromaBaseAddress: The source chroma address.
-    ///   - chromaStride: The source chroma row stride.
-    ///   - crop: The even-aligned crop rectangle in source coordinates.
-    ///   - outputWidth: The scaled width, in pixels.
-    ///   - outputHeight: The scaled height, in pixels.
-    ///
-    /// - Returns: Contiguous NV12 luma and chroma data.
-    ///
-    /// - Throws: An error if allocation or plane scaling fails.
-    private static func scale(
-        lumaBaseAddress: UnsafeMutableRawPointer,
-        lumaStride: Int,
-        chromaBaseAddress: UnsafeMutableRawPointer,
-        chromaStride: Int,
-        crop: (x: Int, y: Int, width: Int, height: Int),
-        outputWidth: Int,
-        outputHeight: Int
-    ) throws -> Data {
-        let lumaLength = outputWidth * outputHeight
-        var data = Data(count: lumaLength + lumaLength / 2)
-        try data.withUnsafeMutableBytes { bytes in
-            guard let destination = bytes.baseAddress else {
-                throw mediaError("Failed to allocate NV12 video data")
-            }
+    /// Writes pixels into a native buffer or tightly packed byte planes.
+    private static func renderFrame(
+        format: VideoFormat,
+        timestampUs: Int64,
+        outputPixelBuffer: CVPixelBuffer?,
+        render: (vImage_Buffer, vImage_Buffer?) throws -> Void
+    ) throws -> VideoFrame {
+        let isNV12 = format.pixelFormat == .nv12
+        let width = format.width
+        let height = format.height
+        let (rowBytes, strideOverflow) = width.multipliedReportingOverflow(by: isNV12 ? 1 : 4)
+        guard !strideOverflow else { throw mediaError("Video row size exceeds the supported range") }
 
-            if crop.width == outputWidth, crop.height == outputHeight {
-                let luma = lumaBaseAddress.advanced(by: crop.y * lumaStride + crop.x)
-                let chroma = chromaBaseAddress.advanced(by: crop.y / 2 * chromaStride + crop.x)
-
-                for row in 0..<outputHeight {
-                    memcpy(
-                        destination.advanced(by: row * outputWidth),
-                        luma.advanced(by: row * lumaStride),
-                        outputWidth
-                    )
-                }
-
-                for row in 0..<(outputHeight / 2) {
-                    memcpy(
-                        destination.advanced(by: lumaLength + row * outputWidth),
-                        chroma.advanced(by: row * chromaStride),
-                        outputWidth
-                    )
-                }
-
-                return
-            }
-
-            var sourceLuma = vImage_Buffer(
-                data: lumaBaseAddress.advanced(
-                    by: crop.y * lumaStride + crop.x
-                ),
-                height: vImagePixelCount(crop.height),
-                width: vImagePixelCount(crop.width),
-                rowBytes: lumaStride
-            )
-            var targetLuma = vImage_Buffer(
-                data: destination,
-                height: vImagePixelCount(outputHeight),
-                width: vImagePixelCount(outputWidth),
-                rowBytes: outputWidth
-            )
-            let flags = vImage_Flags(kvImageHighQualityResampling)
-            guard
-                vImageScale_Planar8(
-                    &sourceLuma,
-                    &targetLuma,
-                    nil,
-                    flags
-                ) == kvImageNoError
+        if let outputPixelBuffer {
+            let pixelFormat = isNV12 ? kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange : kCVPixelFormatType_32BGRA
+            guard CVPixelBufferGetWidth(outputPixelBuffer) == width,
+                CVPixelBufferGetHeight(outputPixelBuffer) == height,
+                CVPixelBufferGetPixelFormatType(outputPixelBuffer) == pixelFormat,
+                CVPixelBufferLockBaseAddress(outputPixelBuffer, []) == kCVReturnSuccess
             else {
-                throw mediaError("Failed to scale decoded NV12 luma data")
+                throw mediaError("Invalid video destination buffer")
             }
+            defer { CVPixelBufferUnlockBaseAddress(outputPixelBuffer, []) }
 
-            var sourceChroma = vImage_Buffer(
-                data: chromaBaseAddress.advanced(
-                    by: crop.y / 2 * chromaStride + crop.x
-                ),
-                height: vImagePixelCount(crop.height / 2),
-                width: vImagePixelCount(crop.width / 2),
-                rowBytes: chromaStride
-            )
-            var targetChroma = vImage_Buffer(
-                data: destination.advanced(by: lumaLength),
-                height: vImagePixelCount(outputHeight / 2),
-                width: vImagePixelCount(outputWidth / 2),
-                rowBytes: outputWidth
-            )
-            guard
-                vImageScale_CbCr8(
-                    &sourceChroma,
-                    &targetChroma,
-                    nil,
-                    flags
-                ) == kvImageNoError
-            else {
-                throw mediaError("Failed to scale decoded NV12 chroma data")
+            if isNV12 {
+                guard CVPixelBufferGetPlaneCount(outputPixelBuffer) == 2,
+                    CVPixelBufferGetBytesPerRowOfPlane(outputPixelBuffer, 0) >= rowBytes,
+                    CVPixelBufferGetBytesPerRowOfPlane(outputPixelBuffer, 1) >= rowBytes,
+                    let luma = CVPixelBufferGetBaseAddressOfPlane(outputPixelBuffer, 0),
+                    let chroma = CVPixelBufferGetBaseAddressOfPlane(outputPixelBuffer, 1)
+                else {
+                    throw mediaError("Invalid NV12 destination planes")
+                }
+                try render(
+                    vImage_Buffer(
+                        data: luma,
+                        height: vImagePixelCount(height),
+                        width: vImagePixelCount(width),
+                        rowBytes: CVPixelBufferGetBytesPerRowOfPlane(outputPixelBuffer, 0)
+                    ),
+                    vImage_Buffer(
+                        data: chroma,
+                        height: vImagePixelCount(height / 2),
+                        width: vImagePixelCount(width / 2),
+                        rowBytes: CVPixelBufferGetBytesPerRowOfPlane(outputPixelBuffer, 1)
+                    )
+                )
+            } else {
+                let stride = CVPixelBufferGetBytesPerRow(outputPixelBuffer)
+                guard stride >= rowBytes, let base = CVPixelBufferGetBaseAddress(outputPixelBuffer) else {
+                    throw mediaError("Invalid BGRA destination plane")
+                }
+                try render(
+                    vImage_Buffer(
+                        data: base,
+                        height: vImagePixelCount(height),
+                        width: vImagePixelCount(width),
+                        rowBytes: stride
+                    ),
+                    nil
+                )
             }
+            return try VideoFrame(format: format, timestampUs: timestampUs, pixelBuffer: outputPixelBuffer)
         }
 
-        return data
+        let (firstPlaneLength, planeOverflow) = rowBytes.multipliedReportingOverflow(by: height)
+        let secondPlaneLength = isNV12 ? firstPlaneLength / 2 : 0
+        let (byteCount, sizeOverflow) = firstPlaneLength.addingReportingOverflow(secondPlaneLength)
+        guard !planeOverflow, !sizeOverflow else { throw mediaError("Video frame size exceeds the supported range") }
+
+        var data = Data(count: byteCount)
+        try data.withUnsafeMutableBytes { bytes in
+            guard let base = bytes.baseAddress else { throw mediaError("Failed to allocate video data") }
+            let first = vImage_Buffer(
+                data: base,
+                height: vImagePixelCount(height),
+                width: vImagePixelCount(width),
+                rowBytes: rowBytes
+            )
+            let second = isNV12 ? vImage_Buffer(
+                data: base.advanced(by: firstPlaneLength),
+                height: vImagePixelCount(height / 2),
+                width: vImagePixelCount(width / 2),
+                rowBytes: rowBytes
+            ) : nil
+            try render(first, second)
+        }
+
+        var planes = [try VideoFramePlane(data: data, stride: rowBytes, byteLength: firstPlaneLength)]
+        if isNV12 {
+            planes.append(try VideoFramePlane(
+                data: data,
+                stride: rowBytes,
+                byteOffset: firstPlaneLength,
+                byteLength: secondPlaneLength
+            ))
+        }
+        return try VideoFrame(format: format, timestampUs: timestampUs, planes: planes)
+    }
+
+    /// Copies matching rows directly and resamples only when the dimensions differ.
+    private static func scale(
+        source: vImage_Buffer,
+        destination: vImage_Buffer,
+        bytesPerPixel: Int
+    ) throws {
+        if source.width == destination.width, source.height == destination.height {
+            let rowBytes = Int(source.width) * bytesPerPixel
+            for row in 0..<Int(source.height) {
+                memcpy(
+                    destination.data.advanced(by: row * destination.rowBytes),
+                    source.data.advanced(by: row * source.rowBytes),
+                    rowBytes
+                )
+            }
+            return
+        }
+
+        var source = source
+        var destination = destination
+        let flags = vImage_Flags(kvImageHighQualityResampling)
+        let status: vImage_Error
+        switch bytesPerPixel {
+        case 1:
+            status = vImageScale_Planar8(&source, &destination, nil, flags)
+        case 2:
+            status = vImageScale_CbCr8(&source, &destination, nil, flags)
+        default:
+            status = vImageScale_ARGB8888(&source, &destination, nil, flags)
+        }
+        guard status == kvImageNoError else { throw mediaError("Failed to scale video pixels") }
     }
 
     /// Resolves a centered crop matching the target aspect ratio.

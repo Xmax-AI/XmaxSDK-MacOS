@@ -97,7 +97,7 @@ final class MediaModelTests: XCTestCase {
 
         XCTAssertEqual(frame.format, format)
         XCTAssertEqual(frame.timestampUs, 33_333)
-        XCTAssertEqual(frame.planes, [plane])
+        XCTAssertEqual(frame.storage, .planes([plane]))
     }
 
     func testVideoFrameRejectsNegativeTimestampAndEmptyPlanes() throws {

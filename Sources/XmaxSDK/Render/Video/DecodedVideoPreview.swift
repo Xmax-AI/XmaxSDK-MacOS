@@ -27,11 +27,15 @@ final class DecodedVideoPreviewPresenter {
     ///   - contentMode: The video scaling and cropping mode.
     func attach(
         to view: XmaxRealtimeVideoView,
-        contentMode: VideoContentMode
+        contentMode: VideoContentMode,
+        sourceMirrored: Bool = false
     ) {
+        if let previous = self.view, previous !== view {
+            previous.clearDecodedVideoPreview()
+        }
         self.view = view
         self.contentMode = contentMode
-        view.prepareDecodedVideoPreview(contentMode: contentMode)
+        view.prepareDecodedVideoPreview(contentMode: contentMode, sourceMirrored: sourceMirrored)
     }
 
     /// Clears decoded preview from the specified view and removes the binding.

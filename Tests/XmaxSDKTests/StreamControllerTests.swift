@@ -542,6 +542,88 @@ final class StreamControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testCameraUplinkKeepsOnlyTheLatestFrameWhileRTCIsBusy() async throws {
+        let rtcManager = RtcManagingStub()
+        let controller = StreamController(rtcManager: rtcManager)
+        let firstFrameStarted = expectation(description: "First frame entered RTC")
+        let latestFrameSent = expectation(description: "Newest waiting frame entered RTC")
+        let releaseFirstFrame = DispatchSemaphore(value: 0)
+        defer { releaseFirstFrame.signal() }
+        rtcManager.videoFrameHandler = { frame in
+            switch frame.timestampUs {
+            case 1:
+                firstFrameStarted.fulfill()
+                _ = releaseFirstFrame.wait(timeout: .now() + 3)
+            case 3:
+                latestFrameSent.fulfill()
+            default:
+                XCTFail("Unexpected camera frame timestamp \(frame.timestampUs)")
+            }
+        }
+
+        let confirmation = try await startGeneration(controller, taskID: "task")
+        defer { confirmation.cancel() }
+        let format = try VideoFormat(width: 2, height: 2, pixelFormat: .bgra)
+        let plane = try VideoFramePlane(data: Data(count: 16), stride: 8)
+        let errorListener: XmaxErrorListener = { XCTFail("Unexpected uplink error \($0)") }
+        let firstFrame = try VideoFrame(format: format, timestampUs: 1, planes: [plane])
+        controller.enqueueLocalCameraVideoFrame(firstFrame, errorListener: errorListener)
+        await fulfillment(of: [firstFrameStarted], timeout: 1)
+
+        let secondFrame = try VideoFrame(format: format, timestampUs: 2, planes: [plane])
+        let latestFrame = try VideoFrame(format: format, timestampUs: 3, planes: [plane])
+        controller.enqueueLocalCameraVideoFrame(secondFrame, errorListener: errorListener)
+        controller.enqueueLocalCameraVideoFrame(latestFrame, errorListener: errorListener)
+        XCTAssertEqual(rtcManager.calls.filter { $0 == .pushExternalVideoFrame }.count, 1)
+
+        releaseFirstFrame.signal()
+        await fulfillment(of: [latestFrameSent], timeout: 1)
+        XCTAssertEqual(rtcManager.calls.filter { $0 == .pushExternalVideoFrame }.count, 2)
+        await controller.disconnect()
+    }
+
+    @MainActor
+    func testCameraUplinkRejectsFramesWaitingForRTCWhenGenerationChanges() async throws {
+        let rtcManager = RtcManagingStub()
+        let controller = StreamController(rtcManager: rtcManager)
+        let waitingForRTC = expectation(description: "Old frame waiting for RTC")
+        let currentFrameSent = expectation(description: "Current generation frame sent")
+        let allowRTCAdmission = DispatchSemaphore(value: 0)
+        defer { allowRTCAdmission.signal() }
+        rtcManager.videoFrameAdmissionHandler = { frame in
+            guard frame.timestampUs == 1 else { return }
+            waitingForRTC.fulfill()
+            _ = allowRTCAdmission.wait(timeout: .now() + 3)
+        }
+        rtcManager.videoFrameHandler = { frame in
+            XCTAssertEqual(frame.timestampUs, 3)
+            if frame.timestampUs == 3 { currentFrameSent.fulfill() }
+        }
+
+        let firstConfirmation = try await startGeneration(controller, taskID: "first")
+        defer { firstConfirmation.cancel() }
+        let format = try VideoFormat(width: 2, height: 2, pixelFormat: .bgra)
+        let plane = try VideoFramePlane(data: Data(count: 16), stride: 8)
+        let errorListener: XmaxErrorListener = { XCTFail("Unexpected uplink error \($0)") }
+        let waitingFrame = try VideoFrame(format: format, timestampUs: 1, planes: [plane])
+        controller.enqueueLocalCameraVideoFrame(waitingFrame, errorListener: errorListener)
+        await fulfillment(of: [waitingForRTC], timeout: 1)
+
+        let queuedFrame = try VideoFrame(format: format, timestampUs: 2, planes: [plane])
+        controller.enqueueLocalCameraVideoFrame(queuedFrame, errorListener: errorListener)
+        _ = await controller.stopStreamGeneration(taskID: "first")
+        let nextConfirmation = try controller.beginGenerationConfirmation(taskID: "next")
+        defer { nextConfirmation.cancel() }
+        let currentFrame = try VideoFrame(format: format, timestampUs: 3, planes: [plane])
+        controller.enqueueLocalCameraVideoFrame(currentFrame, errorListener: errorListener)
+
+        allowRTCAdmission.signal()
+        await fulfillment(of: [currentFrameSent], timeout: 1)
+        XCTAssertEqual(rtcManager.calls.filter { $0 == .pushExternalVideoFrame }.count, 1)
+        await controller.disconnect()
+    }
+
+    @MainActor
     func testExternalFramesDoNotCarryLegacySEI() async throws {
         let rtcManager = RtcManagingStub()
         let controller = StreamController(rtcManager: rtcManager)

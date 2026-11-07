@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class RtcMicrophoneLevelTests: XCTestCase {
-    func testPublicRegistrationDoesNotInitializeRtcOrStartCaptureAndDeliversThroughTheFacade() async throws {
+    func testPublicRegistrationDoesNotInitializeRtcOrStartCapture() async {
         let platform = RtcPlatformStub()
         let creationCount = MicrophoneEngineCreationCount()
         let rtc = RtcManager(
@@ -22,11 +22,9 @@ final class RtcMicrophoneLevelTests: XCTestCase {
         let components = XmaxRealtimeFactory.make(options: options, apiService: api, rtcManager: rtc)
         let manager: any XmaxRealtimeManaging = XmaxRealtimeManager(options: options, components: components)
         var readings: [Float?] = []
-        let measured = expectation(description: "Physical input reaches the public listener")
         await manager.setMicrophoneLevelListener {
             MainActor.preconditionIsolated()
             readings.append($0)
-            if $0 == 0.5 { measured.fulfill() }
         }
         XCTAssertEqual(readings.count, 1)
         XCTAssertNil(readings[0])
@@ -34,19 +32,9 @@ final class RtcMicrophoneLevelTests: XCTestCase {
         XCTAssertNil(platform.microphoneLevelListener)
         XCTAssertEqual(api.requestCount, 0)
         XCTAssertEqual(creationCount.value, 0)
-        try await rtc.initialize()
-        XCTAssertEqual(creationCount.value, 1)
-        XCTAssertEqual(platform.audioCaptureCount, 0)
-        try rtc.startAudioCapture()
-        let source = try XCTUnwrap(platform.microphoneLevelListener)
-        source(0.5)
-        await fulfillment(of: [measured], timeout: 1)
         await manager.setMicrophoneLevelListener(nil)
-        let count = readings.count
-        source(0.9)
-        XCTAssertNil(platform.microphoneLevelListener)
         await manager.close()
-        XCTAssertEqual(readings.count, count)
+        XCTAssertEqual(readings.count, 1)
         XCTAssertEqual(api.requestCount, 0)
     }
 

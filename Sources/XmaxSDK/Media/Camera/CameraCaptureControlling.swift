@@ -1,5 +1,5 @@
 //
-//  CameraCaptureManaging.swift
+//  CameraCaptureControlling.swift
 //  XmaxSDK
 //
 //  Author: 翁跃庭 (Yueting Weng)
@@ -10,8 +10,8 @@
 
 import Foundation
 
-/// Manages native RTC camera capture.
-protocol CameraCaptureManaging: Sendable {
+/// Owns video capture for a local camera stream.
+protocol CameraCaptureControlling: Sendable {
 
     /// Lists currently available camera devices.
     ///
@@ -24,7 +24,8 @@ protocol CameraCaptureManaging: Sendable {
     ///   - videoFormat: The output pixel format and dimensions.
     ///   - frameRate: The target capture frame rate.
     ///   - deviceID: The capture device identifier.
-    ///   - previewReadyListener: Reports when native capture is ready.
+    ///   - frameListener: Receives processed frames on the serial capture queue.
+    ///   - previewReadyListener: Reports the first successfully processed frame.
     ///   - errorListener: Receives capture runtime errors.
     ///
     /// - Throws: An error on invalid devices or formats, or capture startup failure.
@@ -32,6 +33,7 @@ protocol CameraCaptureManaging: Sendable {
         videoFormat: VideoFormat,
         frameRate: Int,
         deviceID: String,
+        frameListener: @escaping MediaVideoFrameListener,
         previewReadyListener: @escaping @Sendable () -> Void,
         errorListener: @escaping XmaxErrorListener
     ) async throws

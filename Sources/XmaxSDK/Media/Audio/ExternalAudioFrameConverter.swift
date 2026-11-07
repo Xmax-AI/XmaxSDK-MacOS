@@ -29,6 +29,10 @@ final class ExternalAudioFrameConverter {
     /// The reusable sample-rate and channel converter, omitted for matching PCM.
     private var converter: AVAudioConverter?
 
+    /// Reusable PCM scratch buffers. The packetizer owns the bytes it emits.
+    private var inputBuffer: AVAudioPCMBuffer?
+    private var outputBuffer: AVAudioPCMBuffer?
+
     /// The first sample's timestamp in the current contiguous segment.
     private var anchor: CMTime?
 
@@ -42,21 +46,25 @@ final class ExternalAudioFrameConverter {
     ///
     /// - Parameters:
     ///   - sampleBuffer: Ready PCM samples with a timestamp shared with video.
+    ///   - presentationTime: The converted timestamp when capture uses a different source clock.
     ///   - handler: The synchronous receiver for 10 ms RTC packets.
     ///
     /// - Throws: An error if PCM data is invalid, the format changes, or conversion or delivery
     ///   fails. Invalid timestamps and overlapping buffers are ignored.
     func append(
         _ sampleBuffer: CMSampleBuffer,
+        presentationTime: CMTime? = nil,
         handler: MediaAudioFrameListener
     ) throws {
-        let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let sourceTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let timestamp = presentationTime ?? sourceTime
         let timestampUs = CMTimeConvertScale(
             timestamp,
             timescale: 1000000,
             method: .roundTowardZero
         )
-        guard timestamp.isNumeric, timestamp.epoch == 0, timestamp >= .zero,
+        guard sourceTime.isNumeric, sourceTime.epoch == 0,
+            timestamp.isNumeric, timestamp.epoch == 0, timestamp >= .zero,
             timestampUs.isNumeric, timestampUs.value >= 0
         else {
             return
@@ -73,7 +81,7 @@ final class ExternalAudioFrameConverter {
         if let nextInputTime {
             let difference = CMTimeGetSeconds(
                 CMTimeSubtract(
-                    timestamp,
+                    sourceTime,
                     nextInputTime
                 )
             )
@@ -91,16 +99,13 @@ final class ExternalAudioFrameConverter {
             anchor = timestamp
         }
 
-        guard
-            let input = AVAudioPCMBuffer(
-                pcmFormat: format,
-                frameCapacity: AVAudioFrameCount(sampleCount)
-            )
-        else {
-            throw Self.audioError("Could not allocate external audio input")
+        let requiredCapacity = AVAudioFrameCount(sampleCount)
+        if (inputBuffer?.frameCapacity ?? 0) < requiredCapacity {
+            inputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: requiredCapacity)
         }
+        guard let input = inputBuffer else { throw Self.audioError("Could not allocate external audio input") }
 
-        input.frameLength = AVAudioFrameCount(sampleCount)
+        input.frameLength = requiredCapacity
         let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
             sampleBuffer,
             at: 0,
@@ -125,7 +130,7 @@ final class ExternalAudioFrameConverter {
         }
 
         nextInputTime = CMTimeAdd(
-            timestamp,
+            sourceTime,
             CMTimeMakeWithSeconds(
                 Double(sampleCount) / format.sampleRate,
                 preferredTimescale: 1000000000
@@ -197,14 +202,14 @@ private extension ExternalAudioFrameConverter {
             ceil(
                 Double(input.frameLength) * outputFormat.sampleRate / input.format.sampleRate
             ) + Double(AudioFrame.samplesPerFrame)
-        guard capacity.isFinite, capacity <= Double(UInt32.max),
-            let output = AVAudioPCMBuffer(
-                pcmFormat: outputFormat,
-                frameCapacity: AVAudioFrameCount(capacity)
-            )
-        else {
+        guard capacity.isFinite, capacity <= Double(UInt32.max) else {
             throw Self.audioError("Could not allocate external audio output")
         }
+        let requiredCapacity = AVAudioFrameCount(capacity)
+        if (outputBuffer?.frameCapacity ?? 0) < requiredCapacity {
+            outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: requiredCapacity)
+        }
+        guard let output = outputBuffer else { throw Self.audioError("Could not allocate external audio output") }
 
         var suppliedInput = false
         while true {

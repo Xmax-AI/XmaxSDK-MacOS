@@ -145,6 +145,53 @@ final class RtcFoundationTests: XCTestCase {
         }
     }
 
+    func testNativeCameraFrameScalesIntoTheBufferPassedToAgora() throws {
+        for (pixelFormat, agoraFormat) in [
+            (kCVPixelFormatType_32BGRA, AgoraVideoFormat.cvPixelBGRA),
+            (kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, AgoraVideoFormat.cvPixelNV12)
+        ] {
+            var sourceBuffer: CVPixelBuffer?
+            var outputBuffer: CVPixelBuffer?
+            let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
+            XCTAssertEqual(CVPixelBufferCreate(nil, 16, 8, pixelFormat, attributes, &sourceBuffer), kCVReturnSuccess)
+            XCTAssertEqual(CVPixelBufferCreate(nil, 4, 4, pixelFormat, attributes, &outputBuffer), kCVReturnSuccess)
+            let source = try XCTUnwrap(sourceBuffer)
+            let output = try XCTUnwrap(outputBuffer)
+            XCTAssertEqual(CVPixelBufferLockBaseAddress(source, []), kCVReturnSuccess)
+            let isNV12 = agoraFormat == .cvPixelNV12
+            if isNV12 {
+                memset(CVPixelBufferGetBaseAddressOfPlane(source, 0), 64, CVPixelBufferGetBytesPerRowOfPlane(source, 0) * 8)
+                memset(CVPixelBufferGetBaseAddressOfPlane(source, 1), 128, CVPixelBufferGetBytesPerRowOfPlane(source, 1) * 4)
+            } else {
+                memset(CVPixelBufferGetBaseAddress(source), 64, CVPixelBufferGetBytesPerRow(source) * 8)
+            }
+            CVPixelBufferUnlockBaseAddress(source, [])
+
+            let frame = try VideoFrameConverter.convert(
+                pixelBuffer: source,
+                outputWidth: 4,
+                outputHeight: 4,
+                timestampUs: 42,
+                outputPixelBuffer: output
+            )
+            guard case .pixelBuffer(let retainedBuffer) = frame.storage else {
+                return XCTFail("Expected a native camera buffer")
+            }
+            let agoraFrame = try RtcVideoConverter.convertFrame(frame)
+            XCTAssertTrue(retainedBuffer === output)
+            XCTAssertTrue(agoraFrame.textureBuf === retainedBuffer)
+            XCTAssertEqual(agoraFrame.format, agoraFormat.rawValue)
+            XCTAssertEqual(agoraFrame.time, CMTime(value: 42, timescale: 1_000_000))
+            XCTAssertEqual(CVPixelBufferLockBaseAddress(output, .readOnly), kCVReturnSuccess)
+            defer { CVPixelBufferUnlockBaseAddress(output, .readOnly) }
+            let firstPlane = isNV12 ? CVPixelBufferGetBaseAddressOfPlane(output, 0) : CVPixelBufferGetBaseAddress(output)
+            XCTAssertEqual(try XCTUnwrap(firstPlane).load(as: UInt8.self), 64)
+            if isNV12 {
+                XCTAssertEqual(try XCTUnwrap(CVPixelBufferGetBaseAddressOfPlane(output, 1)).load(as: UInt8.self), 128)
+            }
+        }
+    }
+
     func testVideoConverterRejectsWrongPlaneCountAndShortRows() throws {
         let missingPlane = try VideoFrame(
             format: VideoFormat(width: 2, height: 2, pixelFormat: .nv12), timestampUs: 0,

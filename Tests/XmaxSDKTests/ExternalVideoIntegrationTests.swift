@@ -10,16 +10,64 @@ import XCTest
 
 @MainActor
 final class ExternalVideoIntegrationTests: XCTestCase {
+    func testSDKCameraAndMicrophoneUseCustomRTCTracks() async throws {
+        let capture = CameraCaptureControllingStub(
+            devices: [CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)],
+            automaticallyReady: true
+        )
+        let microphone = MicrophoneCaptureControllingStub()
+        let components = makeComponents(capture: (capture, microphone))
+        let manager = components.manager
+        var readings: [Float?] = []
+        await manager.setMicrophoneLevelListener { readings.append($0) }
+        let local = try await manager.createLocalCameraStream(
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30),
+            microphone: .systemDefault
+        )
+        XCTAssertEqual(microphone.calls, [.select(nil)])
+        let view = XmaxRealtimeVideoView()
+        try VideoRenderRegistry.binding(for: XCTUnwrap(local.videoTrack))?.attach(to: view, contentMode: .fit)
+        _ = try await manager.connect(localStream: local)
+        microphone.emitLevel(0.5)
+        XCTAssertEqual(readings, [nil, 0.5])
+        await manager.setMicrophoneLevelListener(nil)
+        microphone.emitLevel(0.9)
+        XCTAssertEqual(readings, [nil, 0.5])
+        let audio = AudioFrame(data: Data(count: 960), timestampUs: 1_000_000)
+        try microphone.emitAudio(audio)
+        XCTAssertTrue(components.rtc.calls.contains(.pushExternalAudioFrame(audio)))
+        let generation = Task { try await manager.startGeneration(context: RealtimeContext(prompt: "test")) }
+        try await waitUntil { !self.roomMessages(components.rtc, event: "start").isEmpty }
+        let video = try VideoFrame(
+            format: VideoFormat(width: 4, height: 4, pixelFormat: .bgra),
+            timestampUs: 1_000_000,
+            planes: [VideoFramePlane(data: Data(count: 64), stride: 16)]
+        )
+        try capture.emitVideo(video)
+        try await waitUntil { components.rtc.calls.contains(.pushExternalVideoFrame) }
+        XCTAssertTrue(components.rtc.calls.contains(.useExternalVideoSource))
+        XCTAssertFalse(components.rtc.calls.contains(.startAudioCapture))
+        let remote = RemoteStream(roomID: "room", userID: "bot")
+        components.rtc.emitRemoteVideoAvailable(stream: remote)
+        try await waitUntil { components.rtc.calls.contains(.setRemoteVideoFrameListener(remote, enabled: true)) }
+        try components.rtc.emitRemoteVideoFrame(width: 4, height: 4)
+        try await generation.value
+        await manager.close()
+        XCTAssertEqual(microphone.calls, [.select(nil), .start, .stop])
+        XCTAssertEqual(capture.calls, [.start("camera"), .stop])
+    }
+
     func testMicrophoneListingDoesNotInitializeRTCOrRequestCapturePermission() async throws {
         let input = MicrophoneDevice(id: "stable-input-uid", name: "USB Microphone", isDefault: true)
         let rtc = RtcManagingStub(initializationError: XmaxError(code: .rtcError, message: "RTC must stay idle"))
         let permissions = PermissionManagingStub()
-        let capture = CameraCaptureManagingStub(devices: [])
+        let capture = CameraCaptureControllingStub(devices: [])
         let camera = CameraController(
             rtcManager: rtc,
             permissionManager: permissions,
             mediaService: MediaService(),
-            captureManager: capture
+            cameraCapture: capture,
+            microphoneCapture: MicrophoneCaptureControllingStub()
         )
         let manager: any XmaxRealtimeManaging = makeComponents(
             rtc: rtc,
@@ -44,12 +92,15 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             entered.fulfill()
             gate.wait()
         })
+        let capture = CameraCaptureControllingStub(devices: [
+            CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
+        ])
+        let microphone = MicrophoneCaptureControllingStub()
         let camera = CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(),
             mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)),
-            captureManager: CameraCaptureManagingStub(devices: [
-                CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
-            ])
+            cameraCapture: capture,
+            microphoneCapture: microphone
         )
         let manager = makeComponents(rtc: rtc, camera: camera).manager
         let local = try await manager.createLocalCameraStream(videoFormat: .init(width: 4, height: 4, fps: 30))
@@ -67,7 +118,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertTrue(camera.currentTrack === local.videoTrack)
         XCTAssertEqual(rtc.calls.filter { $0 == .publishLocalAudio }.count, 1)
         XCTAssertEqual(rtc.calls.filter { $0 == .unpublishLocalAudio }.count, 1)
-        XCTAssertTrue(rtc.calls.contains(.stopAudioCapture))
+        XCTAssertTrue(microphone.calls.contains(.stop))
         await manager.close()
     }
 
@@ -78,7 +129,8 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let camera = CameraController(
             rtcManager: rtc, permissionManager: permissions,
             mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)),
-            captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { [device] })
+            cameraCapture: CameraCaptureControllingStub(devices: [device], automaticallyReady: true),
+            microphoneCapture: MicrophoneCaptureControllingStub()
         )
         let manager = makeComponents(rtc: rtc, camera: camera).manager
         let local = try await manager.createLocalCameraStream(videoFormat: .init(width: 4, height: 4, fps: 30))
@@ -93,7 +145,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertFalse(rtc.calls.contains(.startAudioCapture))
         XCTAssertFalse(rtc.calls.contains(.publishLocalAudio))
         _ = try await manager.connect(localStream: local)
-        XCTAssertTrue(rtc.calls.contains(.startAudioCapture))
+        XCTAssertTrue(rtc.calls.contains(.startExternalAudioSource))
         XCTAssertTrue(rtc.calls.contains(.publishLocalAudio))
         await manager.close()
     }
@@ -101,17 +153,23 @@ final class ExternalVideoIntegrationTests: XCTestCase {
     func testMicrophoneSwitchAndToggleKeepGenerationAndVideoTrack() async throws {
         let rtc = RtcManagingStub()
         let permissions = PermissionManagingStub()
-        let capture = CameraCaptureManagingStub(devices: [
+        let capture = CameraCaptureControllingStub(devices: [
             CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
         ])
+        let microphone = MicrophoneCaptureControllingStub()
         let camera = CameraController(
             rtcManager: rtc, permissionManager: permissions,
-            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), captureManager: capture
+            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), cameraCapture: capture,
+            microphoneCapture: microphone
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         let manager = components.manager
         let local = try await manager.createLocalCameraStream(videoFormat: .init(width: 4, height: 4, fps: 30))
         _ = try await manager.connect(localStream: local)
+        let trackPreparation = try XCTUnwrap(rtc.calls.firstIndex(of: .startExternalAudioSource))
+        let roomJoin = try XCTUnwrap(rtc.calls.firstIndex { if case .joinRoom = $0 { true } else { false } })
+        XCTAssertLessThan(trackPreparation, roomJoin)
+        XCTAssertEqual(microphone.calls, [.select(nil)])
         let generating = Task { try await manager.startGeneration(context: RealtimeContext(prompt: "keep generating")) }
         try await waitUntil { !self.roomMessages(rtc, event: "start").isEmpty }
         let remote = RemoteStream(roomID: "room", userID: "bot")
@@ -134,14 +192,14 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertEqual(after.connectionState, .generating)
         XCTAssertTrue(camera.currentTrack === local.videoTrack)
         XCTAssertEqual(capture.calls, [.start("camera")])
-        XCTAssertTrue(rtc.calls.contains(.setMicrophoneDevice("usb-input")))
-        XCTAssertTrue(rtc.calls.contains(.setMicrophoneDevice(nil)))
+        XCTAssertTrue(microphone.calls.contains(.select("usb-input")))
+        XCTAssertTrue(microphone.calls.contains(.select(nil)))
         XCTAssertEqual(rtc.calls.filter { if case .sendRoomMessage = $0 { true } else { false } }.count, signalingCount)
         await manager.close()
         XCTAssertEqual(rtc.calls.filter { $0 == .publishLocalAudio }.count, 2)
         XCTAssertEqual(rtc.calls.filter { $0 == .unpublishLocalAudio }.count, 2)
-        XCTAssertEqual(rtc.calls.filter { $0 == .startAudioCapture }.count, 2)
-        XCTAssertEqual(rtc.calls.filter { $0 == .stopAudioCapture }.count, 2)
+        XCTAssertEqual(microphone.calls.filter { $0 == .start }.count, 2)
+        XCTAssertEqual(microphone.calls.filter { $0 == .stop }.count, 2)
     }
 
     func testMicrophonePermissionOrPublicationFailurePreservesVideoAndDisabledIntent() async throws {
@@ -149,12 +207,15 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         for denyPermission in [true, false] {
             let rtc = RtcManagingStub(publishLocalAudioError: denyPermission ? nil : failure)
             let permissions = PermissionManagingStub(microphoneError: denyPermission ? failure : nil)
+            let capture = CameraCaptureControllingStub(devices: [
+                CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
+            ])
+            let microphone = MicrophoneCaptureControllingStub()
             let camera = CameraController(
                 rtcManager: rtc, permissionManager: permissions,
                 mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)),
-                captureManager: CameraCaptureManagingStub(devices: [
-                    CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
-                ])
+                cameraCapture: capture,
+                microphoneCapture: microphone
             )
             let manager = makeComponents(rtc: rtc, camera: camera).manager
             let local = try await manager.createLocalCameraStream(videoFormat: .init(width: 4, height: 4, fps: 30))
@@ -166,8 +227,8 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             let state = await manager.currentState
             XCTAssertEqual(state.connectionState, .connected)
             XCTAssertTrue(camera.currentTrack === local.videoTrack)
-            XCTAssertEqual(rtc.calls.filter { $0 == .startAudioCapture }.count, denyPermission ? 0 : 1)
-            XCTAssertEqual(rtc.calls.filter { $0 == .stopAudioCapture }.count, denyPermission ? 0 : 1)
+            XCTAssertEqual(microphone.calls.filter { $0 == .start }.count, denyPermission ? 0 : 1)
+            XCTAssertEqual(microphone.calls.filter { $0 == .stop }.count, denyPermission ? 0 : 1)
             await manager.close()
         }
     }
@@ -175,12 +236,15 @@ final class ExternalVideoIntegrationTests: XCTestCase {
     func testMicrophoneDisableStopsCaptureEvenWhenUnpublicationFailsAndCloseRetries() async throws {
         let failure = XmaxError(code: .rtcError, message: "Unpublication rejected")
         let rtc = RtcManagingStub(unpublishLocalAudioError: failure)
+        let capture = CameraCaptureControllingStub(devices: [
+            CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
+        ])
+        let microphone = MicrophoneCaptureControllingStub()
         let camera = CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(),
             mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)),
-            captureManager: CameraCaptureManagingStub(devices: [
-                CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
-            ])
+            cameraCapture: capture,
+            microphoneCapture: microphone
         )
         let manager = makeComponents(rtc: rtc, camera: camera).manager
         let local = try await manager.createLocalCameraStream(
@@ -191,23 +255,24 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         catch { XCTAssertEqual(error as? XmaxError, failure) }
         let enabled = await manager.isMicrophoneEnabled
         XCTAssertFalse(enabled)
-        XCTAssertTrue(rtc.calls.contains(.stopAudioCapture))
+        XCTAssertTrue(microphone.calls.contains(.stop))
         XCTAssertTrue(camera.currentTrack === local.videoTrack)
         await manager.close()
         XCTAssertEqual(rtc.calls.filter { $0 == .unpublishLocalAudio }.count, 2)
-        XCTAssertEqual(rtc.calls.filter { $0 == .stopAudioCapture }.count, 1)
+        XCTAssertEqual(microphone.calls.filter { $0 == .stop }.count, 1)
     }
 
     func testCloseDuringMicrophonePermissionCannotStartLateCapture() async throws {
         let gate = CaptureShutdownGate()
         let permissions = PermissionManagingStub(microphoneHandler: { await gate.wait() })
         let rtc = RtcManagingStub()
-        let capture = CameraCaptureManagingStub(devices: [
+        let capture = CameraCaptureControllingStub(devices: [
             CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
         ])
         let camera = CameraController(
             rtcManager: rtc, permissionManager: permissions,
-            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), captureManager: capture
+            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), cameraCapture: capture,
+            microphoneCapture: MicrophoneCaptureControllingStub()
         )
         let manager = makeComponents(rtc: rtc, camera: camera).manager
         let local = try await manager.createLocalCameraStream(videoFormat: .init(width: 4, height: 4, fps: 30))
@@ -227,12 +292,14 @@ final class ExternalVideoIntegrationTests: XCTestCase {
     func testCloseReleasesCaptureWhileRTCDisconnectIsBlocked() async throws {
         let gate = CaptureShutdownGate()
         let rtc = RtcManagingStub(leaveRoomHandler: { await gate.wait() })
-        let capture = CameraCaptureManagingStub(devices: [
+        let capture = CameraCaptureControllingStub(devices: [
             CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
         ])
+        let microphone = MicrophoneCaptureControllingStub()
         let camera = CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(),
-            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), captureManager: capture
+            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), cameraCapture: capture,
+            microphoneCapture: microphone
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         let local = try await components.manager.createLocalCameraStream(
@@ -245,7 +312,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         try await waitUntil { await gate.isWaiting }
         XCTAssertEqual(capture.calls, [.start("camera"), .stop])
         XCTAssertNil(camera.currentTrack)
-        XCTAssertTrue(rtc.calls.contains(.stopAudioCapture))
+        XCTAssertTrue(microphone.calls.contains(.stop))
         XCTAssertFalse(rtc.calls.contains(.destroy))
         await gate.release()
         await close.value
@@ -255,12 +322,13 @@ final class ExternalVideoIntegrationTests: XCTestCase {
     func testCloseDuringCameraStartupStopsCaptureBeforeLateStartupReturns() async throws {
         let gate = CaptureShutdownGate()
         let rtc = RtcManagingStub()
-        let capture = CameraCaptureManagingStub(devices: [
+        let capture = CameraCaptureControllingStub(devices: [
             CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
         ], startHandler: { await gate.wait() })
         let camera = CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(),
-            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), captureManager: capture
+            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), cameraCapture: capture,
+            microphoneCapture: MicrophoneCaptureControllingStub()
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         let start = Task {
@@ -287,12 +355,13 @@ final class ExternalVideoIntegrationTests: XCTestCase {
 
     func testCloseDuringCameraWarmupPreventsLocalPublication() async throws {
         let rtc = RtcManagingStub()
-        let capture = CameraCaptureManagingStub(devices: [
+        let capture = CameraCaptureControllingStub(devices: [
             CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
         ])
         let camera = CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(),
-            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), captureManager: capture
+            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), cameraCapture: capture,
+            microphoneCapture: MicrophoneCaptureControllingStub()
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         let local = try await components.manager.createLocalCameraStream(
@@ -314,16 +383,17 @@ final class ExternalVideoIntegrationTests: XCTestCase {
     }
 
     func testEarlyCaptureStopReleasesCameraWithoutDestroyingRTCAndFinalStopIsIdempotent() async throws {
-        let capture = CameraCaptureManagingStub(devices: [
+        let capture = CameraCaptureControllingStub(devices: [
             CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
         ])
         let rtc = RtcManagingStub()
         let camera = CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(),
-            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), captureManager: capture
+            mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), cameraCapture: capture,
+            microphoneCapture: MicrophoneCaptureControllingStub()
         )
         let media = MediaController(
-            rtcManager: rtc, cameraController: camera, videoFrameListener: { _ in },
+            rtcManager: rtc, cameraController: camera, cameraVideoFrameListener: { _ in }, externalVideoFrameListener: { _ in },
             errorListener: { _ in }, interactionListener: { _, _ in }
         )
         _ = try await media.createLocalCameraStream(
@@ -350,9 +420,10 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let camera = CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(),
             mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)),
-            captureManager: CameraCaptureManagingStub(devices: [
+            cameraCapture: CameraCaptureControllingStub(devices: [
                 CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
-            ])
+            ]),
+            microphoneCapture: MicrophoneCaptureControllingStub()
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         _ = try await components.manager.createLocalCameraStream(
@@ -446,6 +517,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let oldSink = try XCTUnwrap(source.sink)
         oldSink.reportError(XmaxError(code: .mediaError, message: "Camera disconnected"))
         try await waitUntil { source.stops == 1 }
+        try await waitUntil { await components.manager.currentState.connectionState == .idle }
         let failed = await components.manager.currentState
         XCTAssertEqual(failed.connectionState, .idle)
         guard case let .failure(error) = failed.reason else {
@@ -612,7 +684,8 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let service = MediaService()
         let camera = CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: service,
-            captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { [device] })
+            cameraCapture: CameraCaptureControllingStub(devices: [device], automaticallyReady: true),
+            microphoneCapture: MicrophoneCaptureControllingStub()
         )
         let components = makeComponents(rtc: rtc, camera: camera, mediaService: service)
         let manager: any XmaxRealtimeManaging = components.manager
@@ -674,9 +747,12 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             let rtc = RtcManagingStub()
             let permissions = PermissionManagingStub()
             let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
+            let capture = CameraCaptureControllingStub(devices: [device], automaticallyReady: true)
+            let microphone = MicrophoneCaptureControllingStub()
             let camera = CameraController(
                 rtcManager: rtc, permissionManager: permissions, mediaService: MediaService(),
-                captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { [device] })
+                cameraCapture: capture,
+                microphoneCapture: microphone
             )
             let components = makeComponents(rtc: rtc, camera: camera)
             let manager: any XmaxRealtimeManaging = components.manager
@@ -727,7 +803,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
                 )
             }
             XCTAssertEqual(rtc.cameraMirrors, [variant != 5])
-            XCTAssertTrue(rtc.calls.contains(.setMicrophoneDevice([3, 6].contains(variant) ? nil : "usb-input")))
+            XCTAssertTrue(microphone.calls.contains(.select([3, 6].contains(variant) ? nil : "usb-input")))
             XCTAssertEqual(permissions.microphoneRequestCount, variant == 3 ? 0 : 1)
             let microphoneEnabled = await manager.isMicrophoneEnabled
             XCTAssertEqual(microphoneEnabled, variant != 3)
@@ -739,16 +815,18 @@ final class ExternalVideoIntegrationTests: XCTestCase {
 
     func testInvalidInitialMicrophoneReleasesMediaWithoutStartingCameraOrAudio() async throws {
         let failure = XmaxError(code: .mediaError, message: "Microphone input is unavailable")
-        let rtc = RtcManagingStub(microphoneDeviceError: failure)
+        let rtc = RtcManagingStub()
         let permissions = PermissionManagingStub()
-        let capture = CameraCaptureManagingStub(devices: [
+        let capture = CameraCaptureControllingStub(devices: [
             CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
         ])
+        let microphone = MicrophoneCaptureControllingStub(selectionError: failure)
         let camera = CameraController(
             rtcManager: rtc,
             permissionManager: permissions,
             mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)),
-            captureManager: capture
+            cameraCapture: capture,
+            microphoneCapture: microphone
         )
         let manager = makeComponents(rtc: rtc, camera: camera).manager
         for microphone: RealtimeMicrophone in [.device(id: "removed-input"), .systemDefault] {
@@ -774,9 +852,11 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         for model in RealtimeModel.allCases {
             let rtc = RtcManagingStub()
             let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
+            let capture = CameraCaptureControllingStub(devices: [device], automaticallyReady: true)
             let camera = CameraController(
                 rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: MediaService(model: model),
-                captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { [device] })
+                cameraCapture: capture,
+                microphoneCapture: MicrophoneCaptureControllingStub()
             )
             let components = makeComponents(rtc: rtc, camera: camera, options: RealtimeConfiguration(model: model))
             let manager: any XmaxRealtimeManaging = components.manager
@@ -790,15 +870,15 @@ final class ExternalVideoIntegrationTests: XCTestCase {
                 XCTAssertTrue(camera.useMicrophone)
                 try await manager.stopLocalCameraStream()
             }
-            let callsBefore = rtc.calls.count
+            let callsBefore = capture.calls.count
             do {
                 _ = try await manager.createLocalCameraStream(
                     videoFormat: RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
                 )
                 XCTFail("Expected unsupported camera dimensions")
             } catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
-            XCTAssertFalse(rtc.calls.dropFirst(callsBefore).contains {
-                if case .startCameraCapture = $0 { return true }
+            XCTAssertFalse(capture.calls.dropFirst(callsBefore).contains {
+                if case .start = $0 { return true }
                 return false
             }, "Unsupported dimensions must not start capture")
             XCTAssertNil(camera.currentTrack)
@@ -877,9 +957,12 @@ final class ExternalVideoIntegrationTests: XCTestCase {
     func testCameraConvenienceAndStopCallbackRetainDeviceSelectionAndMicrophoneOptions() async throws {
         let rtc = RtcManagingStub()
         let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
+        let capture = CameraCaptureControllingStub(devices: [device], automaticallyReady: true)
+        let microphone = MicrophoneCaptureControllingStub()
         let camera = CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: MediaService(),
-            captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { [device] })
+            cameraCapture: capture,
+            microphoneCapture: microphone
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         let manager: any XmaxRealtimeManaging = components.manager
@@ -903,9 +986,9 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertFalse(first.videoTrack === second.videoTrack)
         XCTAssertEqual(second.videoTrack?.device, device)
         XCTAssertFalse(camera.useMicrophone)
-        XCTAssertEqual(rtc.calls.filter { if case .setMicrophoneDevice = $0 { true } else { false } }, [
-            .setMicrophoneDevice("usb-input"),
-            .setMicrophoneDevice(nil)
+        XCTAssertEqual(microphone.calls, [
+            .select("usb-input"),
+            .select(nil)
         ])
         await manager.setStateListener(nil)
         await manager.close()
@@ -916,7 +999,8 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
         let camera = CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: MediaService(),
-            captureManager: AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { [device] })
+            cameraCapture: CameraCaptureControllingStub(devices: [device], automaticallyReady: true),
+            microphoneCapture: MicrophoneCaptureControllingStub()
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         let manager = components.manager
@@ -977,6 +1061,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
     private func makeComponents(
         rtc: RtcManagingStub = RtcManagingStub(),
         camera: (any CameraControlling)? = nil,
+        capture: (camera: CameraCaptureControllingStub, microphone: MicrophoneCaptureControllingStub)? = nil,
         mediaService: (any MediaServicing)? = nil,
         microphoneDevices: @escaping @Sendable () -> [MicrophoneDevice] = { [] },
         options: RealtimeConfiguration = RealtimeConfiguration(model: .x2_1)
@@ -990,9 +1075,22 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             errorListener: { errors.forward($0, target: .connection) },
             remoteStreamListener: { try render.setRemoteStream($0) }, timing: timing
         )
+        let cameraVideoFrameListener: MediaVideoFrameListener = { frame in
+            stream.enqueueLocalCameraVideoFrame(frame, errorListener: { errors.forward($0, target: .all) })
+        }
+        let testCamera = capture.map {
+            CameraController(
+                rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: service,
+                cameraCapture: $0.camera,
+                microphoneCapture: $0.microphone,
+                videoFrameListener: cameraVideoFrameListener,
+                audioFrameListener: { try stream.pushLocalAudioFrame($0) }
+            )
+        }
         let media = MediaController(
-            rtcManager: rtc, mediaService: service, cameraController: camera,
-            videoFrameListener: { try stream.pushLocalVideoFrame($0) },
+            rtcManager: rtc, mediaService: service, cameraController: camera ?? testCamera,
+            cameraVideoFrameListener: cameraVideoFrameListener,
+            externalVideoFrameListener: { try stream.pushLocalVideoFrame($0) },
             audioFrameListener: { try stream.pushLocalAudioFrame($0) },
             errorListener: { errors.forward($0, target: .all) },
             microphoneDevices: microphoneDevices,

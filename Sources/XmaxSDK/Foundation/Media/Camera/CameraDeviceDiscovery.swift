@@ -49,7 +49,7 @@ enum CameraDeviceDiscovery {
     /// Lists system video devices without starting capture.
     ///
     /// - Returns: The system's current video capture devices.
-    private static func captureDevices() -> [AVCaptureDevice] {
+    static func captureDevices() -> [AVCaptureDevice] {
         let types: [AVCaptureDevice.DeviceType]
         if #available(macOS 14.0, *) {
             types = [.builtInWideAngleCamera, .external, .continuityCamera]

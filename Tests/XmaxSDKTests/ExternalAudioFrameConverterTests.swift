@@ -27,6 +27,34 @@ final class ExternalAudioFrameConverterTests: XCTestCase {
         XCTAssertEqual(firstSample, 1000)
     }
 
+    func testCaptureClockOverridePreservesPacketSpacing() throws {
+        let converter = ExternalAudioFrameConverter()
+        let frames = Recorder()
+        try converter.append(
+            AudioSampleBufferFactory.make(count: 960, timestamp: CMTime(value: 1, timescale: 1)),
+            presentationTime: CMTime(value: 34, timescale: 1),
+            handler: { frames.append($0) }
+        )
+        XCTAssertEqual(frames.values.map(\.timestampUs), [34_000_000, 34_010_000])
+    }
+
+    func testHostClockConversionDoesNotDropContiguousSourceSamples() throws {
+        let converter = ExternalAudioFrameConverter()
+        let frames = Recorder()
+        try converter.append(
+            AudioSampleBufferFactory.make(count: 240, timestamp: .zero),
+            presentationTime: CMTime(value: 34, timescale: 1),
+            handler: { frames.append($0) }
+        )
+        try converter.append(
+            AudioSampleBufferFactory.make(count: 240, timestamp: CMTime(value: 5, timescale: 1_000)),
+            presentationTime: CMTime(value: 34_004_970, timescale: 1_000_000),
+            handler: { frames.append($0) }
+        )
+        XCTAssertEqual(frames.values.map(\.timestampUs), [34_000_000])
+        XCTAssertEqual(frames.values.first?.data.count, 960)
+    }
+
     func testSmallBuffersCombineWithoutLosingSamplesOrTiming() throws {
         let converter = ExternalAudioFrameConverter()
         let frames = Recorder()

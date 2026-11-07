@@ -76,7 +76,8 @@ actor MediaController: MediaControlling {
     ///   - rtcManager: The RTC engine and media adapter.
     ///   - mediaService: The media service providing model dimension rules.
     ///   - cameraController: The camera controller, or `nil` to use the system camera.
-    ///   - videoFrameListener: The callback receiving local video frames.
+    ///   - cameraVideoFrameListener: Receives SDK-captured camera frames.
+    ///   - externalVideoFrameListener: Receives caller-supplied video frames synchronously.
     ///   - audioFrameListener: Receives converted external audio without local playback.
     ///   - errorListener: The callback receiving media runtime errors.
     ///   - microphoneDevices: Reads current audio input descriptions without opening devices.
@@ -86,7 +87,8 @@ actor MediaController: MediaControlling {
         rtcManager: any RtcManaging,
         mediaService: any MediaServicing = MediaService(),
         cameraController: (any CameraControlling)? = nil,
-        videoFrameListener: @escaping MediaVideoFrameListener,
+        cameraVideoFrameListener: @escaping MediaVideoFrameListener,
+        externalVideoFrameListener: @escaping MediaVideoFrameListener,
         audioFrameListener: @escaping MediaAudioFrameListener = { _ in },
         errorListener: @escaping XmaxErrorListener,
         microphoneDevices: @escaping @Sendable () -> [MicrophoneDevice] = { MicrophoneDeviceDiscovery.list() },
@@ -97,12 +99,14 @@ actor MediaController: MediaControlling {
         self.cameraController = cameraController ?? CameraController(
             rtcManager: rtcManager,
             mediaService: mediaService,
+            videoFrameListener: cameraVideoFrameListener,
+            audioFrameListener: audioFrameListener,
             errorListener: errorListener
         )
         externalController = ExternalVideoController(
             rtcManager: rtcManager,
             mediaService: mediaService,
-            videoFrameListener: videoFrameListener,
+            videoFrameListener: externalVideoFrameListener,
             audioFrameListener: audioFrameListener,
             errorListener: errorListener
         )
@@ -127,7 +131,7 @@ actor MediaController: MediaControlling {
     func setMicrophoneLevelListener(
         _ listener: RealtimeMicrophoneLevelListener?
     ) async {
-        await rtcManager.setMicrophoneLevelListener(listener)
+        await cameraController.setMicrophoneLevelListener(listener)
     }
 
     /// Sets a one-time internal readiness handler for the current camera stream.
@@ -180,7 +184,7 @@ actor MediaController: MediaControlling {
         microphone: RealtimeMicrophone = .disabled
     ) async throws -> RealtimeMediaStream {
         try await createSource(kind: .camera) {
-            try self.rtcManager.setMicrophoneDevice(microphone.deviceID)
+            try self.cameraController.switchMicrophone(to: microphone.deviceID)
             return try await self.cameraController.createLocalCameraStream(
                 videoFormat: videoFormat,
                 deviceID: deviceID,
@@ -208,7 +212,7 @@ actor MediaController: MediaControlling {
         await stopSource(ifKindIs: .external)
     }
 
-    /// Starts internal audio capture for a microphone-enabled camera stream; other sources are unaffected.
+    /// Prepares camera-stream audio for RTC and starts physical capture if enabled.
     ///
     /// - Throws: An error on cancellation or RTC audio capture startup failure.
     func startMicrophoneCapture() throws {
@@ -231,7 +235,7 @@ actor MediaController: MediaControlling {
         to deviceID: String?
     ) throws {
         try requireCameraMicrophone()
-        try rtcManager.setMicrophoneDevice(deviceID)
+        try cameraController.switchMicrophone(to: deviceID)
     }
 
     /// Updates microphone intent and checks source validity across permission acquisition.

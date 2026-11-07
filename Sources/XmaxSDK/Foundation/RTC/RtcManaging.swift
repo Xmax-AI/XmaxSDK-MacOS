@@ -67,7 +67,9 @@ protocol RtcManaging: RtcCameraCapturing {
     /// Enables external video input.
     ///
     /// - Throws: An error if video source configuration fails.
-    func useExternalVideoSource() throws
+    func useExternalVideoSource(
+        useTexture: Bool
+    ) throws
 
     /// Enables external PCM input.
     ///
@@ -79,13 +81,16 @@ protocol RtcManaging: RtcCameraCapturing {
     /// - Throws: An error if audio track release fails.
     func stopExternalAudioSource() throws
 
-    /// Pushes an external video frame.
+    /// Pushes an external video frame after validating it against the current RTC lifecycle.
     ///
-    /// - Parameter frame: The SDK's neutral video frame.
+    /// - Parameters:
+    ///   - frame: The SDK's neutral video frame.
+    ///   - isCurrent: Called after acquiring the engine lock. A false result skips the frame.
     ///
     /// - Throws: An error if frame format or data is invalid.
     func pushExternalVideoFrame(
-        _ frame: VideoFrame
+        _ frame: VideoFrame,
+        ifCurrent isCurrent: () -> Bool
     ) throws
 
     /// Pushes an external audio frame.
@@ -230,6 +235,18 @@ protocol RtcManaging: RtcCameraCapturing {
 }
 
 extension RtcManaging {
+
+    /// Enables external video input for caller-owned byte frames.
+    func useExternalVideoSource() throws {
+        try useExternalVideoSource(useTexture: false)
+    }
+
+    /// Pushes a caller-supplied video frame synchronously.
+    func pushExternalVideoFrame(
+        _ frame: VideoFrame
+    ) throws {
+        try pushExternalVideoFrame(frame, ifCurrent: { true })
+    }
 
     /// Enqueues a room signal with asynchronous send failure reporting enabled.
     ///

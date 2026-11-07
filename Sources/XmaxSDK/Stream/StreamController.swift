@@ -54,6 +54,15 @@ final class StreamController: StreamControlling, RtcEventListener,
     /// The lock serializing media and generation operations.
     private let operationLock = NSRecursiveLock()
 
+    /// Serializes camera uplink without blocking the capture queue on RTC.
+    private let cameraUplinkQueue = DispatchQueue(label: "ai.xmax.sdk.camera-uplink", qos: .userInitiated)
+
+    /// The newest frame waiting for uplink, protected by `stateLock`.
+    private var pendingCameraFrame: CameraUplinkFrame?
+
+    /// Whether the uplink queue has a scheduled or running drain, protected by `stateLock`.
+    private var isCameraUplinkScheduled = false
+
     /// The transport state snapshot.
     private var state = State()
 
@@ -550,7 +559,34 @@ final class StreamController: StreamControlling, RtcEventListener,
         }
     }
 
-    /// Pushes local external video during an active generation task; ignores frames otherwise.
+    /// Queues the newest SDK-captured video frame while local video and generation are active.
+    ///
+    /// - Parameters:
+    ///   - frame: The owned camera frame shared with the local preview.
+    ///   - errorListener: Receives the first uplink failure for the current generation.
+    func enqueueLocalCameraVideoFrame(
+        _ frame: VideoFrame,
+        errorListener: @escaping XmaxErrorListener
+    ) {
+        let shouldSchedule = stateLock.withLock {
+            guard state.localVideoPublished, let task = state.generationTask else { return false }
+            pendingCameraFrame = CameraUplinkFrame(
+                frame: frame,
+                generationRevision: task.revision,
+                errorListener: errorListener
+            )
+            guard !isCameraUplinkScheduled else { return false }
+            isCameraUplinkScheduled = true
+            return true
+        }
+        if shouldSchedule {
+            cameraUplinkQueue.async { [weak self] in
+                self?.drainCameraUplink()
+            }
+        }
+    }
+
+    /// Pushes caller-supplied video synchronously during an active generation task.
     ///
     /// - Parameter frame: The local video frame prepared for RTC.
     ///
@@ -715,6 +751,7 @@ final class StreamController: StreamControlling, RtcEventListener,
                 let remoteAudioUserIDs =
                     state.subscribedRemoteAudioUserIDs
                 state.generationTask = nil
+                pendingCameraFrame = nil
                 state.generationWaiter = nil
                 state.activeRemoteStream = nil
                 state.subscribedRemoteAudioUserIDs.removeAll()
@@ -754,6 +791,7 @@ final class StreamController: StreamControlling, RtcEventListener,
             let previousState = stateLock.withLock { () -> State in
                 let previousState = state
                 state = State()
+                pendingCameraFrame = nil
                 return previousState
             }
 
@@ -952,6 +990,19 @@ private extension StreamController {
 
         /// The unique generation task identifier.
         let id: String
+
+        /// Distinguishes local lifetimes even if a task identifier is reused.
+        let revision = UUID()
+
+        /// Whether the camera uplink has already reported a send error.
+        var hasReportedCameraUplinkError = false
+    }
+
+    /// A camera frame and the generation in which it was captured.
+    struct CameraUplinkFrame {
+        let frame: VideoFrame
+        let generationRevision: UUID
+        let errorListener: XmaxErrorListener
     }
 
     /// Manages result stream confirmation, timeouts, and asynchronous notifications.
@@ -1169,6 +1220,41 @@ private extension StreamController {
                 message: "清理 RTC 远端生成流失败 (Failed to Clean Up RTC Remote Generation Stream)\n"
                     + "└─ \(XmaxLogger.localized("原因：", "Reason: "))" + (error as NSError).localizedDescription
             )
+        }
+    }
+
+    /// Sends queued frames without holding `stateLock` across the RTC call.
+    func drainCameraUplink() {
+        while let pending = takePendingCameraFrame() {
+            do {
+                try rtcManager.pushExternalVideoFrame(
+                    pending.frame,
+                    ifCurrent: {
+                        stateLock.withLock {
+                            state.localVideoPublished && state.generationTask?.revision == pending.generationRevision
+                        }
+                    }
+                )
+            } catch {
+                let shouldReport = stateLock.withLock {
+                    guard let task = state.generationTask, task.revision == pending.generationRevision,
+                        !task.hasReportedCameraUplinkError
+                    else { return false }
+                    state.generationTask?.hasReportedCameraUplinkError = true
+                    return true
+                }
+                if shouldReport { pending.errorListener(XmaxError.from(error)) }
+            }
+        }
+    }
+
+    /// Takes the latest frame or marks the drain idle atomically with checking the slot.
+    func takePendingCameraFrame() -> CameraUplinkFrame? {
+        stateLock.withLock {
+            let pending = pendingCameraFrame
+            pendingCameraFrame = nil
+            if pending == nil { isCameraUplinkScheduled = false }
+            return pending
         }
     }
 

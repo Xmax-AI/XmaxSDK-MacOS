@@ -34,14 +34,39 @@ enum RtcVideoConverter {
             )
         }
 
+        let result = AgoraVideoFrame()
+        result.time = CMTime(value: frame.timestampUs, timescale: 1000000)
+        result.rotation = 0
+
+        switch frame.storage {
+        case .pixelBuffer(let pixelBuffer):
+            result.format = frame.format.pixelFormat == .nv12
+                ? AgoraVideoFormat.cvPixelNV12.rawValue : AgoraVideoFormat.cvPixelBGRA.rawValue
+            result.textureBuf = pixelBuffer
+        case .planes(let planes):
+            result.format = convertPixelFormat(frame.format.pixelFormat)
+            result.strideInPixels = rtcWidth
+            result.height = rtcHeight
+            result.dataBuf = try packedFrameData(planes, format: frame.format)
+        }
+        return result
+    }
+
+    /// Validates plane bounds before sharing or repacking the owned bytes.
+    private static func packedFrameData(
+        _ planes: [VideoFramePlane],
+        format: VideoFormat
+    ) throws -> Data {
+        let width = format.width
+        let height = format.height
         let layout: [(bytes: Int, rows: Int)]
-        switch frame.format.pixelFormat {
+        switch format.pixelFormat {
         case .nv12:
             layout = [(width, height), (((width + 1) / 2) * 2, (height + 1) / 2)]
         case .bgra:
             layout = [(width * 4, height)]
         }
-        guard frame.planes.count == layout.count else {
+        guard planes.count == layout.count else {
             throw XmaxError(
                 code: .invalidConfiguration,
                 message: "Video frame requires \(layout.count) data planes"
@@ -49,7 +74,7 @@ enum RtcVideoConverter {
         }
 
         for (plane, size) in zip(
-            frame.planes,
+            planes,
             layout
         ) {
             guard plane.stride >= size.bytes,
@@ -64,23 +89,7 @@ enum RtcVideoConverter {
             }
         }
 
-        let result = AgoraVideoFrame()
-        result.format = convertPixelFormat(frame.format.pixelFormat)
-        result.strideInPixels = rtcWidth
-        result.height = rtcHeight
-        result.dataBuf = packedData(
-            from: frame.planes,
-            layout: layout
-        ) ?? repack(
-            frame.planes,
-            layout: layout
-        )
-        result.time = CMTime(
-            value: frame.timestampUs,
-            timescale: 1000000
-        )
-        result.rotation = 0
-        return result
+        return packedData(from: planes, layout: layout) ?? repack(planes, layout: layout)
     }
 
     /// Returns shared storage only when it contains exactly the required pixels in order.

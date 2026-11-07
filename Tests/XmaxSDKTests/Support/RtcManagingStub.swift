@@ -82,6 +82,8 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     private var nextAudioRemovalError: (any Error)?
     var commandSendHandler: (@Sendable () async throws -> Void)?
     var audioControlHandler: (@Sendable () -> Void)?
+    var videoFrameAdmissionHandler: (@Sendable (VideoFrame) -> Void)?
+    var videoFrameHandler: (@Sendable (VideoFrame) throws -> Void)?
     var reportsCameraReadyOnStart = true
     var cameraStartHandler: (@Sendable () -> Void)?
 
@@ -207,7 +209,7 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
         }
     }
 
-    func useExternalVideoSource() throws {
+    func useExternalVideoSource(useTexture: Bool) throws {
         lock.withLock {
             storedCalls.append(.useExternalVideoSource)
         }
@@ -280,10 +282,13 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
         }
     }
 
-    func pushExternalVideoFrame(_ frame: VideoFrame) throws {
+    func pushExternalVideoFrame(_ frame: VideoFrame, ifCurrent isCurrent: () -> Bool) throws {
+        videoFrameAdmissionHandler?(frame)
+        guard isCurrent() else { return }
         lock.withLock {
             storedCalls.append(.pushExternalVideoFrame)
         }
+        try videoFrameHandler?(frame)
     }
 
     func pushExternalAudioFrame(_ frame: AudioFrame) throws {

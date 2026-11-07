@@ -188,8 +188,10 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// Enables external video input.
     ///
     /// - Throws: An error if video source configuration fails.
-    func useExternalVideoSource() throws {
-        try withEngine { try $0.useExternalVideoSource() }
+    func useExternalVideoSource(
+        useTexture: Bool
+    ) throws {
+        try withEngine { try $0.useExternalVideoSource(useTexture: useTexture) }
     }
 
     /// Starts native capture using the engine under camera operation ownership.
@@ -391,15 +393,21 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
         try withOptionalEngine { try $0.stopExternalAudioSource() }
     }
 
-    /// Pushes an external video frame.
+    /// Pushes an external video frame if its submission is still current under the engine lock.
     ///
-    /// - Parameter frame: The SDK's neutral video frame.
+    /// - Parameters:
+    ///   - frame: The SDK's neutral video frame.
+    ///   - isCurrent: Validates queued submissions before looking up the engine.
     ///
     /// - Throws: An error if frame format or data is invalid.
     func pushExternalVideoFrame(
-        _ frame: VideoFrame
+        _ frame: VideoFrame,
+        ifCurrent isCurrent: () -> Bool
     ) throws {
-        try withEngine { try $0.pushExternalVideoFrame(frame) }
+        try operationLock.withLock {
+            guard isCurrent() else { return }
+            try requireEngine().pushExternalVideoFrame(frame)
+        }
     }
 
     /// Pushes an external audio frame.

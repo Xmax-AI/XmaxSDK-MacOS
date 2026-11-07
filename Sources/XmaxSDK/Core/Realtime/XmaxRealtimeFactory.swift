@@ -116,19 +116,20 @@ enum XmaxRealtimeFactory {
             timing: timing
         )
 
+        let mediaErrorListener: XmaxErrorListener = { error in
+            errorManager.forward(error, target: .all)
+        }
         let mediaController = MediaController(
             rtcManager: rtcManager,
             mediaService: mediaService,
-            videoFrameListener: { frame in
+            cameraVideoFrameListener: { frame in
+                streamController.enqueueLocalCameraVideoFrame(frame, errorListener: mediaErrorListener)
+            },
+            externalVideoFrameListener: { frame in
                 try streamController.pushLocalVideoFrame(frame)
             },
             audioFrameListener: { try streamController.pushLocalAudioFrame($0) },
-            errorListener: {
-                errorManager.forward(
-                    $0,
-                    target: .all
-                )
-            },
+            errorListener: mediaErrorListener,
             interactionListener: { taskID, points in
                 try await streamController.sendTracks(
                     taskID: taskID,

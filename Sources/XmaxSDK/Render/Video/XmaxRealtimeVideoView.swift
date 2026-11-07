@@ -99,6 +99,9 @@ public final class XmaxRealtimeVideoView: NSView {
     /// The reusable local preview pixel pool.
     private var localPreviewPixelBufferPool: CVPixelBufferPool?
 
+    /// Whether the camera stream requests mirrored presentation independently of the view.
+    private var mirrorsDecodedSource = false
+
     /// The current local preview frame format.
     private var localPreviewFormat: VideoFormat?
 
@@ -250,7 +253,7 @@ extension XmaxRealtimeVideoView {
     private func applyPreviewMirroring() {
         decodedVideoLayer?.setAffineTransform(
             CGAffineTransform(
-                scaleX: isMirrored ? -1 : 1,
+                scaleX: isMirrored || mirrorsDecodedSource ? -1 : 1,
                 y: 1
             )
         )
@@ -292,8 +295,10 @@ extension XmaxRealtimeVideoView {
     ///
     /// - Parameter contentMode: The video scaling and cropping mode.
     func prepareDecodedVideoPreview(
-        contentMode: VideoContentMode
+        contentMode: VideoContentMode,
+        sourceMirrored: Bool = false
     ) {
+        mirrorsDecodedSource = sourceMirrored
         let decodedVideoLayer: AVSampleBufferDisplayLayer
         if let currentLayer = self.decodedVideoLayer {
             decodedVideoLayer = currentLayer
@@ -358,8 +363,21 @@ extension XmaxRealtimeVideoView {
             decodedVideoLayer.flush()
         }
 
+        let ready = if #available(macOS 14, *) {
+            decodedVideoLayer.sampleBufferRenderer.isReadyForMoreMediaData
+        } else {
+            decodedVideoLayer.isReadyForMoreMediaData
+        }
+        guard ready else { return }
+
         do {
-            let pixelBuffer = try makeLocalPreviewPixelBuffer(frame)
+            let pixelBuffer: CVPixelBuffer
+            switch frame.storage {
+            case .pixelBuffer(let capturedBuffer):
+                pixelBuffer = capturedBuffer
+            case .planes:
+                pixelBuffer = try makeLocalPreviewPixelBuffer(frame)
+            }
             let formatDescription = try localPreviewDescription(for: pixelBuffer)
             let presentationTime = CMTimebaseGetTime(decodedVideoTimebase)
             guard let sampleBuffer = Self.makeSampleBuffer(
@@ -476,6 +494,7 @@ extension XmaxRealtimeVideoView {
 
     /// Removes video layers and releases display clock and preview buffers.
     func clearDecodedVideoPreview() {
+        mirrorsDecodedSource = false
         resetFadeIn()
         decodedVideoLayer?.flushAndRemoveImage()
         decodedVideoLayer?.controlTimebase = nil
@@ -651,7 +670,7 @@ extension XmaxRealtimeVideoView {
         let height = frame.format.height
         let (rowBytes, overflow) = width.multipliedReportingOverflow(by: 4)
         guard frame.format.pixelFormat == .bgra, width > 0, height > 0,
-            !overflow, frame.planes.count == 1
+            !overflow, case .planes(let planes) = frame.storage, planes.count == 1
         else {
             throw invalidImageFrameError
         }
@@ -694,7 +713,7 @@ extension XmaxRealtimeVideoView {
         }
 
         try copyPlane(
-            frame.planes[0],
+            planes[0],
             rowByteCount: rowBytes,
             rowCount: height,
             destination: CVPixelBufferGetBaseAddress(buffer),
@@ -723,7 +742,8 @@ extension XmaxRealtimeVideoView {
             height > 0,
             width.isMultiple(of: 2),
             height.isMultiple(of: 2),
-            frame.planes.count == 2
+            case .planes(let planes) = frame.storage,
+            planes.count == 2
         else {
             throw invalidImageFrameError
         }
@@ -774,7 +794,7 @@ extension XmaxRealtimeVideoView {
         }
 
         try copyPlane(
-            frame.planes[0],
+            planes[0],
             rowByteCount: width,
             rowCount: height,
             destination: CVPixelBufferGetBaseAddressOfPlane(
@@ -787,7 +807,7 @@ extension XmaxRealtimeVideoView {
             )
         )
         try copyPlane(
-            frame.planes[1],
+            planes[1],
             rowByteCount: width,
             rowCount: height / 2,
             destination: CVPixelBufferGetBaseAddressOfPlane(

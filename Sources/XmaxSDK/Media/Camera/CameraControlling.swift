@@ -30,7 +30,7 @@ protocol CameraControlling: Sendable {
     /// - Returns: The currently selectable system video devices.
     func listCameraDevices() -> [CameraDevice]
 
-    /// Reports ready capture and a bound preview. Native capture uses engine state events, including for hidden views.
+    /// Reports the first valid capture frame and a bound preview, including hidden views.
     ///
     /// - Parameter handler: The readiness callback; an empty value clears it.
     func setPreviewReadyHandler(
@@ -57,7 +57,7 @@ protocol CameraControlling: Sendable {
         useMicrophone: Bool
     ) async throws -> RealtimeMediaStream
 
-    /// Starts audio capture for a microphone-enabled camera stream without local playback.
+    /// Prepares RTC audio input and starts physical capture if the microphone is enabled.
     ///
     /// - Throws: An error on RTC audio source configuration or microphone capture startup failure.
     func startMicrophoneCapture() throws
@@ -66,6 +66,12 @@ protocol CameraControlling: Sendable {
     ///
     /// - Throws: An error if stopping RTC microphone capture fails.
     func stopMicrophoneCapture() throws
+
+    /// Selects a microphone by its system UID.
+    func switchMicrophone(to deviceID: String?) throws
+
+    /// Observes the selected microphone's input level.
+    @MainActor func setMicrophoneLevelListener(_ listener: RealtimeMicrophoneLevelListener?)
 
     /// Updates microphone intent, checking permission before enabling and capture validity after suspension.
     func setMicrophoneEnabled(

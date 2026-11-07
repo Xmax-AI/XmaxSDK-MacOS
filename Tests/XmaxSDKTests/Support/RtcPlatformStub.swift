@@ -46,7 +46,7 @@ final class RtcPlatformStub: RtcPlatform, @unchecked Sendable {
 
     func configureVideoEncoding(_ configuration: VideoEncodingConfiguration) throws {}
     func configureLocalVideoMirror(_ mirror: Bool) throws {}
-    func useExternalVideoSource() throws {}
+    func useExternalVideoSource(useTexture: Bool) throws {}
     func startCameraCapture(
         configuration: RtcCameraConfiguration,
         previewReadyListener: @escaping @Sendable () -> Void,

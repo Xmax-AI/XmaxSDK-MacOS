@@ -11,7 +11,7 @@
 import CoreGraphics
 import Foundation
 
-/// Coordinates RTC camera capture and SDK local preview.
+/// Coordinates SDK camera and microphone capture, preview, and RTC input.
 final class CameraController: CameraControlling, @unchecked Sendable {
 
     /// The local camera track identifier.
@@ -23,14 +23,19 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// The camera and microphone permission manager.
     private let permissionManager: any PermissionManaging
 
-    /// The camera capture manager.
-    private let captureManager: any CameraCaptureManaging
+    /// The independent video and microphone capture components.
+    private let cameraCapture: any CameraCaptureControlling
+    private let microphoneCapture: any MicrophoneCaptureControlling
 
     /// The model media sizing service.
     private let mediaService: any MediaServicing
 
     /// The camera media failure handler.
     private let errorListener: XmaxErrorListener
+
+    /// Receives processed camera and microphone frames for RTC publication.
+    private let videoFrameListener: MediaVideoFrameListener
+    private let audioFrameListener: MediaAudioFrameListener
 
     /// The internal preview readiness handler.
     private var previewReadyHandler: CameraPreviewReadyHandler?
@@ -48,7 +53,8 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     private var activeTrack: RealtimeVideoTrack?
 
     /// The camera preview resources.
-    private var preview: RtcCameraPreviewPresenter?
+    private var preview: DecodedVideoPreviewPresenter?
+    private var previewDispatcher: DecodedVideoPreviewDispatcher?
 
     /// Whether capture can support local media readiness.
     private var isCaptureReady = false
@@ -59,7 +65,7 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// Whether this camera input requests microphone access.
     private var storedUseMicrophone = false
 
-    /// Whether RTC microphone capture is active.
+    /// Whether the local capture session has an active microphone input.
     private var isMicrophoneCapturing = false
 
     /// The active local camera video track, or nil before creation.
@@ -75,20 +81,25 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// Creates a camera controller with system permission and capture components.
     ///
     /// - Parameters:
-    ///   - rtcManager: The component configuring RTC camera and microphone input.
+    ///   - rtcManager: The component configuring RTC tracks for captured media.
     ///   - mediaService: The service providing model dimension rules.
     ///   - errorListener: The callback receiving capture runtime errors.
     @MainActor
     convenience init(
         rtcManager: any RtcManaging,
         mediaService: any MediaServicing = MediaService(),
+        videoFrameListener: @escaping MediaVideoFrameListener,
+        audioFrameListener: @escaping MediaAudioFrameListener,
         errorListener: @escaping XmaxErrorListener
     ) {
         self.init(
             rtcManager: rtcManager,
             permissionManager: PermissionManager(),
             mediaService: mediaService,
-            captureManager: AgoraCameraCaptureManager(rtcManager: rtcManager),
+            cameraCapture: CameraCaptureController(),
+            microphoneCapture: MicrophoneCaptureController(),
+            videoFrameListener: videoFrameListener,
+            audioFrameListener: audioFrameListener,
             errorListener: errorListener
         )
     }
@@ -99,19 +110,26 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     ///   - rtcManager: The RTC media adapter.
     ///   - permissionManager: The camera and microphone permission component.
     ///   - mediaService: The model dimension rules service.
-    ///   - captureManager: The system video capture component.
+    ///   - cameraCapture: The system video capture component.
+    ///   - microphoneCapture: The system microphone capture component.
     ///   - errorListener: The callback receiving capture runtime errors.
     init(
         rtcManager: any RtcManaging,
         permissionManager: any PermissionManaging,
         mediaService: any MediaServicing,
-        captureManager: any CameraCaptureManaging,
+        cameraCapture: any CameraCaptureControlling,
+        microphoneCapture: any MicrophoneCaptureControlling,
+        videoFrameListener: @escaping MediaVideoFrameListener = { _ in },
+        audioFrameListener: @escaping MediaAudioFrameListener = { _ in },
         errorListener: @escaping XmaxErrorListener = { _ in }
     ) {
         self.rtcManager = rtcManager
         self.permissionManager = permissionManager
         self.mediaService = mediaService
-        self.captureManager = captureManager
+        self.cameraCapture = cameraCapture
+        self.microphoneCapture = microphoneCapture
+        self.videoFrameListener = videoFrameListener
+        self.audioFrameListener = audioFrameListener
         self.errorListener = errorListener
     }
 
@@ -119,7 +137,7 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     ///
     /// - Returns: The currently available camera devices.
     func listCameraDevices() -> [CameraDevice] {
-        captureManager.listCameraDevices()
+        cameraCapture.listCameraDevices()
     }
 
     /// Resolves an explicit device or system default without silently replacing an unavailable explicit selection.
@@ -132,7 +150,7 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     private func resolveDevice(
         _ deviceID: String?
     ) throws -> CameraDevice {
-        let devices = captureManager.listCameraDevices()
+        let devices = cameraCapture.listCameraDevices()
         let device: CameraDevice?
         if let deviceID {
             device = devices.first { $0.id == deviceID }
@@ -199,19 +217,22 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 try await permissionManager.ensureMicrophonePermission()
             }
             try Task.checkCancellation()
+            try rtcManager.useExternalVideoSource(useTexture: true)
             try rtcManager.configureLocalVideoMirror(mirror)
             let preview = await makePreview(
                 for: track,
                 mirrored: mirror
             )
+            let dispatcher = DecodedVideoPreviewDispatcher(presenter: preview)
             stateLock.withLock {
                 activeTrack = track
                 self.preview = preview
+                previewDispatcher = dispatcher
                 storedUseMicrophone = useMicrophone
                 isCaptureReady = false
                 isPreviewAttached = false
             }
-            try await captureManager.start(
+            try await cameraCapture.start(
                 videoFormat: VideoFormat(
                     width: resolvedFormat.width,
                     height: resolvedFormat.height,
@@ -219,6 +240,11 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 ),
                 frameRate: resolvedFormat.fps,
                 deviceID: device.id,
+                frameListener: { [weak self] frame in
+                    guard let self, currentTrack === track else { return }
+                    dispatcher.enqueue(frame)
+                    try videoFrameListener(frame)
+                },
                 previewReadyListener: { [weak self] in
                     guard let self else { return }
                     let current = stateLock.withLock {
@@ -244,32 +270,40 @@ final class CameraController: CameraControlling, @unchecked Sendable {
         }
     }
 
-    /// Starts audio capture for a microphone-enabled camera stream without local playback.
+    /// Prepares the RTC audio track before joining and starts capture when the microphone is enabled.
     ///
     /// - Throws: An error on RTC audio source configuration or microphone capture startup failure.
     func startMicrophoneCapture() throws {
         try audioOperationLock.withLock {
-            let shouldStart = stateLock.withLock {
-                guard activeTrack != nil, storedUseMicrophone, !isMicrophoneCapturing else { return false }
-                // Retain stop-pending state after partial startup failure.
-                isMicrophoneCapturing = true
-                return true
-            }
-            guard shouldStart else { return }
-            // Agora can wait for an in-flight camera callback; never hold its preview state lock here.
-            try rtcManager.startAudioCapture()
+            guard stateLock.withLock({ activeTrack != nil && !isMicrophoneCapturing }) else { return }
+            // Agora requires the custom track to exist before joining, even for a microphone enabled later.
+            try rtcManager.startExternalAudioSource()
+            guard stateLock.withLock({ storedUseMicrophone }) else { return }
+            try microphoneCapture.start(frameListener: audioFrameListener)
+            stateLock.withLock { isMicrophoneCapturing = true }
         }
     }
 
     /// Stops microphone capture while retaining configuration for the next connection.
-    ///
-    /// - Throws: An error if stopping RTC microphone capture fails.
-    func stopMicrophoneCapture() throws {
-        try audioOperationLock.withLock {
+    func stopMicrophoneCapture() {
+        audioOperationLock.withLock {
             guard stateLock.withLock({ isMicrophoneCapturing }) else { return }
-            try rtcManager.stopAudioCapture()
+            microphoneCapture.stop()
             stateLock.withLock { isMicrophoneCapturing = false }
         }
+    }
+
+    /// Routes microphone selection to the system capture session.
+    func switchMicrophone(to deviceID: String?) throws {
+        try audioOperationLock.withLock {
+            try microphoneCapture.selectDevice(deviceID)
+        }
+    }
+
+    /// Observes physical PCM input level on the main actor.
+    @MainActor
+    func setMicrophoneLevelListener(_ listener: RealtimeMicrophoneLevelListener?) {
+        microphoneCapture.setLevelListener(listener)
     }
 
     /// Changes microphone intent while preventing a late permission reply from restarting closed capture.
@@ -293,12 +327,12 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 do {
                     if capture { try startMicrophoneCapture() }
                 } catch {
-                    try? stopMicrophoneCapture()
+                    stopMicrophoneCapture()
                     stateLock.withLock { storedUseMicrophone = previous }
                     throw error
                 }
             } else {
-                try stopMicrophoneCapture()
+                stopMicrophoneCapture()
                 stateLock.withLock { storedUseMicrophone = false }
             }
         }
@@ -306,36 +340,25 @@ final class CameraController: CameraControlling, @unchecked Sendable {
 
     /// Stops camera and microphone capture and releases the track and local preview resources.
     func stopLocalCameraStream() async {
-        do {
-            try stopMicrophoneCapture()
-        } catch {
-            XmaxLogger.realtime.error(
-                message: """
-                    停止麦克风采集失败 (Failed to Stop Microphone Capture)
-                    └─ \(XmaxLogger.localized("原因：", "Reason: "))\((error as NSError).localizedDescription)
-                    """
-            )
-        }
-        let resources = stateLock.withLock {
-            let resources = (activeTrack, preview)
-            activeTrack = nil
-            preview = nil
-            previewReadyHandler = nil
-            storedUseMicrophone = false
-            isMicrophoneCapturing = false
-            isCaptureReady = false
-            isPreviewAttached = false
-            return resources
-        }
-        await captureManager.stop()
-        await MainActor.run {
-            if let track = resources.0 { VideoRenderRegistry.unregister(track) }
-            do { try resources.1?.clear() } catch {
-                XmaxRealtimeVideoView.logRenderingFailure(
-                    title: "Failed to detach native camera preview",
-                    error: error
-                )
+        let (track, preview, dispatcher) = audioOperationLock.withLock {
+            stopMicrophoneCapture()
+            return stateLock.withLock {
+                let resources = (activeTrack, preview, previewDispatcher)
+                activeTrack = nil
+                preview = nil
+                previewDispatcher = nil
+                previewReadyHandler = nil
+                storedUseMicrophone = false
+                isCaptureReady = false
+                isPreviewAttached = false
+                return resources
             }
+        }
+        await cameraCapture.stop()
+        dispatcher?.reset()
+        await MainActor.run {
+            if let track { VideoRenderRegistry.unregister(track) }
+            preview?.clear()
         }
     }
 
@@ -364,7 +387,7 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 pixelFormat: .nv12
             )
             if resolved != track.videoFormat {
-                try await captureManager.updateFormat(
+                try await cameraCapture.updateFormat(
                     output,
                     frameRate: resolved.fps
                 )
@@ -397,10 +420,8 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             )
         }
         let device = try resolveDevice(deviceID)
-        try await captureManager.switchCamera(to: device.id)
+        try await cameraCapture.switchCamera(to: device.id)
         track.updateDevice(device)
-        let preview = stateLock.withLock { preview }
-        try await preview?.refresh()
         return RealtimeMediaStream(
             id: StreamID.local.rawValue,
             videoTrack: track
@@ -417,16 +438,13 @@ private extension CameraController {
     ///   - track: The local camera track to preview.
     ///   - mirrored: Whether the camera stream requests mirrored presentation.
     ///
-    /// - Returns: The native preview presenter.
+    /// - Returns: The decoded preview presenter.
     @MainActor
     func makePreview(
         for track: RealtimeVideoTrack,
         mirrored: Bool
-    ) -> RtcCameraPreviewPresenter {
-        let preview = RtcCameraPreviewPresenter(
-            rtcManager: rtcManager,
-            mirrored: mirrored
-        )
+    ) -> DecodedVideoPreviewPresenter {
+        let preview = DecodedVideoPreviewPresenter()
         VideoRenderRegistry.register(
             track,
             binding: VideoRenderBinding(
@@ -437,15 +455,16 @@ private extension CameraController {
                             message: "Camera tracks require an XmaxRealtimeVideoView"
                         )
                     }
-                    try preview.attach(
+                    preview.attach(
                         to: videoView,
-                        contentMode: contentMode
+                        contentMode: contentMode,
+                        sourceMirrored: mirrored
                     )
                     self?.stateLock.withLock { self?.isPreviewAttached = true }
                     self?.notifyPreviewReady(for: track)
                 },
                 detachHandler: { [weak self] view in
-                    if let videoView = view as? XmaxRealtimeVideoView { try preview.detach(from: videoView) }
+                    if let videoView = view as? XmaxRealtimeVideoView { preview.detach(from: videoView) }
                     self?.stateLock.withLock { self?.isPreviewAttached = false }
                 }
             )
