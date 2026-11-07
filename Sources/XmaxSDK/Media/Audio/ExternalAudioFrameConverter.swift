@@ -35,15 +35,8 @@ final class ExternalAudioFrameConverter {
     /// The expected start time of the next source buffer.
     private var nextInputTime: CMTime?
 
-    /// The converted sample count in the current segment.
-    private var outputSampleCount = 0
-
     /// The continuous PCM packetizer, retaining less than one packet between submissions.
     private var packetizer = PCMFramePacketizer()
-
-    /// Creates a converter for one external source binding.
-    init() {
-    }
 
     /// Converts and packetizes a PCM buffer while preserving its presentation timeline.
     ///
@@ -91,7 +84,6 @@ final class ExternalAudioFrameConverter {
             if difference > tolerance {
                 converter?.reset()
                 packetizer = PCMFramePacketizer()
-                outputSampleCount = 0
                 anchor = timestamp
             }
         }
@@ -267,10 +259,8 @@ private extension ExternalAudioFrameConverter {
             Data(
                 bytes: samples,
                 count: Int(buffer.frameLength) * MemoryLayout<Int16>.size
-            ),
-            at: outputSampleCount
+            )
         )
-        outputSampleCount += Int(buffer.frameLength)
 
         while let packet = packetizer.nextFrame() {
             let timestamp = CMTimeAdd(

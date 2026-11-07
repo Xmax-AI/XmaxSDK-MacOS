@@ -54,6 +54,27 @@ final class RealtimeEventRelayServiceTests: XCTestCase {
         }
     }
 
+    func testInvalidCommandsReportInternalErrorWithoutStartingHTTPRequest() async {
+        let api = RelayTestApiService { _ in Data() }
+        let service = RealtimeEventRelayService(apiService: api)
+        for message in [
+            "{",
+            "[]",
+            #"{"xid":"command-1"}"#,
+            #"{"event":"start"}"#,
+            #"{"event":7,"xid":"command-1"}"#,
+            #"{"event":"start","xid":7}"#
+        ] {
+            do {
+                try await service.relay(sessionID: "session", modelID: "instance", message: message)
+                XCTFail("Expected invalid command rejection")
+            } catch {
+                XCTAssertEqual(XmaxError.from(error).code, .internalError)
+                XCTAssertTrue(api.requests.isEmpty)
+            }
+        }
+    }
+
     func testRelayPreservesAPIFailuresWithoutRetrying() async {
         for error in [
             XmaxError(code: .apiError, message: "Rejected", apiCode: 1003, httpStatus: 403),

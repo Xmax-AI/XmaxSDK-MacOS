@@ -268,18 +268,6 @@ final class RenderController: RenderControlling {
 
     }
 
-    /// Updates the remote track display format.
-    ///
-    /// - Parameters:
-    ///   - videoFormat: The new video mapping format.
-    ///   - track: The remote video track to update.
-    func updateRemoteVideoFormat(
-        _ videoFormat: RealtimeVideoFormat,
-        for track: RealtimeVideoTrack
-    ) {
-        track.updateVideoFormat(videoFormat)
-    }
-
     /// Enables or disables remote video interpolation.
     ///
     /// - Parameters:

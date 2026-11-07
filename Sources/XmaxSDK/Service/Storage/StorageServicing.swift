@@ -115,7 +115,7 @@ protocol StorageServicing: Sendable {
         progress: StorageProgressListener?
     ) async throws -> StoredFile
 
-    /// Downloads a remote image to a local file.
+    /// Downloads a remote file to a local destination.
     ///
     /// - Parameters:
     ///   - remoteURL: The remote file URL to download.
@@ -125,23 +125,7 @@ protocol StorageServicing: Sendable {
     /// - Returns: The completed local file URL and byte count.
     ///
     /// - Throws: An error on invalid URLs, download or file write failure, or cancellation.
-    func downloadImage(
-        remoteURL: URL,
-        destinationURL: URL,
-        progress: StorageProgressListener?
-    ) async throws -> DownloadedFile
-
-    /// Downloads a remote video to a local file.
-    ///
-    /// - Parameters:
-    ///   - remoteURL: The remote file URL to download.
-    ///   - destinationURL: The local destination file URL.
-    ///   - progress: The transferred and total byte count callback; `nil` disables progress reporting.
-    ///
-    /// - Returns: The completed local file URL and byte count.
-    ///
-    /// - Throws: An error on invalid URLs, download or file write failure, or cancellation.
-    func downloadVideo(
+    func download(
         remoteURL: URL,
         destinationURL: URL,
         progress: StorageProgressListener?

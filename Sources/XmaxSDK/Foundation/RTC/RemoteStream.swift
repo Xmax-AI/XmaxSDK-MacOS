@@ -16,9 +16,4 @@ struct RemoteStream: Equatable, Hashable, Sendable {
 
     /// The stream owner's RTC user identifier.
     let userID: String
-
-    /// Creates a remote stream key unique across rooms.
-    var key: String {
-        "\(roomID):\(userID)"
-    }
 }

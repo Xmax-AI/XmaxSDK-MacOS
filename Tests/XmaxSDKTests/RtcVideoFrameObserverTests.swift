@@ -10,11 +10,12 @@ final class RtcVideoFrameObserverTests: XCTestCase, @unchecked Sendable {
         XCTAssertFalse(observer.getObservedFramePosition().contains(.postCapture))
         let received = expectation(description: "Remote pixels remain available for virtual camera output")
         received.assertForOverFulfill = true
-        observer.setRemote(RtcRemoteVideoSink { _, _, frame in
+        let subscription = RtcRemoteVideoSink.Subscription { frame in
             XCTAssertEqual(CVPixelBufferGetWidth(frame.pixelBuffer), 4)
             observer.setRemote(nil)
             received.fulfill()
-        })
+        }
+        observer.setRemote(RtcRemoteVideoSink { _, _ in subscription })
         let frame = try makeFrame()
         DispatchQueue.global().async {
             _ = observer.onRenderVideoFrame(frame, uid: 42, channelId: "test")

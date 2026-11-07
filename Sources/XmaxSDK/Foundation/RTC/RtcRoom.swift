@@ -153,10 +153,6 @@ protocol RtcRoom: AnyObject, Sendable {
         key: String?
     )
 
-    /// Waits for earlier queued signals to be submitted to RTC.
-    ///
-    /// - Throws: An error on send failure, room departure, or cancellation.
-    func awaitPendingMessages() async throws
     /// Sets an owned PCM callback for the current remote user without changing playback.
     ///
     /// - Parameters:
@@ -168,23 +164,4 @@ protocol RtcRoom: AnyObject, Sendable {
         _ listener: RtcRemoteAudioFrameListener?,
         for userID: String
     ) throws
-
-}
-
-extension RtcRoom {
-
-    /// Enqueues a room signal with asynchronous send failure reporting enabled.
-    ///
-    /// - Parameter message: The complete JSON signal.
-    ///
-    /// - Throws: An error if the signal is invalid or the send queue unavailable.
-    func sendRoomMessage(
-        _ message: String
-    ) throws {
-        try sendRoomMessage(
-            message,
-            reportFailure: true,
-            replacingPendingMessage: nil
-        )
-    }
 }

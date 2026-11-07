@@ -27,7 +27,7 @@ final class RtcCameraPreviewPresenter {
     private var contentMode: VideoContentMode = .fill
 
     /// Whether the camera source requires mirrored presentation.
-    private var sourceMirrored: Bool
+    private let sourceMirrored: Bool
 
     /// Creates a native camera preview presenter.
     init(
@@ -47,22 +47,14 @@ final class RtcCameraPreviewPresenter {
         self.contentMode = contentMode
         canvasView = view.prepareNativeVideoPreview()
         view.nativePreviewUpdateHandler = { [weak self] in
-            do { try self?.update() } catch {
+            do { try self?.refresh() } catch {
                 XmaxRealtimeVideoView.logRenderingFailure(
                     title: "Failed to update native camera preview",
                     error: error
                 )
             }
         }
-        try update()
-    }
-
-    /// Updates source mirroring and reapplies native preview configuration.
-    func setMirrored(
-        _ mirrored: Bool
-    ) throws {
-        sourceMirrored = mirrored
-        try update()
+        try refresh()
     }
 
     /// Clears the preview when the specified SDK view is the current host.
@@ -84,7 +76,7 @@ final class RtcCameraPreviewPresenter {
     }
 
     /// Applies content mode and effective mirroring to the current native canvas.
-    private func update() throws {
+    func refresh() throws {
         guard let view, let canvasView else { return }
         try rtcManager.attachCameraPreview(
             to: canvasView,

@@ -90,8 +90,9 @@ final class RealtimeModelTests: XCTestCase {
                 height: 1280,
                 fps: 30
             ),
-            position: .front
+            device: CameraDevice(id: "front", name: "Front Camera", isDefault: true, position: .front)
         )
+        XCTAssertEqual(track.position, .front)
 
         track.updateVideoFormat(
             RealtimeVideoFormat(
@@ -100,7 +101,9 @@ final class RealtimeModelTests: XCTestCase {
                 fps: 24
             )
         )
-        track.updatePosition(.back)
+        let replacement = CameraDevice(id: "back", name: "Back Camera", isDefault: false, position: .back)
+        track.updateDevice(replacement)
+        XCTAssertEqual(track.device, replacement)
 
         XCTAssertEqual(track.id, "track-1")
         XCTAssertEqual(

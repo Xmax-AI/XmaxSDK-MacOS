@@ -20,10 +20,7 @@ final class DecodedVideoPreviewPresenter {
     /// The local video content mode.
     private var contentMode = VideoContentMode.fill
 
-    /// Whether local preview is horizontally mirrored.
-    private var mirrored = false
-
-    /// Binds the video view and applies preview scaling and mirroring.
+    /// Binds the video view and applies its content mode.
     ///
     /// - Parameters:
     ///   - view: The SDK video view receiving decoded frames.
@@ -35,7 +32,6 @@ final class DecodedVideoPreviewPresenter {
         self.view = view
         self.contentMode = contentMode
         view.prepareDecodedVideoPreview(contentMode: contentMode)
-        view.setDecodedVideoPreviewMirrored(mirrored)
     }
 
     /// Clears decoded preview from the specified view and removes the binding.
@@ -60,16 +56,6 @@ final class DecodedVideoPreviewPresenter {
             frame,
             contentMode: contentMode
         )
-    }
-
-    /// Updates preview mirroring and applies it to the current view.
-    ///
-    /// - Parameter mirrored: Whether to mirror video horizontally.
-    func setMirrored(
-        _ mirrored: Bool
-    ) {
-        self.mirrored = mirrored
-        view?.setDecodedVideoPreviewMirrored(mirrored)
     }
 
     /// Clears preview content and releases the view binding.

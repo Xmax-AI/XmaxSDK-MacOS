@@ -17,10 +17,10 @@ final class RoomHeartbeat: @unchecked Sendable {
     private let rtcManager: any RtcManaging
 
     /// The room heartbeat interval provider.
-    private let sleeper: RoomHeartbeatSleeper
+    private let sleeper: HeartbeatSleeper
 
     /// The revision separating heartbeat cycles.
-    private let cycle = RoomHeartbeatCycle()
+    private let cycle = HeartbeatVersion()
 
     /// The lock protecting heartbeat task replacement.
     private let taskLock = NSLock()
@@ -31,7 +31,7 @@ final class RoomHeartbeat: @unchecked Sendable {
     /// Creates a room heartbeat component with the specified wait strategy.
     init(
         rtcManager: any RtcManaging,
-        sleeper: RoomHeartbeatSleeper = .live
+        sleeper: HeartbeatSleeper = .live
     ) {
         self.rtcManager = rtcManager
         self.sleeper = sleeper
@@ -84,10 +84,10 @@ private extension RoomHeartbeat {
         let rtcManager: any RtcManaging
 
         /// The wait for the next room heartbeat.
-        let sleeper: RoomHeartbeatSleeper
+        let sleeper: HeartbeatSleeper
 
         /// The room heartbeat validity check.
-        let cycle: RoomHeartbeatCycle
+        let cycle: HeartbeatVersion
 
         /// The heartbeat loop revision.
         let version: UInt64
@@ -125,49 +125,5 @@ private extension RoomHeartbeat {
                 )
             }
         }
-    }
-}
-
-/// Provides replaceable room heartbeat waiting behavior.
-struct RoomHeartbeatSleeper: Sendable {
-
-    /// The cancellable wait for a room heartbeat.
-    let sleep: @Sendable () async throws -> Void
-
-    /// A room heartbeat wait using a 10-second interval.
-    static let live = RoomHeartbeatSleeper {
-        try await Task.sleep(nanoseconds: 10_000_000_000)
-    }
-}
-
-/// Uses versions to isolate old room heartbeat tasks after stop or restart.
-private final class RoomHeartbeatCycle: @unchecked Sendable {
-
-    /// The lock protecting room heartbeat revisions.
-    private let lock = NSLock()
-
-    /// The current room heartbeat revision.
-    private var value: UInt64 = 0
-
-    /// Advances heartbeat validity, invalidating earlier cycles.
-    ///
-    /// - Returns: The updated cycle version.
-    @discardableResult
-    func advance() -> UInt64 {
-        lock.withLock {
-            value &+= 1
-            return value
-        }
-    }
-
-    /// Checks whether a heartbeat version is the current cycle.
-    ///
-    /// - Parameter version: The cycle version to check.
-    ///
-    /// - Returns: `true` if the version remains valid.
-    func isCurrent(
-        _ version: UInt64
-    ) -> Bool {
-        lock.withLock { value == version }
     }
 }

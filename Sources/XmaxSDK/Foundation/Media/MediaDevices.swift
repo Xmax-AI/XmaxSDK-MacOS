@@ -16,7 +16,7 @@ public enum MediaDevices {
     /// - Returns: The current camera devices, including their identifiers and default status.
     public static func listCameraDevices() async -> [CameraDevice] {
         await Task.detached {
-            CameraCaptureManager.availableCameraDevices()
+            CameraDeviceDiscovery.availableCameraDevices()
         }.value
     }
 

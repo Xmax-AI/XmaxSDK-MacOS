@@ -11,7 +11,7 @@
 import Foundation
 
 /// Binds an external video source to local preview and RTC.
-final class ExternalVideoController: ExternalVideoControlling, @unchecked Sendable {
+final class ExternalVideoController: @unchecked Sendable {
 
     /// The RTC external video adapter.
     private let rtcManager: any RtcManaging

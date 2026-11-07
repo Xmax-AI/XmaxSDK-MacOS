@@ -10,39 +10,39 @@
 
 import Foundation
 
-/// Public realtime generation entry point coordinating local media, connection, generation, and state notifications.
+/// Manages realtime generation and its media session.
 actor XmaxRealtimeManager: XmaxRealtimeManaging {
 
-    /// The model, interpolation, and adaptive quality configuration supplied at creation.
-    nonisolated let options: RealtimeConfiguration
+    /// The initial realtime configuration.
+    nonisolated let configuration: RealtimeConfiguration
 
     // MARK: - Dependencies
 
-    /// The operation admission and resource cleanup owner.
+    /// Coordinates realtime operations and cleanup.
     private let lifecycleManager: XmaxRealtimeLifecycleManager
 
-    /// The server session, transport quality, and remote output owner.
+    /// Manages the realtime connection.
     private let connectionManager: XmaxRealtimeConnectionManager
 
-    /// The generation signaling and result readiness owner.
+    /// Manages generation tasks.
     private let generationManager: XmaxRealtimeGenerationManager
 
-    /// The shared failure reporting and routing component.
+    /// Reports failures and routes them to the affected operation.
     private let errorManager: XmaxRealtimeErrorManager
 
-    /// The local media and interaction controller.
+    /// Manages local media and interaction.
     private let mediaController: any MediaControlling
 
-    /// The remote rendering and processed frame controller.
+    /// Manages remote video rendering.
     private let renderController: any RenderControlling
 
-    /// The RTC publishing, signaling, and quality controller.
+    /// Manages RTC streams and signaling.
     private let streamController: any StreamControlling
 
-    /// The service resolving media and generation dimensions.
+    /// Resolves media dimensions for the model.
     private let mediaService: any MediaServicing
 
-    /// The shared startup duration recorder.
+    /// Measures realtime startup.
     private let timing: RealtimeTiming
 
     /// Whether an adaptive quality request is already pending.
@@ -123,7 +123,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         }
     }
 
-    /// Creates a realtime facade using the default SDK components.
+    /// Creates a realtime manager with the default components.
     @MainActor
     init(
         options: RealtimeConfiguration,
@@ -138,12 +138,12 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         )
     }
 
-    /// Creates a realtime facade with the supplied component ownership graph.
+    /// Creates a realtime manager with the supplied components.
     init(
         options: RealtimeConfiguration,
         components: XmaxRealtimeComponents
     ) {
-        self.options = options
+        configuration = options
         self.lifecycleManager = components.lifecycleManager
         self.connectionManager = components.connectionManager
         self.generationManager = components.generationManager
@@ -155,67 +155,31 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         self.timing = components.timing
     }
 
-    /// Assembles supplied dependencies using the same lifecycle wiring as production.
-    init(
-        options: RealtimeConfiguration,
-        streamController: any StreamControlling,
-        mediaController: any MediaControlling,
-        renderController: any RenderControlling,
-        mediaService: any MediaServicing = MediaService(),
-        connectionManager: XmaxRealtimeConnectionManager,
-        errorManager: XmaxRealtimeErrorManager,
-        generationManager: XmaxRealtimeGenerationManager,
-        timing: RealtimeTiming = RealtimeTiming()
-    ) {
-        self.init(
-            options: options,
-            components: XmaxRealtimeFactory.assemble(
-                connectionManager: connectionManager,
-                generationManager: generationManager,
-                errorManager: errorManager,
-                mediaController: mediaController,
-                renderController: renderController,
-                streamController: streamController,
-                mediaService: mediaService,
-                timing: timing
-            )
-        )
-    }
-
-    /// Lists currently available camera devices.
-    ///
-    /// - Returns: The currently selectable system video devices.
+    /// Lists available camera devices.
     func listCameraDevices() async -> [CameraDevice] {
         await mediaController.listCameraDevices()
     }
 
-    /// Lists available microphone inputs independently of capture and connection state.
-    ///
-    /// - Returns: Physical and virtual input devices with stable identifiers and default status.
+    /// Lists available microphone devices.
     func listMicrophoneDevices() async -> [MicrophoneDevice] {
         await mediaController.listMicrophoneDevices()
     }
 
-    /// Configures shared generated-result beauty without changing input media or generation state.
+    /// Configures beauty processing for generated video.
     func setRemoteVideoBeauty(
         _ options: RealtimeVideoBeautyOptions?
     ) async throws {
         try await renderController.setRemoteVideoBeauty(options)
     }
 
-    /// Sets independent, recoverable processing failures on the main actor.
+    /// Sets the recoverable beauty error listener.
     func setRemoteVideoBeautyErrorListener(
         _ listener: RealtimeVideoBeautyErrorListener?
     ) async {
         await renderController.setRemoteVideoBeautyErrorListener(listener)
     }
 
-    /// Changes the uplink encoding level while allowing subsequent automatic adaptation.
-    ///
-    /// - Parameter level: The requested uplink quality level.
-    ///
-    /// - Throws: An error if generation is inactive, an operation conflicts or is cancelled, or
-    ///   encoder configuration fails.
+    /// Changes the uplink encoding level.
     func setUplinkQualityLevel(
         _ level: RealtimeQualityLevel
     ) async throws {
@@ -225,12 +189,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         )
     }
 
-    /// Changes the downlink output level while allowing subsequent automatic adaptation.
-    ///
-    /// - Parameter level: The requested downlink quality level.
-    ///
-    /// - Throws: An error if generation is inactive, an operation conflicts or is cancelled, or
-    ///   signaling or rendering configuration fails.
+    /// Changes the downlink output level.
     func setDownlinkQualityLevel(
         _ level: RealtimeQualityLevel
     ) async throws {
@@ -240,14 +199,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         )
     }
 
-    /// Changes the requested uplink or downlink quality level.
-    ///
-    /// - Parameters:
-    ///   - level: The requested transport quality level.
-    ///   - downlink: Whether to change downlink output rather than uplink encoding.
-    ///
-    /// - Throws: An error if the state is invalid, an operation conflicts or is cancelled, or the
-    ///   level cannot be applied.
+    /// Applies a manual quality change to the active generation task.
     private func setQualityLevel(
         _ level: RealtimeQualityLevel,
         downlink: Bool
@@ -277,7 +229,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         }
     }
 
-    /// Observes microphone input through local media without starting capture or initializing RTC.
+    /// Sets the microphone input level listener.
     func setMicrophoneLevelListener(
         _ listener: RealtimeMicrophoneLevelListener?
     ) async {
@@ -285,28 +237,20 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     }
 
     /// Sets the realtime state listener.
-    ///
-    /// - Parameter listener: The realtime state callback; `nil` clears the listener.
     func setStateListener(
         _ listener: RealtimeStateListener?
     ) async {
         await lifecycleManager.setStateListener(listener)
     }
 
-    /// Sets the startup timing listener using the same records as performance logs.
-    ///
-    /// - Parameter listener: The main-thread snapshot callback; `nil` clears the listener.
+    /// Sets the startup timing listener.
     func setLaunchTimingListener(
         _ listener: RealtimeLaunchTimingListener?
     ) {
         timing.setListener(listener)
     }
 
-    /// Sets serialized remote PCM and processed video output without changing playback.
-    ///
-    /// - Parameter listener: The output handler, or `nil` to stop output.
-    ///
-    /// - Throws: An error if the current remote audio listener cannot be configured.
+    /// Sets the listener for generated audio and video frames.
     func setRemoteMediaFrameListener(
         _ listener: RealtimeMediaFrameListener?
     ) async throws {
@@ -314,9 +258,6 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     }
 
     /// Sets the upstream video statistics listener.
-    ///
-    /// - Parameter listener: The main-thread callback; receives nil before publication or after disconnect. Pass nil to
-    ///   clear it.
     func setUplinkVideoStatisticsListener(
         _ listener: UplinkVideoStatisticsListener?
     ) {
@@ -324,9 +265,6 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     }
 
     /// Sets the downstream video statistics listener.
-    ///
-    /// - Parameter listener: The main-thread callback; receives nil when the result stream is cleared. Pass nil to
-    ///   clear it.
     func setDownlinkVideoStatisticsListener(
         _ listener: DownlinkVideoStatisticsListener?
     ) {
@@ -334,8 +272,6 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     }
 
     /// Sets the network quality listener.
-    ///
-    /// - Parameter listener: The upstream and downstream network quality callback; `nil` clears the listener.
     func setNetworkQualityListener(
         _ listener: RealtimeNetworkQualityListener?
     ) {
@@ -343,8 +279,6 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     }
 
     /// Sets the device performance alarm listener.
-    ///
-    /// - Parameter listener: The device performance alarm callback; `nil` clears the listener.
     func setPerformanceAlarmListener(
         _ listener: RealtimePerformanceAlarmListener?
     ) {
@@ -352,13 +286,6 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     }
 
     /// Sets the playback volume for remote generated audio.
-    ///
-    /// Stores the setting before connection or subscription and applies it before remote audio playback starts.
-    /// Call after creating the local stream to override the initial volume.
-    ///
-    /// - Parameter volume: The remote playback volume in `0...1`.
-    ///
-    /// - Throws: An error if the volume is out of range or RTC volume configuration fails.
     func setRemoteAudioVolume(
         _ volume: Float
     ) async throws {
@@ -373,14 +300,6 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     }
 
     /// Enables or disables interpolation of generated remote video.
-    ///
-    /// Overrides the initial setting. During generation, enabling requests proportionally smaller return dimensions;
-    /// disabling restores dimensions for the current network tier, without reconnecting or restarting generation.
-    /// Original frames remain visible during the dimension change.
-    ///
-    /// - Parameter enabled: Whether to enable remote video interpolation.
-    ///
-    /// - Throws: An error on conflicting operations, unsupported devices or dimensions, or signal delivery failure.
     func setFrameInterpolationEnabled(
         _ enabled: Bool
     ) async throws {
@@ -398,21 +317,6 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     }
 
     /// Creates a local camera stream and starts preview.
-    ///
-    /// Bind the returned track to a preview view; media becomes `ready` after native capture starts and the view is
-    /// bound.
-    ///
-    /// - Parameters:
-    ///   - videoFormat: The camera capture video format.
-    ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
-    ///   - mirror: Whether to mirror local preview and the encoded camera stream; disabled by default.
-    ///   - microphone: The initial microphone selection, disabled by default. Enabled inputs request permission
-    ///     at creation, start capture on connection, and stop on disconnect.
-    ///
-    /// - Returns: The media stream containing the local camera video track.
-    ///
-    /// - Throws: An error on invalid configuration, denied permissions, conflicting operations, input selection,
-    ///   or capture startup failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
         deviceID: String?,
@@ -432,11 +336,6 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     }
 
     /// Updates a ready, disconnected camera format while preserving stream and view bindings.
-    ///
-    /// - Parameter videoFormat: The supported camera dimensions, frame rate, and encoding settings.
-    ///
-    /// - Throws: An error if the state or format is invalid, an operation conflicts, or device
-    ///   configuration fails.
     func updateCameraFormat(
         _ videoFormat: RealtimeVideoFormat
     ) async throws {
@@ -446,11 +345,6 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     }
 
     /// Updates camera dimensions while preserving frame rate and encoding settings.
-    ///
-    /// - Parameter preset: The requested resolution preset.
-    ///
-    /// - Throws: An error if the state or preset is invalid, an operation conflicts, or capture
-    ///   configuration fails.
     func updateCameraFormat(
         _ preset: RealtimeCameraPreset
     ) async throws {
@@ -462,12 +356,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         }
     }
 
-    /// Updates the camera format using its current settings.
-    ///
-    /// - Parameter resolve: A closure deriving the requested format from the current camera format.
-    ///
-    /// - Throws: An error if the camera is not ready, realtime is connected, or configuration
-    ///   fails.
+    /// Applies a format change to a ready, disconnected camera.
     private func updateCameraFormat(
         resolve: @escaping @Sendable (RealtimeVideoFormat) -> RealtimeVideoFormat
     ) async throws {
@@ -491,30 +380,21 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         }
     }
 
-    /// Stops the local camera stream and updates media readiness.
-    ///
-    /// - Throws: An error if realtime is still connected, a conflicting operation exists, or this operation is
-    ///   cancelled.
+    /// Stops the local camera stream.
     func stopLocalCameraStream() async throws {
         try await lifecycleManager.run(
             kind: .media
         ) { [self] token in
             try await ensureLocalMediaCanChange(
-                message: "Disconnect realtime before stopping the local " + "camera stream"
+                message: "Disconnect realtime before stopping the local camera stream"
             )
             token.setFailureScope(.all)
             await mediaController.stopLocalCameraStream()
-            try token.ensureCurrent()
-            errorManager.invalidatePendingFailures()
-            let hasLocalMedia = await mediaController.currentTrack != nil
-            try await lifecycleManager.complete(
-                RealtimeState(connectionState: hasLocalMedia ? .ready : .idle),
-                token: token
-            )
+            try await completeLocalMediaStop(token)
         }
     }
 
-    /// Binds external video input with model-validated dimensions and optional caller preview.
+    /// Binds an external video source.
     func createExternalVideoStream(
         source: any RealtimeExternalVideoSource,
         videoFormat: RealtimeVideoFormat?
@@ -538,26 +418,11 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
             guard await mediaController.isExternalVideo else { return }
             token.setFailureScope(.all)
             await mediaController.stopExternalVideoStream()
-            try token.ensureCurrent()
-            errorManager.invalidatePendingFailures()
-            let hasLocalMedia = await mediaController.currentTrack != nil
-            try await lifecycleManager.complete(
-                RealtimeState(connectionState: hasLocalMedia ? .ready : .idle),
-                token: token
-            )
+            try await completeLocalMediaStop(token)
         }
     }
 
     /// Switches the active camera device.
-    ///
-    /// During generation, the SDK stops generation, switches cameras, and resumes with cached conditions.
-    /// The RTC connection is retained. Camera switching is unavailable while connection or generation starts.
-    ///
-    /// - Returns: The local stream retaining the original video track with its camera position updated.
-    ///
-    /// - Throws: An error if no camera stream exists, realtime startup is in progress, or camera switching or
-    ///   generation recovery
-    ///   fails.
     func switchCamera(
         to deviceID: String
     ) async throws -> RealtimeMediaStream {
@@ -696,14 +561,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         return state.connectionState == .connected || state.connectionState == .generating
     }
 
-    /// Establishes a realtime connection with the local stream created by this manager.
-    ///
-    /// - Parameter localStream: The local media stream created and owned by this manager.
-    ///
-    /// - Returns: The connected remote media stream, which can be bound to a result preview view.
-    ///
-    /// - Throws: An error on invalid local stream, existing connection, conflicting operation, cancellation, or
-    ///   connection failure.
+    /// Connects the local stream to the realtime session.
     func connect(
         localStream: RealtimeMediaStream
     ) async throws -> RealtimeMediaStream {
@@ -723,18 +581,14 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         await lifecycleManager.disconnect()
     }
 
-    /// Disconnects realtime for a business reason while retaining usable local media.
-    ///
-    /// - Parameter reason: The disconnect reason, such as a display orientation change.
+    /// Disconnects realtime with the supplied reason.
     func disconnect(
         reason: RealtimeReason
     ) async {
         await lifecycleManager.disconnect(reason: reason)
     }
 
-    /// Closes the realtime lifecycle and releases the connection, local media, and RTC engine.
-    ///
-    /// Concurrent close calls await the same cleanup task; local streams can be created again after close completes.
+    /// Closes the realtime session and releases its resources.
     func close() async {
         await lifecycleManager.terminate(
             .all
@@ -742,14 +596,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         await renderController.closeBeauty()
     }
 
-    /// Starts generation, or updates current conditions if generation is already active.
-    ///
-    /// - Parameters:
-    ///   - context: The generation conditions; required initially. Later calls may pass `nil` to reuse cached
-    ///     conditions.
-    ///   - faceRestoration: Whether to restore the original face; each call sends this setting.
-    ///
-    /// - Throws: An error if conditions are invalid or generation startup or update fails.
+    /// Starts generation or updates the active task.
     func startGeneration(
         context: RealtimeContext?,
         faceRestoration: Bool = false
@@ -778,18 +625,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         }
     }
 
-    /// Connects using the current local stream when needed and starts generation.
-    ///
-    /// Reuses an existing connection. The returned remote stream can display results in the unified video view.
-    ///
-    /// - Parameters:
-    ///   - localStream: The local media stream created and owned by this manager.
-    ///   - context: The generation conditions; required for initial generation.
-    ///   - faceRestoration: Whether to restore the original face; each call sends this setting.
-    ///
-    /// - Returns: The remote media stream for the current RTC connection.
-    ///
-    /// - Throws: An error on invalid local stream, connection failure, or generation startup failure.
+    /// Connects the local stream if needed and starts generation.
     func startGeneration(
         localStream: RealtimeMediaStream,
         context: RealtimeContext?,
@@ -816,7 +652,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
                 }
                 try token.ensureCurrent()
 
-                try await generationManager.validateContext(context)
+                _ = try await generationManager.resolveContext(context)
                 try token.ensureCurrent()
                 let remoteStream: RealtimeMediaStream
                 if hasConnection {
@@ -852,15 +688,9 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         }
     }
 
-    /// Starts the result stream and commits generation state, or updates the active task's conditions.
+    /// Starts generation or updates the active task.
     ///
-    /// - Parameters:
-    ///   - context: The generation conditions; nil reuses the last successful request's conditions.
-    ///   - faceRestoration: Whether to restore the original face.
-    ///   - token: The operation token used to validate the current lifecycle.
-    ///
-    /// - Throws: An error on unavailable connection, invalid conditions, cancellation, or generation startup or update
-    ///   failure.
+    /// The failure scope applies to new generation starts.
     private func performStartGeneration(
         context: RealtimeContext?,
         faceRestoration: Bool,
@@ -905,66 +735,59 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
             return
         }
 
-        try await generationManager.validateContext(context)
+        _ = try await generationManager.resolveContext(context)
         try token.ensureCurrent()
         token.setFailureScope(failureScope)
-        do {
-            let taskID = try await generationManager.start(
-                videoFormat: videoFormat,
-                targetSize: await connectionManager.currentTargetSize,
-                context: context,
-                faceRestoration: faceRestoration,
-                generationVideoFormat: generationFormat,
-                paddingContain: paddingContain,
-                ensureCurrent: {
-                    try token.ensureCurrent()
-                }
-            )
-            try token.ensureCurrent()
-            guard await connectionManager.currentSessionID == sessionID else {
-                throw XmaxError(
-                    code: .cancelled,
-                    message: "Realtime connection was cancelled"
-                )
+        let taskID = try await generationManager.start(
+            videoFormat: videoFormat,
+            targetSize: await connectionManager.currentTargetSize,
+            context: context,
+            faceRestoration: faceRestoration,
+            generationVideoFormat: generationFormat,
+            paddingContain: paddingContain,
+            ensureCurrent: {
+                try token.ensureCurrent()
             }
-            await connectionManager.completeInitialQuality()
-            if options.isAdaptiveQualityEnabled {
-                streamController.setAdaptiveQualityListener { [weak self] quality, time in
-                    Task {
-                        await self?.adaptQuality(
-                            quality,
-                            sampledAt: time,
-                            taskID: taskID
-                        )
-                    }
-                }
-            } else {
-                streamController.setAdaptiveQualityListener(nil)
-            }
-            try await lifecycleManager.complete(
-                RealtimeState(
-                    connectionState: .generating,
-                    sessionID: sessionID,
-                    taskID: taskID
-                ),
-                token: token
+        )
+        try token.ensureCurrent()
+        guard await connectionManager.currentSessionID == sessionID else {
+            throw XmaxError(
+                code: .cancelled,
+                message: "Realtime connection was cancelled"
             )
-            try token.ensureCurrent()
-            timing.finish(taskID: taskID)
-        } catch {
-            throw error
         }
+        await connectionManager.completeInitialQuality()
+        if configuration.isAdaptiveQualityEnabled {
+            streamController.setAdaptiveQualityListener { [weak self] quality, time in
+                Task {
+                    await self?.adaptQuality(
+                        quality,
+                        sampledAt: time,
+                        taskID: taskID
+                    )
+                }
+            }
+        } else {
+            streamController.setAdaptiveQualityListener(nil)
+        }
+        try await lifecycleManager.complete(
+            RealtimeState(
+                connectionState: .generating,
+                sessionID: sessionID,
+                taskID: taskID
+            ),
+            token: token
+        )
+        try token.ensureCurrent()
+        timing.finish(taskID: taskID)
     }
 }
 
 private extension XmaxRealtimeManager {
 
-    /// Attempts automatic quality adjustment for the current task's network sample; skips it while busy.
+    /// Applies automatic quality changes for the active task when configuration is idle.
     ///
-    /// - Parameters:
-    ///   - sample: The upstream and downstream network quality sample.
-    ///   - sampledAt: The sample's monotonic system time in seconds.
-    ///   - taskID: The generation task identifier associated with the sample.
+    /// - Parameter sampledAt: The sample's monotonic system time in seconds.
     func adaptQuality(
         _ sample: RealtimeNetworkQuality,
         sampledAt: TimeInterval,
@@ -1009,18 +832,9 @@ private extension XmaxRealtimeManager {
         }
     }
 
-    /// Publishes local media, establishes a realtime session, and commits the connected state on success.
+    /// Connects and publishes the local stream.
     ///
-    /// - Parameters:
-    ///   - localStream: The local media stream created and owned by this manager.
-    ///   - token: The lifecycle token for this connection operation.
-    ///   - completesOperation: Whether this connection ends the operation; `false` keeps the
-    ///     connected state as an intermediate step before generation.
-    ///
-    /// - Returns: The remote media stream for this session.
-    ///
-    /// - Throws: An error on an existing connection, invalid local stream, cancellation, or session or RTC connection
-    ///   failure.
+    /// Pass `completesOperation: false` when the same operation continues into generation.
     func performConnect(
         localStream: RealtimeMediaStream,
         token: XmaxRealtimeLifecycleManager.Token,
@@ -1060,7 +874,7 @@ private extension XmaxRealtimeManager {
         )
         let preparedQuality = try await connectionManager.prepareQuality(
             baseline: videoFormat,
-            options: options,
+            options: configuration,
             ensureCurrent: { try token.ensureCurrent() }
         )
         let targetSize = preparedQuality.targetSize
@@ -1073,7 +887,7 @@ private extension XmaxRealtimeManager {
         try await mediaController.startMicrophoneCapture()
         try token.ensureCurrent()
         let remoteStream = try await connectionManager.connect(
-            model: options.model,
+            model: configuration.model,
             videoFormat: videoFormat,
             targetSize: targetSize,
             includeLocalAudio: await mediaController.hasAudio,
@@ -1112,15 +926,9 @@ private extension XmaxRealtimeManager {
         return remoteStream
     }
 
-    /// Creates local media and configures orientation, initial volume, and media readiness notifications.
+    /// Prepares a local media stream.
     ///
-    /// - Parameters:
-    ///   - source: The media source being created.
-    ///   - prepare: The asynchronous stream creation operation receiving the current lifecycle token.
-    ///
-    /// - Returns: The prepared local stream; camera readiness requires active capture and a bound preview.
-    ///
-    /// - Throws: An error if a local stream or realtime connection exists, or preparation fails or is cancelled.
+    /// Camera readiness requires active capture and a bound preview.
     func createLocalMediaStream(
         source: RealtimeMediaSource,
         prepare:
@@ -1169,11 +977,20 @@ private extension XmaxRealtimeManager {
         }
     }
 
-    /// Checks that no realtime connection prevents local media changes.
-    ///
-    /// - Parameter message: The error message when media changes are disallowed.
-    ///
-    /// - Throws: An error if a session exists or connection setup or teardown is in progress.
+    /// Restores readiness or idle state after a local media stop.
+    func completeLocalMediaStop(
+        _ token: XmaxRealtimeLifecycleManager.Token
+    ) async throws {
+        try token.ensureCurrent()
+        errorManager.invalidatePendingFailures()
+        let hasLocalMedia = await mediaController.currentTrack != nil
+        try await lifecycleManager.complete(
+            RealtimeState(connectionState: hasLocalMedia ? .ready : .idle),
+            token: token
+        )
+    }
+
+    /// Requires a fully disconnected session before local media can change.
     func ensureLocalMediaCanChange(
         message: String
     ) async throws {
@@ -1190,10 +1007,6 @@ private extension XmaxRealtimeManager {
     }
 
     /// Ends the current session after heartbeat failure and ignores late notifications from ended sessions.
-    ///
-    /// - Parameters:
-    ///   - sessionID: The session identifier whose heartbeat failed.
-    ///   - error: The heartbeat request error.
     func handleHeartbeatFailure(
         sessionID: String,
         error: XmaxError
@@ -1207,11 +1020,7 @@ private extension XmaxRealtimeManager {
         )
     }
 
-    /// Logs and converts an error into the unified SDK error type.
-    ///
-    /// - Parameter error: The original error to log and convert.
-    ///
-    /// - Returns: The XmaxError for the caller to throw or handle.
+    /// Reports an error and returns it as an SDK error.
     @discardableResult
     func reportError(
         _ error: any Error
@@ -1221,11 +1030,7 @@ private extension XmaxRealtimeManager {
         return xmaxError
     }
 
-    /// Checks that volume is finite and within 0...1.
-    ///
-    /// - Parameter volume: The playback volume to apply.
-    ///
-    /// - Throws: An error if the volume is nonfinite or out of range.
+    /// Requires a finite playback volume in `0...1`.
     static func validateAudioVolume(
         _ volume: Float
     ) throws {

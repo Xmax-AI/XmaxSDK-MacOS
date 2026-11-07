@@ -41,6 +41,7 @@ final class EncodingControllerTests: XCTestCase {
             (nil, nil, .maintainQuality, 500, 2166, .maintainQuality),
             (nil, 800, .auto, 500, 800, .auto),
             (nil, 100, .auto, 100, 100, .auto),
+            (nil, 99, .auto, 99, 99, .auto),
             (0, 50, .auto, 0, 50, .auto),
             (0, nil, .auto, 0, 2166, .auto)
         ]
@@ -69,7 +70,7 @@ final class EncodingControllerTests: XCTestCase {
         let rtcManager = RtcManagingStub()
         let controller = EncodingController(rtcManager: rtcManager)
         let cases: [(minimum: Int?, maximum: Int?)] = [
-            (-1, nil), (nil, -1), (nil, 0), (3000, 1500), (4000, nil), (nil, 99)
+            (-1, nil), (nil, -1), (nil, 0), (3000, 1500), (4000, nil)
         ]
 
         for testCase in cases {

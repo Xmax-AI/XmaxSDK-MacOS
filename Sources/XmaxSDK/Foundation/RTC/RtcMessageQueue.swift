@@ -23,29 +23,28 @@ enum RtcMessageCodec {
     static func encode(
         _ message: String
     ) throws -> [Data] {
-        let bytes = Data(message.utf8)
-        guard !bytes.isEmpty, bytes.count <= 256 * 1024 else {
+        let byteCount = message.utf8.count
+        guard byteCount > 0, byteCount <= 256 * 1024 else {
             throw XmaxError(
                 code: .invalidConfiguration,
                 message: "RTC room message must contain between 1 and 262144 bytes"
             )
         }
-        if bytes.count <= 800 {
-            return [bytes]
+        if byteCount <= 800 {
+            return [Data(message.utf8)]
         }
 
         var chunks: [String] = []
         var chunk = ""
         var length = 0
         for scalar in message.unicodeScalars {
-            let value = String(scalar)
-            let encoded = try JSONEncoder().encode(value).count - 2
+            let encoded = escapedByteCount(scalar)
             if length + encoded > 600 {
                 chunks.append(chunk)
                 chunk = ""
                 length = 0
             }
-            chunk += value
+            chunk.unicodeScalars.append(scalar)
             length += encoded
         }
 
@@ -64,8 +63,9 @@ enum RtcMessageCodec {
             of: "-",
             with: ""
         )
+        let encoder = JSONEncoder()
         return try chunks.enumerated().map { index, chunk in
-            try JSONEncoder().encode(
+            try encoder.encode(
                 Fragment(
                     eventId: eventID,
                     index: index,
@@ -73,6 +73,20 @@ enum RtcMessageCodec {
                     data: chunk
                 )
             )
+        }
+    }
+
+    /// Counts the UTF-8 bytes a scalar occupies in a default JSONEncoder string.
+    private static func escapedByteCount(
+        _ scalar: Unicode.Scalar
+    ) -> Int {
+        switch scalar.value {
+        case 0x08, 0x09, 0x0A, 0x0C, 0x0D, 0x22, 0x2F, 0x5C: 2
+        case 0x00...0x1F: 6
+        case 0x20...0x7F: 1
+        case 0x80...0x7FF: 2
+        case 0x800...0xFFFF: 3
+        default: 4
         }
     }
 
@@ -270,28 +284,18 @@ final class RtcMessageQueue: @unchecked Sendable {
         }
     }
 
-    /// Waits for messages already queued at the time of the call.
-    ///
-    /// - Throws: An error if sending fails or waiting is cancelled.
-    func flush() async throws {
-        let pending = lock.withLock {
-            lastTask
-        }
-        try await Self.waitForCompletion(of: pending)
-    }
-
     /// Waits for a specific message independently of subsequently queued messages.
     ///
-    /// - Parameter pending: The send task to await, or `nil` if nothing is pending.
+    /// - Parameter pending: The send task to await.
     ///
     /// - Throws: An error if the task fails or waiting is cancelled.
     static func waitForCompletion(
-        of pending: Task<Void, any Error>?
+        of pending: Task<Void, any Error>
     ) async throws {
         let completion = AsyncThrowingStream<Void, any Error> { continuation in
             let observer = Task {
                 do {
-                    try await pending?.value
+                    try await pending.value
                     continuation.yield()
                     continuation.finish()
                 } catch {

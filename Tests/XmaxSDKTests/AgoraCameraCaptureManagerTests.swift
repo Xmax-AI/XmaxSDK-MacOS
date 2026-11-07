@@ -39,7 +39,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
         let capture = AgoraCameraCaptureManager(rtcManager: rtc)
         let task = Task {
             try await capture.start(videoFormat: VideoFormat(width: 4, height: 4, pixelFormat: .nv12),
-                                    frameRate: 30, deviceID: "test", frameListener: { _ in }, errorListener: { _ in })
+                                    frameRate: 30, deviceID: "test", previewReadyListener: {}, errorListener: { _ in })
         }
         await fulfillment(of: [started], timeout: 2)
         task.cancel()
@@ -54,7 +54,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
         let capture = AgoraCameraCaptureManager(rtcManager: rtc, startupTimeout: .milliseconds(30))
         do {
             try await capture.start(videoFormat: VideoFormat(width: 4, height: 4, pixelFormat: .nv12),
-                                    frameRate: 30, deviceID: "test", frameListener: { _ in }, errorListener: { _ in })
+                                    frameRate: 30, deviceID: "test", previewReadyListener: {}, errorListener: { _ in })
             XCTFail("Expected capture readiness timeout")
         } catch { XCTAssertEqual((error as? XmaxError)?.code, .timeout) }
         await capture.stop()
@@ -67,8 +67,7 @@ final class AgoraCameraCaptureManagerTests: XCTestCase, @unchecked Sendable {
         let capture = AgoraCameraCaptureManager(rtcManager: rtc, listDevices: { devices })
         let controller = CameraController(
             rtcManager: rtc, permissionManager: PermissionManagingStub(), mediaService: MediaService(),
-            captureManager: capture,
-            videoFrameListener: { _ in XCTFail("Native camera frames must not be republished as external video") }
+            captureManager: capture
         )
         let stream = try await controller.createLocalCameraStream(
             videoFormat: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30), deviceID: nil

@@ -39,19 +39,18 @@ enum RoomEvent {
         xid: String? = nil
     ) throws -> String {
         try encode(
-            StartPayload(
-                params: GenerationParameters(
-                    videoFormat: videoFormat,
-                    targetSize: targetSize,
-                    context: context,
-                    faceRestoration: faceRestoration,
-                    paddingContain: paddingContain,
-                    mirror: false
-                ),
-                userID: userID,
-                taskID: taskID
-            ),
-            xid: xid
+            .start,
+            userID: userID,
+            taskID: taskID,
+            xid: xid,
+            params: GenerationParameters(
+                videoFormat: videoFormat,
+                targetSize: targetSize,
+                context: context,
+                faceRestoration: faceRestoration,
+                paddingContain: paddingContain,
+                mirror: false
+            )
         )
     }
 
@@ -81,18 +80,17 @@ enum RoomEvent {
         xid: String? = nil
     ) throws -> String {
         try encode(
-            ChangeConditionPayload(
-                params: GenerationParameters(
-                    videoFormat: videoFormat,
-                    targetSize: targetSize,
-                    context: context,
-                    faceRestoration: faceRestoration,
-                    paddingContain: paddingContain
-                ),
-                userID: userID,
-                taskID: taskID
-            ),
-            xid: xid
+            .changeCondition,
+            userID: userID,
+            taskID: taskID,
+            xid: xid,
+            params: GenerationParameters(
+                videoFormat: videoFormat,
+                targetSize: targetSize,
+                context: context,
+                faceRestoration: faceRestoration,
+                paddingContain: paddingContain
+            )
         )
     }
 
@@ -114,12 +112,11 @@ enum RoomEvent {
         xid: String? = nil
     ) throws -> String {
         try encode(
-            ChangeTargetSizePayload(
-                params: TargetSizeParameters(size: targetSize),
-                userID: userID,
-                taskID: taskID
-            ),
-            xid: xid
+            .changeTargetSize,
+            userID: userID,
+            taskID: taskID,
+            xid: xid,
+            params: TargetSizeParameters(size: targetSize)
         )
     }
 
@@ -137,10 +134,9 @@ enum RoomEvent {
         taskID: String
     ) throws -> String {
         try encode(
-            StopPayload(
-                userID: userID,
-                taskID: taskID
-            )
+            .stop,
+            userID: userID,
+            taskID: taskID
         )
     }
 
@@ -160,11 +156,10 @@ enum RoomEvent {
         points: [RealtimePoint]
     ) throws -> String {
         try encode(
-            TracksPayload(
-                tracks: points.map { [$0.x, $0.y] },
-                userID: userID,
-                taskID: taskID
-            )
+            .tracks,
+            userID: userID,
+            taskID: taskID,
+            tracks: points.map { [$0.x, $0.y] }
         )
     }
 
@@ -178,7 +173,10 @@ enum RoomEvent {
     static func heartbeat(
         userID: String
     ) throws -> String {
-        try encode(HeartbeatPayload(userID: userID))
+        try encode(
+            .heartbeat,
+            userID: userID
+        )
     }
 }
 
@@ -194,104 +192,125 @@ private extension RoomEvent {
     static func downlinkBitrates(
         _ size: CGSize
     ) throws -> (minimum: Int, maximum: Int) {
-        guard size.width.isFinite, size.height.isFinite,
-            size.width >= 2, size.height >= 2,
-            size.width < CGFloat(Int.max), size.height < CGFloat(Int.max),
-            size.width.rounded(.down) == size.width,
-            size.height.rounded(.down) == size.height
+        guard let width = Int(exactly: size.width),
+            let height = Int(exactly: size.height),
+            width >= 2, height >= 2
         else {
             throw XmaxError(
                 code: .invalidConfiguration,
                 message: "Invalid return video dimensions"
             )
         }
-        let budget = try EncodingBitratePolicy.resolve(
-            RealtimeVideoFormat(
-                width: Int(size.width),
-                height: Int(size.height),
-                fps: 24
-            )
+        let fps = QualityVideoFormat.downlinkFrameRate
+        try RealtimeVideoFormat.validateDimensions(
+            width: width,
+            height: height,
+            fps: fps
         )
-        return (500, min(10000, max(500, budget.maximum)))
+        let maximum = try EncodingBitratePolicy.estimateMaximum(
+            width: width,
+            height: height,
+            fps: fps
+        )
+        return (500, min(10000, max(500, maximum)))
     }
 
-    /// Adds runtime environment and session task fields, then encodes the signal.
-    ///
-    /// - Parameters:
-    ///   - payload: The encodable business event payload.
-    ///   - xid: The optional logical command identifier placed at the message root.
-    ///
-    /// - Returns: The UTF-8 JSON text with stable key ordering.
-    ///
-    /// - Throws: An error on payload encoding, JSON conversion, or text conversion failure.
+    /// Encodes a room message with stable key ordering.
     static func encode(
-        _ payload: some Encodable,
-        xid: String? = nil
+        _ event: Event,
+        userID: String,
+        taskID: String? = nil,
+        xid: String? = nil,
+        params: (any Encodable)? = nil,
+        tracks: [[Double]]? = nil
     ) throws -> String {
-        let payloadData = try JSONEncoder().encode(
-            Envelope(
-                payload: payload,
-                runtime: .current
-            )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try String(
+            decoding: encoder.encode(
+                Message(
+                    event: event,
+                    userID: userID,
+                    taskID: taskID,
+                    xid: xid,
+                    params: params,
+                    tracks: tracks
+                )
+            ),
+            as: UTF8.self
         )
-        guard var object = try JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
-            throw XmaxError(
-                code: .internalError,
-                message: "Failed to encode RTC room event"
-            )
-        }
-        if let xid { object["xid"] = xid }
-        if let taskID = object["uid"] {
-            object["session_uid"] = taskID
-        }
-        let data = try JSONSerialization.data(
-            withJSONObject: object,
-            options: [.sortedKeys]
-        )
-        guard
-            let message = String(
-                data: data,
-                encoding: .utf8
-            )
-        else {
-            throw XmaxError(
-                code: .internalError,
-                message: "Failed to encode RTC room event"
-            )
-        }
-        return message
     }
 
-    /// Adds runtime environment information to business signals.
-    struct Envelope<Payload: Encodable>: Encodable {
+    /// Event names used by the room protocol.
+    enum Event: String, Encodable {
 
-        /// The business event payload.
-        let payload: Payload
+        /// Starts a generation task.
+        case start
 
-        /// The client runtime information sent with signaling.
-        let runtime: RuntimeInfo
+        /// Updates generation conditions.
+        case changeCondition = "change_condition"
 
-        /// Writes the business payload and runtime environment into one encoding container.
-        ///
-        /// - Parameter encoder: The encoder emitting the signal.
-        ///
-        /// - Throws: An error if payload or runtime environment encoding fails.
+        /// Updates return dimensions.
+        case changeTargetSize = "change_target_size"
+
+        /// Stops a generation task.
+        case stop
+
+        /// Sends interaction points.
+        case tracks
+
+        /// Keeps the room active.
+        case heartbeat
+    }
+
+    /// The shared room message and its event-specific fields.
+    struct Message: Encodable {
+
+        /// The event name.
+        let event: Event
+
+        /// The local RTC user account.
+        let userID: String
+
+        /// The generation task identifier, when the event belongs to a task.
+        let taskID: String?
+
+        /// The logical command identifier retained across retransmissions.
+        let xid: String?
+
+        /// The generation or return dimension parameters, when present.
+        let params: (any Encodable)?
+
+        /// The normalized points in sample order, when present.
+        let tracks: [[Double]]?
+
+        /// Field names defined by the room protocol.
+        enum CodingKeys: String, CodingKey {
+            case event
+            case userID = "user_id"
+            case taskID = "uid"
+            case sessionTaskID = "session_uid"
+            case xid
+            case params
+            case tracks
+            case runtime
+        }
+
+        /// Writes the runtime metadata and fields applicable to this event.
         func encode(
             to encoder: Encoder
         ) throws {
-            try payload.encode(to: encoder)
             var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(
-                runtime,
-                forKey: .runtime
-            )
-        }
-
-        /// Maps field names defined by the server signaling protocol.
-        enum CodingKeys: String, CodingKey {
-
-            /// The client runtime field.
-            case runtime
+            try container.encode(event, forKey: .event)
+            try container.encode(userID, forKey: .userID)
+            try container.encodeIfPresent(taskID, forKey: .taskID)
+            try container.encodeIfPresent(taskID, forKey: .sessionTaskID)
+            try container.encodeIfPresent(xid, forKey: .xid)
+            if let params {
+                try container.encode(params, forKey: .params)
+            }
+            try container.encodeIfPresent(tracks, forKey: .tracks)
+            try container.encode(RuntimeInfo.current, forKey: .runtime)
         }
     }
 
@@ -399,70 +418,6 @@ private extension RoomEvent {
         }
     }
 
-    /// A room signal starting generation.
-    struct StartPayload: Encodable {
-
-        /// The start event name.
-        let event = "start"
-
-        /// The generation dimensions, conditions, and display settings.
-        let params: GenerationParameters
-
-        /// The business user starting generation.
-        let userID: String
-
-        /// The generation task identifier.
-        let taskID: String
-
-        /// Maps field names defined by the server signaling protocol.
-        enum CodingKeys: String, CodingKey {
-
-            /// The event name field.
-            case event
-
-            /// The event parameters field.
-            case params
-
-            /// The business user field.
-            case userID = "user_id"
-
-            /// The generation task field.
-            case taskID = "uid"
-        }
-    }
-
-    /// A room signal updating generation conditions.
-    struct ChangeConditionPayload: Encodable {
-
-        /// The condition update event name.
-        let event = "change_condition"
-
-        /// The updated generation and display conditions.
-        let params: GenerationParameters
-
-        /// The task's business user identifier.
-        let userID: String
-
-        /// The generation task identifier.
-        let taskID: String
-
-        /// Maps field names defined by the server signaling protocol.
-        enum CodingKeys: String, CodingKey {
-
-            /// The event name field.
-            case event
-
-            /// The event parameters field.
-            case params
-
-            /// The business user field.
-            case userID = "user_id"
-
-            /// The generation task field.
-            case taskID = "uid"
-        }
-    }
-
     /// Encodes return dimensions and the associated downstream bitrate budget.
     struct TargetSizeParameters: Encodable {
 
@@ -500,116 +455,6 @@ private extension RoomEvent {
 
             /// The maximum bitrate field.
             case maximumBitrate = "max_bitrate"
-        }
-    }
-
-    /// A room signal dynamically adjusting return dimensions.
-    struct ChangeTargetSizePayload: Encodable {
-
-        /// The target-size event name.
-        let event = "change_target_size"
-
-        /// The new output dimensions and bitrate bounds.
-        let params: TargetSizeParameters
-
-        /// The task's business user identifier.
-        let userID: String
-
-        /// The generation task identifier.
-        let taskID: String
-
-        /// Maps field names defined by the server signaling protocol.
-        enum CodingKeys: String, CodingKey {
-
-            /// The event name field.
-            case event
-
-            /// The event parameters field.
-            case params
-
-            /// The business user field.
-            case userID = "user_id"
-
-            /// The generation task field.
-            case taskID = "uid"
-        }
-    }
-
-    /// A room signal stopping generation.
-    struct StopPayload: Encodable {
-
-        /// The stop event name.
-        let event = "stop"
-
-        /// The task's business user identifier.
-        let userID: String
-
-        /// The generation task identifier.
-        let taskID: String
-
-        /// Maps field names defined by the server signaling protocol.
-        enum CodingKeys: String, CodingKey {
-
-            /// The event name field.
-            case event
-
-            /// The business user field.
-            case userID = "user_id"
-
-            /// The generation task field.
-            case taskID = "uid"
-        }
-    }
-
-    /// A room signal carrying a generation task's media-normalized trajectory.
-    struct TracksPayload: Encodable {
-
-        /// The trajectory event name.
-        let event = "tracks"
-
-        /// The normalized points relative to complete resolved media dimensions, each as `[x, y]`.
-        let tracks: [[Double]]
-
-        /// The business user sending the trajectory.
-        let userID: String
-
-        /// The trajectory's generation task identifier.
-        let taskID: String
-
-        /// Maps field names defined by the server signaling protocol.
-        enum CodingKeys: String, CodingKey {
-
-            /// The event name field.
-            case event
-
-            /// The normalized trajectory field.
-            case tracks
-
-            /// The business user field.
-            case userID = "user_id"
-
-            /// The generation task field.
-            case taskID = "uid"
-        }
-    }
-
-    /// A heartbeat signal keeping the room active.
-    struct HeartbeatPayload: Encodable {
-
-        /// The room heartbeat event name.
-        let event = "heartbeat"
-
-        /// The business user sending the heartbeat.
-        let userID: String
-
-        /// Maps field names defined by the server signaling protocol.
-        enum CodingKeys: String, CodingKey {
-
-            /// The event name field.
-            case event
-
-            /// The business user field.
-            case userID = "user_id"
         }
     }
 }

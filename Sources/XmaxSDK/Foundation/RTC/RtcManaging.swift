@@ -201,11 +201,6 @@ protocol RtcManaging: RtcCameraCapturing {
         key: String?
     )
 
-    /// Waits for queued room signals to finish sending.
-    ///
-    /// - Throws: An error on unavailable room, send failure, or cancelled waiting.
-    func awaitPendingMessages() async throws
-
     /// Sets the RTC connection and media event listener.
     ///
     /// - Parameter listener: The event listener; `nil` clears it.

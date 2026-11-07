@@ -47,9 +47,8 @@ final class RoomEventTests: XCTestCase {
         XCTAssertEqual(params["size"] as? [Int], [1024, 1920])
         XCTAssertEqual(params["target_size"] as? [Int], [864, 1536])
         XCTAssertEqual(params["padding"] as? String, "contain")
-        let budget = try EncodingBitratePolicy.resolve(RealtimeVideoFormat(width: 864, height: 1536, fps: 24))
         XCTAssertEqual(params["min_bitrate"] as? Int, 500)
-        XCTAssertEqual(params["max_bitrate"] as? Int, min(10000, max(500, budget.maximum)))
+        XCTAssertEqual(params["max_bitrate"] as? Int, 2299)
 
         let update = try decode(RoomEvent.changeCondition(
             userID: "user", taskID: "task", videoFormat: canvas,
@@ -103,7 +102,7 @@ final class RoomEventTests: XCTestCase {
 
     func testDownlinkBudgetUses500KbpsFloorAnd10000KbpsCeilingForStartAndResize() throws {
         let canvas = RealtimeVideoFormat(width: 1920, height: 1024, fps: 30)
-        for (target, expectedMaximum) in [(CGSize(width: 4, height: 4), 500), (CGSize(width: 8192, height: 8192), 10000)] {
+        for (target, expectedMaximum) in [(CGSize(width: 2, height: 6), 500), (CGSize(width: 8192, height: 8192), 10000)] {
             let messages = try [
                 RoomEvent.start(userID: "user", taskID: "task", videoFormat: canvas,
                                 targetSize: target, context: RealtimeContext(prompt: "test")),

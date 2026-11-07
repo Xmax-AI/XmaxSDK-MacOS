@@ -103,7 +103,7 @@ final class XmaxRealtimeVideoViewFadeInTests: XCTestCase {
 
         try assertFade(in: view, duration: 0.3)
         view.fadeInDuration = 0.7
-        try presenter.setMirrored(true)
+        view.isMirrored = true
         try assertFade(in: view, duration: 0.3)
 
         try presenter.clear()

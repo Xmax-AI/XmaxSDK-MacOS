@@ -8,10 +8,10 @@
 //  Copyright (c) 2026 XMAX.AI PTE. LTD.
 //
 
-/// The shared upstream and downstream encoding bitrate budget.
+/// Resolves uplink bitrate bounds and estimates the maximum used by downstream signaling.
 enum EncodingBitratePolicy {
 
-    /// Uses explicit bitrates first and calculates defaults for omitted bounds.
+    /// Validates the uplink format and resolves its bitrate bounds.
     ///
     /// - Parameter videoFormat: The video format with dimensions, frame rate, and optional bitrate bounds.
     ///
@@ -22,30 +22,19 @@ enum EncodingBitratePolicy {
         _ videoFormat: RealtimeVideoFormat
     ) throws -> (minimum: Int, maximum: Int) {
         try videoFormat.validate()
-        let minimum: Int
-        let maximum: Int
-        if let minimumBitrate = videoFormat.minimumBitrate,
-            let maximumBitrate = videoFormat.maximumBitrate
-        {
-            minimum = minimumBitrate
-            maximum = maximumBitrate
-        } else {
-            let maximumBitrate =
-                (resolveMaximumBitrate(
-                    pixels: Double(videoFormat.width) * Double(videoFormat.height),
-                    fps: Double(videoFormat.fps)
-                ) * 0.6).rounded(.toNearestOrEven)
-            guard maximumBitrate.isFinite, maximumBitrate < Double(Int.max) else {
-                throw XmaxError(
-                    code: .invalidConfiguration,
-                    message: "Realtime video format exceeds the supported bitrate range"
-                )
-            }
-            let defaultMaximum = max(100, Int(maximumBitrate))
-            minimum = videoFormat.minimumBitrate ?? 100
-            maximum = videoFormat.maximumBitrate ?? defaultMaximum
+        guard videoFormat.width.isMultiple(of: 4), videoFormat.height.isMultiple(of: 4) else {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Uplink video width and height must be multiples of 4"
+            )
         }
 
+        let maximum = try videoFormat.maximumBitrate ?? estimateMaximum(
+            width: videoFormat.width,
+            height: videoFormat.height,
+            fps: videoFormat.fps
+        )
+        let minimum = videoFormat.minimumBitrate ?? min(500, maximum)
         guard minimum <= maximum else {
             throw XmaxError(
                 code: .invalidConfiguration,
@@ -55,17 +44,30 @@ enum EncodingBitratePolicy {
 
         return (minimum, maximum)
     }
+
+    /// Estimates the maximum bitrate in kbps for validated dimensions and frame rate.
+    static func estimateMaximum(
+        width: Int,
+        height: Int,
+        fps: Int
+    ) throws -> Int {
+        let estimate =
+            (resolveMaximumBitrate(
+                pixels: Double(width) * Double(height),
+                fps: Double(fps)
+            ) * 0.6).rounded(.toNearestOrEven)
+        guard estimate.isFinite, estimate < Double(Int.max) else {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Realtime video format exceeds the supported bitrate range"
+            )
+        }
+        return max(100, Int(estimate))
+    }
 }
 
-// Interpolates the maximum bitrate budget from upload pixel area and frame rate using reference tables.
-// The minimum defaults to 100kbps; the maximum is 0.6 times the quality-priority reference, at least 100kbps.
-// Extrapolates formats outside the table using reference ratios.
-// Reference: https://docs.byteplus.com/id/docs/byteplus-rtc/docs-70122
-
-/// Interpolates a maximum bitrate from reference dimensions and frame rates. The minimum defaults
-/// to 100 kbps; the maximum is 0.6 times the quality reference, with a 100 kbps floor. Formats
-/// outside the table are extrapolated from reference ratios. Reference:
-/// https://docs.byteplus.com/id/docs/byteplus-rtc/docs-70122
+/// Reference curves for estimating the maximum bitrate by resolution and frame rate.
+/// See https://docs.byteplus.com/id/docs/byteplus-rtc/docs-70122.
 private extension EncodingBitratePolicy {
 
     /// A reference point mapping resolution or frame rate to recommended bitrate.

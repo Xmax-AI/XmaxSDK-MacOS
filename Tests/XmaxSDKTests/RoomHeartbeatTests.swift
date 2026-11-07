@@ -101,8 +101,8 @@ private actor ManualRoomHeartbeatSleeper {
     private var waiter: CheckedContinuation<Void, Never>?
     private var cancellationPending = false
 
-    nonisolated var sleeper: RoomHeartbeatSleeper {
-        RoomHeartbeatSleeper { [weak self] in
+    nonisolated var sleeper: HeartbeatSleeper {
+        HeartbeatSleeper { [weak self] in
             guard let self else {
                 throw CancellationError()
             }

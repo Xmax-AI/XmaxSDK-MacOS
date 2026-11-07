@@ -37,10 +37,7 @@ actor XmaxRealtimeGenerationManager {
     private var currentContext: RealtimeContext?
 
     /// The face restoration setting from the most recent successful request.
-    private var currentFaceRestoration = false
-
-    /// Reuses face restoration from the last successful request when generation restarts automatically.
-    var cachedFaceRestoration: Bool { currentFaceRestoration }
+    private(set) var cachedFaceRestoration = false
 
     /// Creates a realtime generation manager.
     init(
@@ -58,20 +55,21 @@ actor XmaxRealtimeGenerationManager {
         self.timing = timing
     }
 
-    /// Requires context for initial generation and permits cached context for later requests.
+    /// Selects the supplied context or the context from the last successful request.
     ///
-    /// - Parameter context: The generation context; `nil` checks the cached context.
+    /// - Parameter context: The requested generation context, if supplied.
     ///
     /// - Throws: An error if neither a new context nor a reusable cached context is available.
-    func validateContext(
+    func resolveContext(
         _ context: RealtimeContext?
-    ) throws {
-        guard context != nil || currentContext != nil else {
+    ) throws -> RealtimeContext {
+        guard let resolvedContext = context ?? currentContext else {
             throw XmaxError(
                 code: .invalidConfiguration,
                 message: "A realtime context is required for the first generation"
             )
         }
+        return resolvedContext
     }
 
     /// Sends a generation request and confirms the result stream, first displayable frame, and audio activation.
@@ -97,12 +95,7 @@ actor XmaxRealtimeGenerationManager {
         paddingContain: Bool = false,
         ensureCurrent: @escaping RealtimeGenerationValidity
     ) async throws -> String {
-        guard let resolvedContext = context ?? currentContext else {
-            throw XmaxError(
-                code: .invalidConfiguration,
-                message: "A realtime context is required for the first generation"
-            )
-        }
+        let resolvedContext = try resolveContext(context)
 
         let taskID = taskIDGenerator()
         await renderController.setInteractionEnabled(false)
@@ -135,7 +128,7 @@ actor XmaxRealtimeGenerationManager {
             try streamController.activateRemoteAudio()
             try ensureCurrent()
             currentContext = resolvedContext
-            currentFaceRestoration = faceRestoration
+            cachedFaceRestoration = faceRestoration
             return taskID
         } catch {
             try? await stop(taskID: taskID)
@@ -166,12 +159,7 @@ actor XmaxRealtimeGenerationManager {
         paddingContain: Bool = false,
         ensureCurrent: RealtimeGenerationValidity = {}
     ) async throws {
-        guard let resolvedContext = context ?? currentContext else {
-            throw XmaxError(
-                code: .invalidConfiguration,
-                message: "A realtime context is required for the first generation"
-            )
-        }
+        let resolvedContext = try resolveContext(context)
 
         try await streamController.updateGeneration(
             taskID: taskID,
@@ -191,7 +179,7 @@ actor XmaxRealtimeGenerationManager {
         await renderController.setInteractionEnabled(true)
         try ensureCurrent()
         currentContext = resolvedContext
-        currentFaceRestoration = faceRestoration
+        cachedFaceRestoration = faceRestoration
     }
 
     /// Stops interaction and sends the generation stop signal.
@@ -216,7 +204,7 @@ actor XmaxRealtimeGenerationManager {
         taskID: String = ""
     ) async throws {
         currentContext = nil
-        currentFaceRestoration = false
+        cachedFaceRestoration = false
         try await stop(taskID: taskID)
     }
 

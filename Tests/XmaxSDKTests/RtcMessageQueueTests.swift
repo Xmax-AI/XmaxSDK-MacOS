@@ -23,8 +23,8 @@ final class RtcMessageQueueTests: XCTestCase {
             recorder.append(data)
         }, onFailure: { _ in XCTFail("Recoverable configuration must not terminate the room") })
         let resize = try queue.enqueue("resize", reportFailure: false)
-        try queue.enqueue("next condition")
-        try await queue.flush()
+        let sending = try queue.enqueue("next condition")
+        try await sending.value
         do {
             try await RtcMessageQueue.waitForCompletion(of: resize)
             XCTFail("A later successful message must not hide the configuration failure")
@@ -41,7 +41,7 @@ final class RtcMessageQueueTests: XCTestCase {
     }
 
     func testFragmentedUnicodeAndEscapesRoundTripWithinPacketLimit() throws {
-        let message = String(repeating: "中文🙂\\\"\n/", count: 250)
+        let message = String(repeating: "中文🙂e\u{0301}\\\"\n/\u{8}\t\u{c}\r\0\u{1f}", count: 250)
         let packets = try RtcMessageCodec.encode(message)
         XCTAssertGreaterThan(packets.count, 1)
         var result = ""
@@ -65,13 +65,24 @@ final class RtcMessageQueueTests: XCTestCase {
         XCTAssertThrowsError(try RtcMessageCodec.encode(String(repeating: "a", count: 262145)))
     }
 
-    func testQueuePreservesWholeMessageOrderAndFlushes() async throws {
+    func testFragmentBoundaryAccountsForJSONEscapedBytes() throws {
+        let prefix = String(repeating: "a", count: 598) + "/"
+        let suffix = "\0" + String(repeating: "b", count: 300)
+        let packets = try RtcMessageCodec.encode(prefix + suffix)
+        let fragments = try packets.map { packet in
+            let value = try XCTUnwrap(JSONSerialization.jsonObject(with: packet) as? [String: Any])
+            return try XCTUnwrap(value["data"] as? String)
+        }
+        XCTAssertEqual(fragments, [prefix, suffix])
+    }
+
+    func testQueuePreservesWholeMessageOrder() async throws {
         let recorder = PacketRecorder()
         let queue = RtcMessageQueue(send: recorder.append, onFailure: { _ in })
         let first = String(repeating: "a", count: 1200)
         try queue.enqueue(first)
-        try queue.enqueue("last")
-        try await queue.flush()
+        let sending = try queue.enqueue("last")
+        try await sending.value
         XCTAssertEqual(recorder.packets.last, Data("last".utf8))
         XCTAssertEqual(recorder.packets.count, 3)
         queue.close()
@@ -82,8 +93,8 @@ final class RtcMessageQueueTests: XCTestCase {
         let recorder = PacketRecorder()
         let queue = RtcMessageQueue(send: recorder.append, onFailure: { _ in })
         let start = DispatchTime.now().uptimeNanoseconds
-        for _ in 0..<37 { try queue.enqueue(String(repeating: "a", count: 800)) }
-        try await queue.flush()
+        for _ in 1..<37 { try queue.enqueue(String(repeating: "a", count: 800)) }
+        try await queue.enqueue(String(repeating: "a", count: 800)).value
         let elapsed = DispatchTime.now().uptimeNanoseconds - start
         XCTAssertGreaterThanOrEqual(elapsed, 1000000000)
         XCTAssertEqual(recorder.packets.count, 37)
@@ -95,8 +106,8 @@ final class RtcMessageQueueTests: XCTestCase {
         let queue = RtcMessageQueue(send: recorder.append, onFailure: { _ in XCTFail() })
         defer { queue.close() }
         let start = DispatchTime.now().uptimeNanoseconds
-        for _ in 0..<59 { try queue.enqueue("a") }
-        try await queue.flush()
+        for _ in 1..<59 { try queue.enqueue("a") }
+        try await queue.enqueue("a").value
         XCTAssertGreaterThanOrEqual(DispatchTime.now().uptimeNanoseconds - start, 1000000000)
         XCTAssertEqual(recorder.packets.count, 59)
     }
@@ -133,9 +144,9 @@ final class RtcMessageQueueTests: XCTestCase {
             try queue.enqueue("position-\(index)", replacingPendingMessage: "tracks:task")
         }
         try queue.enqueue("condition")
-        try queue.enqueue("stop")
+        let sending = try queue.enqueue("stop")
         gate.signal()
-        try await queue.flush()
+        try await sending.value
         XCTAssertEqual(
             recorder.packets,
             ["start", "position-199", "condition", "stop"].map { Data($0.utf8) }
@@ -146,12 +157,12 @@ final class RtcMessageQueueTests: XCTestCase {
         let recorder = PacketRecorder()
         let queue = RtcMessageQueue(send: recorder.append, onFailure: { _ in XCTFail() })
         defer { queue.close() }
-        for _ in 0..<58 { try queue.enqueue("budget") }
-        try await queue.flush()
+        for _ in 1..<58 { try queue.enqueue("budget") }
+        try await queue.enqueue("budget").value
         try queue.enqueue("old", replacingPendingMessage: "tracks:task")
         try await Task.sleep(nanoseconds: 20000000)
-        try queue.enqueue(String(repeating: "new", count: 100), replacingPendingMessage: "tracks:task")
-        try await queue.flush()
+        let sending = try queue.enqueue(String(repeating: "new", count: 100), replacingPendingMessage: "tracks:task")
+        try await sending.value
         XCTAssertEqual(recorder.packets.count, 59)
         XCTAssertEqual(recorder.packets.last, Data(String(repeating: "new", count: 100).utf8))
         XCTAssertFalse(recorder.packets.contains(Data("old".utf8)))
@@ -175,9 +186,9 @@ final class RtcMessageQueueTests: XCTestCase {
         queue.discardPendingMessages()
         try queue.enqueue("stop")
         try queue.enqueue("new generation")
-        try queue.enqueue("new trajectory", replacingPendingMessage: "tracks:new")
+        let sending = try queue.enqueue("new trajectory", replacingPendingMessage: "tracks:new")
         gate.signal()
-        try await queue.flush()
+        try await sending.value
         XCTAssertEqual(
             recorder.packets,
             ["start", "stop", "new generation", "new trajectory"].map { Data($0.utf8) }
@@ -199,9 +210,9 @@ final class RtcMessageQueueTests: XCTestCase {
         try queue.enqueue(String(repeating: "a", count: 1200), replacingPendingMessage: "tracks:task")
         await fulfillment(of: [entered], timeout: 2)
         try queue.enqueue("obsolete", replacingPendingMessage: "tracks:task")
-        try queue.enqueue("latest", replacingPendingMessage: "tracks:task")
+        let sending = try queue.enqueue("latest", replacingPendingMessage: "tracks:task")
         gate.signal()
-        try await queue.flush()
+        try await sending.value
         XCTAssertEqual(recorder.packets.count, 3)
         let fragments = try recorder.packets.prefix(2).map {
             try XCTUnwrap(JSONSerialization.jsonObject(with: $0) as? [String: Any])
@@ -215,12 +226,12 @@ final class RtcMessageQueueTests: XCTestCase {
         let recorder = PacketRecorder()
         let queue = RtcMessageQueue(send: recorder.append, onFailure: { _ in XCTFail() })
         defer { queue.close() }
-        for _ in 0..<58 { try queue.enqueue("budget") }
-        try await queue.flush()
+        for _ in 1..<58 { try queue.enqueue("budget") }
+        try await queue.enqueue("budget").value
         try queue.enqueue("discard", replacingPendingMessage: "tracks:old")
-        try queue.enqueue("keep", replacingPendingMessage: "tracks:new")
+        let sending = try queue.enqueue("keep", replacingPendingMessage: "tracks:new")
         queue.discardPendingMessages(key: "tracks:old")
-        try await queue.flush()
+        try await sending.value
         XCTAssertEqual(recorder.packets.count, 59)
         XCTAssertEqual(recorder.packets.last, Data("keep".utf8))
     }
@@ -228,8 +239,8 @@ final class RtcMessageQueueTests: XCTestCase {
     func testCloseCancelsRateLimitedTrajectoryWithoutReportingFailure() async throws {
         let recorder = PacketRecorder()
         let queue = RtcMessageQueue(send: recorder.append, onFailure: { _ in XCTFail() })
-        for _ in 0..<58 { try queue.enqueue("budget") }
-        try await queue.flush()
+        for _ in 1..<58 { try queue.enqueue("budget") }
+        try await queue.enqueue("budget").value
         let pending = try queue.enqueue("trajectory", replacingPendingMessage: "tracks:task")
         queue.close()
         do {
@@ -241,12 +252,12 @@ final class RtcMessageQueueTests: XCTestCase {
         XCTAssertEqual(recorder.packets.count, 58)
     }
 
-    func testQueueFlushReportsSendFailure() async throws {
+    func testWaitingForSendReportsFailure() async throws {
         let expected = XmaxError(code: .rtcError, message: "send failed")
         let queue = RtcMessageQueue(send: { _ in throw expected }, onFailure: { _ in })
-        try queue.enqueue("start")
+        let sending = try queue.enqueue("start")
         do {
-            try await queue.flush()
+            try await RtcMessageQueue.waitForCompletion(of: sending)
             XCTFail("Expected send failure")
         } catch {
             XCTAssertEqual(error as? XmaxError, expected)
@@ -254,17 +265,18 @@ final class RtcMessageQueueTests: XCTestCase {
         queue.close()
     }
 
-    func testCancellingFlushDoesNotCancelQueuedMessages() async throws {
+    func testCancellingWaitDoesNotCancelQueuedMessages() async throws {
         let recorder = PacketRecorder()
         let queue = RtcMessageQueue(send: recorder.append, onFailure: { _ in })
-        for _ in 0..<8 { try queue.enqueue(String(repeating: "a", count: 800)) }
-        let flush = Task { try await queue.flush() }
-        flush.cancel()
+        for _ in 1..<8 { try queue.enqueue(String(repeating: "a", count: 800)) }
+        let sending = try queue.enqueue(String(repeating: "a", count: 800))
+        let waiter = Task { try await RtcMessageQueue.waitForCompletion(of: sending) }
+        waiter.cancel()
         do {
-            try await flush.value
+            try await waiter.value
             XCTFail("Expected cancellation")
         } catch { XCTAssertTrue(error is CancellationError) }
-        try await queue.flush()
+        try await sending.value
         XCTAssertEqual(recorder.packets.count, 8)
         queue.close()
     }

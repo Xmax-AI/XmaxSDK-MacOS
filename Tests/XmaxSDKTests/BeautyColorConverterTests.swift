@@ -73,6 +73,36 @@ final class BeautyColorConverterTests: XCTestCase, @unchecked Sendable {
         }
     }
 
+    func testEnabledBeautyReportsHDRAndDeliversOriginalFrame() async throws {
+        let input = try makeFrame()
+        let transfer = kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ
+        let transferName = transfer as String
+        setColors(input.pixelBuffer, transfer: transfer)
+        let output = expectation(description: "Original HDR frame after beauty fallback")
+        let failure = expectation(description: "Recoverable beauty error")
+        let processor = ColorReferenceBeautyProcessor()
+        let pipeline = RemoteVideoFramePipeline(
+            interpolationEnabled: false,
+            outputToken: 0,
+            beautyProcessorFactory: { _ in processor },
+            outputListener: { frame, _ in
+                XCTAssertTrue(frame.pixelBuffer === input.pixelBuffer)
+                XCTAssertEqual(frame.presentationTimeStamp, input.presentationTimeStamp)
+                output.fulfill()
+            },
+            errorListener: { _ in XCTFail("Beauty failure must not end generation") }
+        )
+        await pipeline.setRemoteVideoBeautyErrorListener { error in
+            XCTAssertEqual(error.code, .mediaError)
+            XCTAssertTrue(error.message.contains(transferName))
+            failure.fulfill()
+        }
+        try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions())
+        await pipeline.enqueue(input)
+        await fulfillment(of: [failure, output], timeout: 2, enforceOrder: true)
+        await pipeline.closeBeauty()
+    }
+
     func testHDRTransferFunctionsFailWithTheirActualValues() throws {
         let converter = BeautyColorConverter()
         for transfer in [kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ,
@@ -314,7 +344,7 @@ final class BeautyColorConverterTests: XCTestCase, @unchecked Sendable {
 private actor ColorReferenceBeautyProcessor: BeautyProcessing {
     private let converter = BeautyColorConverter()
     func update(_ options: RealtimeVideoBeautyOptions) {}
-    func process(_ frame: RealtimeVideoFrame) async throws -> RealtimeVideoFrame { try converter.prepare(frame) }
+    func process(_ input: BeautyFrameInput) async throws -> RealtimeVideoFrame { try input.resolve(using: converter) }
     func close() { converter.close() }
 }
 

@@ -682,14 +682,6 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
         }
     }
 
-    /// Waits for queued room signals to finish sending.
-    ///
-    /// - Throws: An error on unavailable room, send failure, or cancelled waiting.
-    func awaitPendingMessages() async throws {
-        let room = try operationLock.withLock { try requireRoom().room }
-        try await room.awaitPendingMessages()
-    }
-
     /// Sets the RTC connection and media event listener.
     ///
     /// - Parameter listener: The event listener; `nil` clears it.

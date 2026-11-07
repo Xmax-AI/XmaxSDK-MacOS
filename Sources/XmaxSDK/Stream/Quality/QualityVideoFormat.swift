@@ -19,6 +19,9 @@ enum QualityVideoFormat {
     /// The per-level target frame rates.
     static let frameRates = [30, 24, 24, 20, 16]
 
+    /// The frame rate used for downlink formats and bitrate estimates.
+    static let downlinkFrameRate = 24
+
     /// Resolves downlink dimension limits before alignment or interpolation constraints.
     ///
     /// - Parameters:
@@ -56,7 +59,6 @@ enum QualityVideoFormat {
         downlink: Bool,
         minimumInputPixels: Int = 0
     ) -> RealtimeVideoFormat {
-        let index = level.rawValue - 1
         let scale = sizeScale(
             baseline,
             level: level
@@ -67,18 +69,35 @@ enum QualityVideoFormat {
             alignment: downlink ? 2 : 4,
             minimumPixels: downlink ? 0 : minimumInputPixels
         )
+        if downlink {
+            return makeDownlinkFormat(
+                size: size,
+                encoderPreference: baseline.encoderPreference
+            )
+        }
         return RealtimeVideoFormat(
             width: Int(size.width),
             height: Int(size.height),
-            fps: downlink
-                ? 24
-                : min(
-                    baseline.fps,
-                    frameRates[index]
-                ),
-            minimumBitrate: downlink ? nil : baseline.minimumBitrate,
-            maximumBitrate: downlink ? nil : baseline.maximumBitrate,
+            fps: min(
+                baseline.fps,
+                frameRates[level.rawValue - 1]
+            ),
+            minimumBitrate: baseline.minimumBitrate,
+            maximumBitrate: baseline.maximumBitrate,
             encoderPreference: baseline.encoderPreference
+        )
+    }
+
+    /// Builds a downlink format from the resolved integer-pixel dimensions.
+    static func makeDownlinkFormat(
+        size: CGSize,
+        encoderPreference: RealtimeVideoEncoderPreference
+    ) -> RealtimeVideoFormat {
+        RealtimeVideoFormat(
+            width: Int(size.width),
+            height: Int(size.height),
+            fps: downlinkFrameRate,
+            encoderPreference: encoderPreference
         )
     }
 

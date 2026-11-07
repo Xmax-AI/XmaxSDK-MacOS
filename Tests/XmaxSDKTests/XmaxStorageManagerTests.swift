@@ -96,34 +96,43 @@ final class XmaxStorageManagerTests: XCTestCase {
         )
     }
 
-    func testDownloadImageDelegatesURLsAndConvertsResult() async throws {
+    func testImageAndVideoDownloadsDelegateURLsAndConvertResults() async throws {
         let service = XmaxStorageServiceStub()
         let manager = XmaxStorageManager(storageService: service)
-        let remoteURL = URL(string: "https://example.com/image.png")!
-        let destinationURL = URL(fileURLWithPath: "/tmp/image.png")
+        let imageURL = URL(string: "https://example.com/image.png")!
+        let videoURL = URL(string: "https://example.com/video.mp4")!
+        let imageDestination = URL(fileURLWithPath: "/tmp/image.png")
+        let videoDestination = URL(fileURLWithPath: "/tmp/video.mp4")
+        let progress = XmaxStorageProgressRecorder()
 
-        let result = try await manager.downloadImage(
-            from: remoteURL,
-            to: destinationURL
+        let image = try await manager.downloadImage(
+            from: imageURL,
+            to: imageDestination
+        )
+        let video = try await manager.downloadVideo(
+            from: videoURL,
+            to: videoDestination,
+            progress: progress.handler
         )
 
         XCTAssertEqual(
             service.calls,
             [
-                .downloadImage(
-                    remoteURL: remoteURL,
-                    destinationURL: destinationURL,
+                .download(
+                    remoteURL: imageURL,
+                    destinationURL: imageDestination,
                     hasProgress: false
+                ),
+                .download(
+                    remoteURL: videoURL,
+                    destinationURL: videoDestination,
+                    hasProgress: true
                 )
             ]
         )
-        XCTAssertEqual(
-            result,
-            XmaxDownloadedFile(
-                fileURL: destinationURL,
-                byteCount: 512
-            )
-        )
+        XCTAssertEqual(image, XmaxDownloadedFile(fileURL: imageDestination, byteCount: 512))
+        XCTAssertEqual(video, XmaxDownloadedFile(fileURL: videoDestination, byteCount: 512))
+        XCTAssertEqual(progress.values, [XmaxStorageProgressValue(completed: 512, total: 512)])
     }
 
     func testManagerMapsUnknownServiceErrorToXmaxError() async {
@@ -189,12 +198,7 @@ private enum XmaxStorageServiceCall: Equatable, Sendable {
         contentType: String?,
         hasProgress: Bool
     )
-    case downloadImage(
-        remoteURL: URL,
-        destinationURL: URL,
-        hasProgress: Bool
-    )
-    case downloadVideo(
+    case download(
         remoteURL: URL,
         destinationURL: URL,
         hasProgress: Bool
@@ -316,35 +320,22 @@ private final class XmaxStorageServiceStub:
         )
     }
 
-    func downloadImage(
+    func download(
         remoteURL: URL,
         destinationURL: URL,
         progress: StorageProgressListener?
     ) async throws -> DownloadedFile {
-        try downloadResult(
-            call: .downloadImage(
+        try record(
+            .download(
                 remoteURL: remoteURL,
                 destinationURL: destinationURL,
                 hasProgress: progress != nil
-            ),
-            destinationURL: destinationURL,
-            progress: progress
+            )
         )
-    }
-
-    func downloadVideo(
-        remoteURL: URL,
-        destinationURL: URL,
-        progress: StorageProgressListener?
-    ) async throws -> DownloadedFile {
-        try downloadResult(
-            call: .downloadVideo(
-                remoteURL: remoteURL,
-                destinationURL: destinationURL,
-                hasProgress: progress != nil
-            ),
-            destinationURL: destinationURL,
-            progress: progress
+        progress?(512, 512)
+        return DownloadedFile(
+            fileURL: destinationURL,
+            byteCount: 512
         )
     }
 }
@@ -360,19 +351,6 @@ private extension XmaxStorageServiceStub {
             url: URL(string: "https://example.com/file")!,
             objectKey: "uploads/file",
             etag: "etag"
-        )
-    }
-
-    func downloadResult(
-        call: XmaxStorageServiceCall,
-        destinationURL: URL,
-        progress: StorageProgressListener?
-    ) throws -> DownloadedFile {
-        try record(call)
-        progress?(512, 512)
-        return DownloadedFile(
-            fileURL: destinationURL,
-            byteCount: 512
         )
     }
 

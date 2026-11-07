@@ -46,7 +46,7 @@ actor RoomController: RoomControlling {
     /// The expected service sender assigned by the session.
     private var botID: String?
 
-    /// Creates a room controller with the default heartbeat component.
+    /// Creates a room controller.
     ///
     /// - Parameters:
     ///   - rtcManager: The underlying RTC manager.
@@ -70,28 +70,6 @@ actor RoomController: RoomControlling {
             relayMessage: relayMessage
         )
         heartbeat = RoomHeartbeat(rtcManager: rtcManager)
-        self.timing = timing
-    }
-
-    /// Creates a room controller with the specified heartbeat component.
-    init(
-        rtcManager: any RtcManaging,
-        heartbeat: RoomHeartbeat,
-        timing: RealtimeTiming = RealtimeTiming(),
-        commandSleep: @escaping @Sendable (UInt64) async throws -> Void = {
-            try await Task.sleep(nanoseconds: $0)
-        },
-        relayMessage: (@Sendable (String) async throws -> Void)? = nil
-    ) {
-        self.rtcManager = rtcManager
-        self.commandSleep = commandSleep
-        self.relayMessage = relayMessage
-        commands = Self.makeCommands(
-            rtcManager: rtcManager,
-            sleep: commandSleep,
-            relayMessage: relayMessage
-        )
-        self.heartbeat = heartbeat
         self.timing = timing
     }
 
@@ -489,28 +467,22 @@ private extension RoomController {
     ///
     /// - Parameters:
     ///   - message: The complete JSON room message.
-    ///   - reportFailure: Whether asynchronous send failure triggers the RTC failure handler.
     ///   - key: The key replacing older, unsent messages with the same key.
     ///   - discardPending: Whether to first discard unsent trajectories.
     ///
-    /// - Returns: The message's send task.
-    ///
     /// - Throws: An SDK error if signaling submission fails.
-    @discardableResult
     func send(
         _ message: String,
-        reportFailure: Bool = true,
         replacingPendingMessage key: String? = nil,
         discardPending: Bool = false
-    ) throws -> Task<Void, any Error> {
-        let sending: Task<Void, any Error>
+    ) throws {
         do {
             if discardPending {
                 rtcManager.discardPendingMessages(key: nil)
             }
-            sending = try rtcManager.sendRoomMessage(
+            _ = try rtcManager.sendRoomMessage(
                 message,
-                reportFailure: reportFailure,
+                reportFailure: true,
                 replacingPendingMessage: key
             )
         } catch {
@@ -520,7 +492,6 @@ private extension RoomController {
         XmaxLogger.room.debug(
             message: Self.formatSignalLog(message)
         )
-        return sending
     }
 
     /// Formats room signals into readable send logs.

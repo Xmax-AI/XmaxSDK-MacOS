@@ -647,8 +647,12 @@ private extension XmaxRealtimeGenerationManagerTests {
     func assertNoCachedConditions(_ manager: XmaxRealtimeGenerationManager) async {
         let restoration = await manager.cachedFaceRestoration
         XCTAssertFalse(restoration)
-        do { try await manager.validateContext(nil); XCTFail("Failed generation must not cache conditions") }
-        catch { XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration) }
+        do {
+            _ = try await manager.resolveContext(nil)
+            XCTFail("Failed generation must not cache conditions")
+        } catch {
+            XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration)
+        }
     }
 
     func deliverFirstFrame(_ rtc: RtcManagingStub) async throws {

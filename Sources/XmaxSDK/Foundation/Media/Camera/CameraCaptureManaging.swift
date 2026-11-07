@@ -10,16 +10,8 @@
 
 import Foundation
 
-/// Manages system cameras and raw video frame output.
+/// Manages native RTC camera capture.
 protocol CameraCaptureManaging: Sendable {
-
-    /// Whether capture supplies RTC video directly instead of using the raw frame listener.
-    var suppliesRTCVideo: Bool { get }
-
-    /// Sets the callback for native capture readiness; decoded capture uses frame delivery instead.
-    func setNativePreviewReadyListener(
-        _ listener: (@Sendable () -> Void)?
-    )
 
     /// Lists currently available camera devices.
     ///
@@ -32,7 +24,7 @@ protocol CameraCaptureManaging: Sendable {
     ///   - videoFormat: The output pixel format and dimensions.
     ///   - frameRate: The target capture frame rate.
     ///   - deviceID: The capture device identifier.
-    ///   - frameListener: Receives decoded frames on the capture queue when `suppliesRTCVideo` is false.
+    ///   - previewReadyListener: Reports when native capture is ready.
     ///   - errorListener: Receives capture runtime errors.
     ///
     /// - Throws: An error on invalid devices or formats, or capture startup failure.
@@ -40,7 +32,7 @@ protocol CameraCaptureManaging: Sendable {
         videoFormat: VideoFormat,
         frameRate: Int,
         deviceID: String,
-        frameListener: @escaping @Sendable (VideoFrame) throws -> Void,
+        previewReadyListener: @escaping @Sendable () -> Void,
         errorListener: @escaping XmaxErrorListener
     ) async throws
 
@@ -61,15 +53,4 @@ protocol CameraCaptureManaging: Sendable {
 
     /// Stops capture and clears capture callbacks.
     func stop() async
-}
-
-extension CameraCaptureManaging {
-
-    /// Whether capture supplies RTC video directly instead of using the raw frame listener.
-    var suppliesRTCVideo: Bool { false }
-
-    /// Sets the callback for native capture readiness; decoded capture uses frame delivery instead.
-    func setNativePreviewReadyListener(
-        _ listener: (@Sendable () -> Void)?
-    ) {}
 }

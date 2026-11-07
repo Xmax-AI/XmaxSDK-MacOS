@@ -41,15 +41,6 @@ protocol RenderControlling: AnyObject, Sendable {
         _ enabled: Bool
     )
 
-    /// Updates the decoded frame source and invalidates old stream caches and waits.
-    ///
-    /// - Parameter stream: The new remote stream; `nil` clears the source.
-    ///
-    /// - Throws: An error if removing the old listener or binding the new listener fails.
-    func setRemoteStream(
-        _ stream: RemoteStream?
-    ) throws
-
     /// Registers a video render binding for the remote track.
     ///
     /// - Parameters:
@@ -60,16 +51,6 @@ protocol RenderControlling: AnyObject, Sendable {
         _ track: RealtimeVideoTrack,
         resolvedMediaSize: CGSize,
         interactionListener: @escaping RenderInteractionListener
-    )
-
-    /// Updates the remote track display format.
-    ///
-    /// - Parameters:
-    ///   - videoFormat: The new video mapping format.
-    ///   - track: The remote video track to update.
-    func updateRemoteVideoFormat(
-        _ videoFormat: RealtimeVideoFormat,
-        for track: RealtimeVideoTrack
     )
 
     /// Enables or disables remote video interpolation.

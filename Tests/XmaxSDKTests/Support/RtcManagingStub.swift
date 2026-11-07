@@ -80,7 +80,6 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     private var storedRemoteAudioFrameListener: RtcRemoteAudioFrameListener?
     private var microphoneLevelListener: RealtimeMicrophoneLevelListener?
     private var nextAudioRemovalError: (any Error)?
-    var flushHandler: (@Sendable () async throws -> Void)?
     var commandSendHandler: (@Sendable () async throws -> Void)?
     var audioControlHandler: (@Sendable () -> Void)?
     var reportsCameraReadyOnStart = true
@@ -450,10 +449,6 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     }
 
     func discardPendingMessages(key: String?) { lock.withLock { storedDiscardedKeys.append(key) } }
-
-    func awaitPendingMessages() async throws {
-        try await flushHandler?()
-    }
 
     func setQualityListener(_ listener: (any RtcQualityListener)?) {
         lock.withLock {

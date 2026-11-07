@@ -103,22 +103,10 @@ final class ExternalVideoFrameSink: RealtimeExternalFrameSink, @unchecked Sendab
                     )
                 }
 
-                let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
-                guard
-                    pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-                        || pixelFormat == kCVPixelFormatType_32BGRA
-                else {
-                    throw XmaxError(
-                        code: .mediaError,
-                        message: "External video requires NV12 video-range (420v) or BGRA pixels"
-                    )
-                }
-
                 let frame = try VideoFrameConverter.convert(
                     pixelBuffer: pixelBuffer,
                     outputWidth: videoFormat.width,
                     outputHeight: videoFormat.height,
-                    rotation: .rotation0,
                     timestampUs: converted.value
                 )
                 lastTimestampUs = converted.value

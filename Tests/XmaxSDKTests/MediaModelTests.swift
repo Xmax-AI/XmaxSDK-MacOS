@@ -19,11 +19,7 @@ final class MediaModelTests: XCTestCase {
         XCTAssertEqual(VideoContentMode.allCases.map(\.rawValue), ["fit", "fill"])
         XCTAssertEqual(
             VideoPixelFormat.allCases.map(\.rawValue),
-            ["i420", "nv12", "nv21", "rgba", "bgra", "argb"]
-        )
-        XCTAssertEqual(
-            VideoRotation.allCases.map(\.rawValue),
-            [0, 90, 180, 270]
+            ["nv12", "bgra"]
         )
     }
 
@@ -96,14 +92,11 @@ final class MediaModelTests: XCTestCase {
         let frame = try VideoFrame(
             format: format,
             timestampUs: 33_333,
-            planes: [plane],
-            rotation: .rotation90
+            planes: [plane]
         )
 
         XCTAssertEqual(frame.format, format)
-        XCTAssertNil(frame.bufferReuseID)
         XCTAssertEqual(frame.timestampUs, 33_333)
-        XCTAssertEqual(frame.rotation, .rotation90)
         XCTAssertEqual(frame.planes, [plane])
     }
 
@@ -111,7 +104,7 @@ final class MediaModelTests: XCTestCase {
         let format = try VideoFormat(
             width: 1,
             height: 1,
-            pixelFormat: .rgba
+            pixelFormat: .bgra
         )
         let plane = try VideoFramePlane(
             data: Data(repeating: 0, count: 4),

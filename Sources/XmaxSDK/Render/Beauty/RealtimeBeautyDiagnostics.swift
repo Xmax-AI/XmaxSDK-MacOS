@@ -30,15 +30,15 @@ import Foundation
         let processor = try await OfflineBeautyProcessor.make(options)
         do {
             let input = try makeFrame()
-            let bright = try await processor.process(input)
+            let bright = try await processor.process(.unprepared(input))
             let brightValue = luminance(bright.pixelBuffer)
             try await processor.update(RealtimeVideoBeautyOptions(smoothness: 0, lightening: 0, sharpness: 0, redness: 0))
-            let neutral = try await processor.process(input)
+            let neutral = try await processor.process(.unprepared(input))
             let neutralValue = luminance(neutral.pixelBuffer)
             try await processor.update(options)
             let start = ContinuousClock.now
             for _ in 0..<24 {
-                let output = try await processor.process(neutral)
+                let output = try await processor.process(.unprepared(neutral))
                 guard output.presentationTimeStamp == input.presentationTimeStamp,
                     output.duration == input.duration,
                     CVPixelBufferGetWidth(output.pixelBuffer) == 320,

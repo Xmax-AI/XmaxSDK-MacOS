@@ -16,8 +16,22 @@ import Foundation
 /// Copies Agora decoded frames into owned buffers for asynchronous rendering and interpolation.
 final class RtcRemoteVideoSink: NSObject, AgoraVideoFrameDelegate, @unchecked Sendable {
 
-    /// The handler receiving a numeric UID, channel, and SDK-owned buffer.
-    private let frameListener: @Sendable (UInt, String, RealtimeVideoFrame) -> Void
+    /// Identifies one registration, even when the same callback is registered again.
+    final class Subscription: Sendable {
+
+        /// The callback receiving SDK-owned frames.
+        let listener: RtcRemoteVideoFrameListener
+
+        /// Creates a new listener registration.
+        init(
+            _ listener: @escaping RtcRemoteVideoFrameListener
+        ) {
+            self.listener = listener
+        }
+    }
+
+    /// Resolves the current video registration for the user and channel.
+    private let subscriptionProvider: @Sendable (UInt, String) -> Subscription?
 
     /// The lock protecting the remote pixel buffer pool.
     private let lock = NSLock()
@@ -31,11 +45,11 @@ final class RtcRemoteVideoSink: NSObject, AgoraVideoFrameDelegate, @unchecked Se
     /// The current pool pixel format.
     private var pixelFormat: OSType = 0
 
-    /// Creates a remote decoded frame receiver.
+    /// Creates a receiver that copies pixels only for subscribed users.
     init(
-        frameListener: @escaping @Sendable (UInt, String, RealtimeVideoFrame) -> Void
+        subscriptionProvider: @escaping @Sendable (UInt, String) -> Subscription?
     ) {
-        self.frameListener = frameListener
+        self.subscriptionProvider = subscriptionProvider
     }
 
     /// Requests NV12 pixel buffers for remote frames.
@@ -76,18 +90,24 @@ final class RtcRemoteVideoSink: NSObject, AgoraVideoFrameDelegate, @unchecked Se
         uid: UInt,
         channelId: String
     ) -> Bool {
-        guard let source = frame.pixelBuffer,
+        guard let subscription = subscriptionProvider(
+            uid,
+            channelId
+        ),
+            let source = frame.pixelBuffer,
             let buffer = lock.withLock({
                 copy(
                     source,
                     colorSpace: frame.colorSpace
                 )
-            })
+            }),
+            subscriptionProvider(
+                uid,
+                channelId
+            ) === subscription
         else { return true }
 
-        frameListener(
-            uid,
-            channelId,
+        subscription.listener(
             RealtimeVideoFrame(
                 pixelBuffer: buffer,
                 presentationTimeStamp: CMTime(

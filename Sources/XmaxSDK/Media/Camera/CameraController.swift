@@ -29,9 +29,6 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// The model media sizing service.
     private let mediaService: any MediaServicing
 
-    /// The camera video frame handler.
-    private let videoFrameListener: MediaVideoFrameListener
-
     /// The camera media failure handler.
     private let errorListener: XmaxErrorListener
 
@@ -51,7 +48,7 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     private var activeTrack: RealtimeVideoTrack?
 
     /// The camera preview resources.
-    private var preview: Preview?
+    private var preview: RtcCameraPreviewPresenter?
 
     /// Whether capture can support local media readiness.
     private var isCaptureReady = false
@@ -61,9 +58,6 @@ final class CameraController: CameraControlling, @unchecked Sendable {
 
     /// Whether this camera input requests microphone access.
     private var storedUseMicrophone = false
-
-    /// The explicit mirror policy retained across camera device and format changes.
-    private var storedMirror = false
 
     /// Whether RTC microphone capture is active.
     private var isMicrophoneCapturing = false
@@ -81,15 +75,13 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// Creates a camera controller with system permission and capture components.
     ///
     /// - Parameters:
-    ///   - rtcManager: The component configuring RTC external video and microphone input.
+    ///   - rtcManager: The component configuring RTC camera and microphone input.
     ///   - mediaService: The service providing model dimension rules.
-    ///   - videoFrameListener: The callback receiving camera video frames.
     ///   - errorListener: The callback receiving capture runtime errors.
     @MainActor
     convenience init(
         rtcManager: any RtcManaging,
         mediaService: any MediaServicing = MediaService(),
-        videoFrameListener: @escaping MediaVideoFrameListener,
         errorListener: @escaping XmaxErrorListener
     ) {
         self.init(
@@ -97,7 +89,6 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             permissionManager: PermissionManager(),
             mediaService: mediaService,
             captureManager: AgoraCameraCaptureManager(rtcManager: rtcManager),
-            videoFrameListener: videoFrameListener,
             errorListener: errorListener
         )
     }
@@ -109,21 +100,18 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     ///   - permissionManager: The camera and microphone permission component.
     ///   - mediaService: The model dimension rules service.
     ///   - captureManager: The system video capture component.
-    ///   - videoFrameListener: The callback receiving camera video frames.
     ///   - errorListener: The callback receiving capture runtime errors.
     init(
         rtcManager: any RtcManaging,
         permissionManager: any PermissionManaging,
         mediaService: any MediaServicing,
         captureManager: any CameraCaptureManaging,
-        videoFrameListener: @escaping MediaVideoFrameListener = { _ in },
         errorListener: @escaping XmaxErrorListener = { _ in }
     ) {
         self.rtcManager = rtcManager
         self.permissionManager = permissionManager
         self.mediaService = mediaService
         self.captureManager = captureManager
-        self.videoFrameListener = videoFrameListener
         self.errorListener = errorListener
     }
 
@@ -204,7 +192,6 @@ final class CameraController: CameraControlling, @unchecked Sendable {
         let track = RealtimeVideoTrack(
             id: Self.localVideoTrackID,
             videoFormat: resolvedFormat,
-            position: device.position,
             device: device
         )
         do {
@@ -212,9 +199,6 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 try await permissionManager.ensureMicrophonePermission()
             }
             try Task.checkCancellation()
-            if !captureManager.suppliesRTCVideo {
-                try rtcManager.useExternalVideoSource()
-            }
             try rtcManager.configureLocalVideoMirror(mirror)
             let preview = await makePreview(
                 for: track,
@@ -224,18 +208,8 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 activeTrack = track
                 self.preview = preview
                 storedUseMicrophone = useMicrophone
-                storedMirror = mirror
                 isCaptureReady = false
                 isPreviewAttached = false
-            }
-            captureManager.setNativePreviewReadyListener { [weak self] in
-                guard let self else { return }
-                let current = stateLock.withLock {
-                    guard activeTrack === track else { return false }
-                    isCaptureReady = true
-                    return true
-                }
-                if current { notifyPreviewReady(for: track) }
             }
             try await captureManager.start(
                 videoFormat: VideoFormat(
@@ -245,12 +219,14 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 ),
                 frameRate: resolvedFormat.fps,
                 deviceID: device.id,
-                frameListener: { [weak self] frame in
-                    try self?.handleFrame(
-                        frame,
-                        track: track,
-                        preview: preview
-                    )
+                previewReadyListener: { [weak self] in
+                    guard let self else { return }
+                    let current = stateLock.withLock {
+                        guard activeTrack === track else { return false }
+                        isCaptureReady = true
+                        return true
+                    }
+                    if current { notifyPreviewReady(for: track) }
                 },
                 errorListener: { [weak self] error in
                     guard let self, currentTrack === track else { return }
@@ -346,17 +322,20 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             preview = nil
             previewReadyHandler = nil
             storedUseMicrophone = false
-            storedMirror = false
             isMicrophoneCapturing = false
             isCaptureReady = false
             isPreviewAttached = false
             return resources
         }
         await captureManager.stop()
-        resources.1?.dispatcher?.reset()
         await MainActor.run {
             if let track = resources.0 { VideoRenderRegistry.unregister(track) }
-            resources.1?.clear()
+            do { try resources.1?.clear() } catch {
+                XmaxRealtimeVideoView.logRenderingFailure(
+                    title: "Failed to detach native camera preview",
+                    error: error
+                )
+            }
         }
     }
 
@@ -392,7 +371,6 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             }
             try stateLock.withLock {
                 guard activeTrack === track else { throw CancellationError() }
-                preview?.dispatcher?.reset()
                 track.updateVideoFormat(resolved)
             }
         }
@@ -421,8 +399,8 @@ final class CameraController: CameraControlling, @unchecked Sendable {
         let device = try resolveDevice(deviceID)
         try await captureManager.switchCamera(to: device.id)
         track.updateDevice(device)
-        let presentation = stateLock.withLock { (preview, storedMirror) }
-        try await presentation.0?.setMirrored(presentation.1)
+        let preview = stateLock.withLock { preview }
+        try await preview?.refresh()
         return RealtimeMediaStream(
             id: StreamID.local.rawValue,
             videoTrack: track
@@ -433,120 +411,22 @@ final class CameraController: CameraControlling, @unchecked Sendable {
 
 private extension CameraController {
 
-    /// Retains native rendering or the custom preview fallback.
-    enum Preview: Sendable {
-
-        /// A preview driven by decoded video frames.
-        case decoded(DecodedVideoPreviewPresenter, DecodedVideoPreviewDispatcher)
-
-        /// A preview rendered directly by the RTC engine.
-        case native(RtcCameraPreviewPresenter)
-
-        /// The decoded preview dispatcher, when decoded capture is in use.
-        var dispatcher: DecodedVideoPreviewDispatcher? {
-            if case .decoded(
-                _,
-                let dispatcher
-            ) = self {
-                return dispatcher
-            }
-            return nil
-        }
-
-        /// Attaches the active preview implementation to a video view.
-        @MainActor func attach(
-            to view: XmaxRealtimeVideoView,
-            contentMode: VideoContentMode
-        ) throws {
-            switch self {
-            case .decoded(
-                let presenter,
-                _
-            ):
-                presenter.attach(
-                    to: view,
-                    contentMode: contentMode
-                )
-            case .native(let presenter):
-                try presenter.attach(
-                    to: view,
-                    contentMode: contentMode
-                )
-            }
-        }
-
-        /// Removes the matching preview binding.
-        @MainActor func detach(
-            from view: XmaxRealtimeVideoView
-        ) throws {
-            switch self {
-            case .decoded(
-                let presenter,
-                _
-            ): presenter.detach(from: view)
-            case .native(let presenter): try presenter.detach(from: view)
-            }
-        }
-
-        /// Updates mirroring for the active preview implementation.
-        @MainActor func setMirrored(
-            _ mirrored: Bool
-        ) throws {
-            switch self {
-            case .decoded(
-                let presenter,
-                _
-            ): presenter.setMirrored(mirrored)
-            case .native(let presenter): try presenter.setMirrored(mirrored)
-            }
-        }
-
-        /// Clears and releases the active preview presentation.
-        @MainActor func clear() {
-            switch self {
-            case .decoded(
-                let presenter,
-                _
-            ): presenter.clear()
-            case .native(let presenter):
-                do { try presenter.clear() } catch {
-                    XmaxRealtimeVideoView.logRenderingFailure(
-                        title: "Failed to detach native camera preview",
-                        error: error
-                    )
-                }
-            }
-        }
-    }
-
     /// Creates and registers a preview binding for the camera track.
     ///
     /// - Parameters:
     ///   - track: The local camera track to preview.
     ///   - mirrored: Whether the camera stream requests mirrored presentation.
     ///
-    /// - Returns: The preview components used for frame submission and resource release.
+    /// - Returns: The native preview presenter.
     @MainActor
     func makePreview(
         for track: RealtimeVideoTrack,
         mirrored: Bool
-    ) -> Preview {
-        let preview: Preview
-        if captureManager.suppliesRTCVideo {
-            preview = .native(
-                RtcCameraPreviewPresenter(
-                    rtcManager: rtcManager,
-                    mirrored: mirrored
-                )
-            )
-        } else {
-            let presenter = DecodedVideoPreviewPresenter()
-            presenter.setMirrored(mirrored)
-            preview = .decoded(
-                presenter,
-                DecodedVideoPreviewDispatcher(presenter: presenter)
-            )
-        }
+    ) -> RtcCameraPreviewPresenter {
+        let preview = RtcCameraPreviewPresenter(
+            rtcManager: rtcManager,
+            mirrored: mirrored
+        )
         VideoRenderRegistry.register(
             track,
             binding: VideoRenderBinding(
@@ -571,30 +451,6 @@ private extension CameraController {
             )
         )
         return preview
-    }
-
-    /// Submits captured frames for the current track to preview and media listeners.
-    ///
-    /// - Parameters:
-    ///   - frame: The captured frame after orientation and dimension conversion.
-    ///   - track: The camera track producing the frame.
-    ///   - preview: The preview components retained by this track.
-    ///
-    /// - Throws: An error if the video frame listener fails to process the frame.
-    func handleFrame(
-        _ frame: VideoFrame,
-        track: RealtimeVideoTrack,
-        preview: Preview
-    ) throws {
-        let accepted = try stateLock.withLock {
-            guard activeTrack === track else { return false }
-            preview.dispatcher?.enqueue(frame)
-            isCaptureReady = true
-            // Native camera frames already enter Agora's encoder; the observer only feeds local preview.
-            if !captureManager.suppliesRTCVideo { try videoFrameListener(frame) }
-            return true
-        }
-        if accepted { notifyPreviewReady(for: track) }
     }
 
     /// Reports readiness once capture is active and the preview is bound.

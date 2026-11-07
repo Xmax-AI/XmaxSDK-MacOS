@@ -1106,18 +1106,7 @@ private extension StreamController {
     func resolveGenerationStart(
         taskID: String
     ) {
-        let waiter = operationLock.withLock { () -> GenerationWaiter? in
-            stateLock.withLock {
-                guard state.generationTask?.id == taskID,
-                    state.generationWaiter?.taskID == taskID
-                else {
-                    return nil
-                }
-                let waiter = state.generationWaiter
-                state.generationWaiter = nil
-                return waiter
-            }
-        }
+        let waiter = takeGenerationWaiter(taskID: taskID)
         guard let waiter else {
             return
         }
@@ -1135,7 +1124,18 @@ private extension StreamController {
         taskID: String,
         error: XmaxError
     ) {
-        let waiter = operationLock.withLock { () -> GenerationWaiter? in
+        let waiter = takeGenerationWaiter(taskID: taskID)
+        reject(
+            waiter,
+            error: error
+        )
+    }
+
+    /// Removes and returns the waiter for the active generation task.
+    func takeGenerationWaiter(
+        taskID: String
+    ) -> GenerationWaiter? {
+        operationLock.withLock {
             stateLock.withLock {
                 guard state.generationTask?.id == taskID,
                     state.generationWaiter?.taskID == taskID
@@ -1147,10 +1147,6 @@ private extension StreamController {
                 return waiter
             }
         }
-        reject(
-            waiter,
-            error: error
-        )
     }
 
     /// Cancels the timeout and fails the specified waiter.

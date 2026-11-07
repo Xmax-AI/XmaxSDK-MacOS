@@ -34,19 +34,16 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     /// The lock serializing native camera configuration and preview operations.
     private let cameraControlLock = NSRecursiveLock()
 
-    /// The lock protecting the publication source flag independently of engine calls.
+    /// The lock protecting publication source and mirror settings independently of engine calls.
     private let cameraStateLock = NSLock()
 
     /// The room owned by this platform instance.
     private weak var room: AgoraRtcRoom?
 
-    /// The cached Agora external video frame.
-    private let videoFrameCache = RtcVideoFrameCache()
-
     /// The most recently applied encoder configuration.
     private var videoConfiguration: VideoEncodingConfiguration?
 
-    /// The upstream mirror mode retained independently of adaptive encoding dimensions.
+    /// The upstream mirror mode retained independently of adaptive encoding dimensions, under the camera state lock.
     private var videoMirrorMode = AgoraVideoMirrorMode.disabled
 
     /// The observer forwarding remote pixels to the active room sink.
@@ -180,11 +177,14 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
         _ mirror: Bool
     ) throws {
         try lock.withLock {
-            let previous = videoMirrorMode
-            videoMirrorMode = mirror ? .enabled : .disabled
+            let previous = cameraStateLock.withLock {
+                let previous = videoMirrorMode
+                videoMirrorMode = mirror ? .enabled : .disabled
+                return previous
+            }
             do { try reapplyVideoConfiguration() }
             catch {
-                videoMirrorMode = previous
+                cameraStateLock.withLock { videoMirrorMode = previous }
                 throw error
             }
         }
@@ -202,13 +202,12 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
                 )
             }
             try lock.withLock {
-                videoFrameCache.removeAll()
                 engine.setExternalVideoSource(
                     true,
                     useTexture: false,
                     sourceType: .videoFrame
                 )
-                videoMirrorMode = .disabled
+                cameraStateLock.withLock { videoMirrorMode = .disabled }
                 try reapplyVideoConfiguration()
                 cameraStateLock.withLock { storedUsesCameraTrack = false }
             }
@@ -316,6 +315,20 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     private func restartCameraCapture(
         configuration: RtcCameraConfiguration
     ) throws {
+        // The preview follows the encoder's aspect ratio even before joining a room.
+        let previewEncoding = RtcVideoConverter.makeEncoderConfiguration(
+            VideoEncodingConfiguration(
+                width: configuration.width,
+                height: configuration.height,
+                frameRate: configuration.frameRate
+            )
+        )
+        previewEncoding.mirrorMode = cameraStateLock.withLock { videoMirrorMode }
+        try Self.checkResult(
+            cameraEngine.setVideoEncoderConfiguration(previewEncoding),
+            operation: "setVideoEncoderConfiguration"
+        )
+
         let config = AgoraCameraCapturerConfiguration()
         config.deviceId = configuration.deviceID
         config.dimensions = CGSize(
@@ -671,10 +684,10 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
         _ frame: VideoFrame
     ) throws {
         try lock.withLock {
-            let converted = try videoFrameCache.frame(for: frame)
+            let converted = try RtcVideoConverter.convertFrame(frame)
             _ = withExtendedLifetime(converted) {
                 engine.pushExternalVideoFrame(
-                    converted.value,
+                    converted,
                     videoTrackId: 0
                 )
             }
@@ -768,7 +781,7 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
         _ configuration: VideoEncodingConfiguration
     ) throws {
         let rtcConfiguration = RtcVideoConverter.makeEncoderConfiguration(configuration)
-        rtcConfiguration.mirrorMode = videoMirrorMode
+        rtcConfiguration.mirrorMode = cameraStateLock.withLock { videoMirrorMode }
         let result: Int32
         if let room, room.isJoined, !room.isClosed {
             result = cameraEngine.setVideoEncoderConfigurationEx(

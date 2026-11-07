@@ -18,7 +18,7 @@ final class PCMFramePacketizerTests: XCTestCase {
         var packetizer = PCMFramePacketizer()
         let samples = pcmData(sample: 3, count: 240)
         for index in 0..<1000 {
-            packetizer.append(samples, at: index * 240)
+            packetizer.append(samples)
             if index.isMultiple(of: 2) {
                 XCTAssertNil(packetizer.nextFrame())
             } else {
@@ -27,37 +27,21 @@ final class PCMFramePacketizerTests: XCTestCase {
                 XCTAssertEqual(packet?.data, samples + samples)
             }
         }
-        packetizer.finishWithSilence()
         XCTAssertNil(packetizer.nextFrame())
     }
 
     func testPacketizesPCMIntoTenMillisecondFrames() {
         let firstFrame = pcmData(sample: 1, count: AudioFrame.samplesPerFrame)
         let secondFrame = pcmData(sample: 2, count: AudioFrame.samplesPerFrame)
-        var packetizer = PCMFramePacketizer(
-            totalSamples: AudioFrame.samplesPerFrame * 2
-        )
+        var packetizer = PCMFramePacketizer()
+        packetizer.append(firstFrame + secondFrame)
 
-        packetizer.append(firstFrame + secondFrame, at: 0)
-
-        XCTAssertEqual(packetizer.nextFrame()?.data, firstFrame)
-        XCTAssertEqual(packetizer.nextFrame()?.data, secondFrame)
-        XCTAssertNil(packetizer.nextFrame())
-    }
-
-    func testFillsTimelineGapsAndTailWithSilence() {
-        let samples = pcmData(sample: 7, count: AudioFrame.samplesPerFrame)
-        let silence = pcmData(sample: 0, count: AudioFrame.samplesPerFrame)
-        var packetizer = PCMFramePacketizer(
-            totalSamples: AudioFrame.samplesPerFrame * 3
-        )
-
-        packetizer.append(samples, at: AudioFrame.samplesPerFrame)
-        packetizer.finishWithSilence()
-
-        XCTAssertEqual(packetizer.nextFrame()?.data, silence)
-        XCTAssertEqual(packetizer.nextFrame()?.data, samples)
-        XCTAssertEqual(packetizer.nextFrame()?.data, silence)
+        let first = packetizer.nextFrame()
+        XCTAssertEqual(first?.data, firstFrame)
+        XCTAssertEqual(first?.sampleOffset, 0)
+        let second = packetizer.nextFrame()
+        XCTAssertEqual(second?.data, secondFrame)
+        XCTAssertEqual(second?.sampleOffset, AudioFrame.samplesPerFrame)
         XCTAssertNil(packetizer.nextFrame())
     }
 }

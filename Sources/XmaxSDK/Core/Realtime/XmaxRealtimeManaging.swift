@@ -13,8 +13,8 @@ import Foundation
 /// Defines public realtime media and generation controls.
 public protocol XmaxRealtimeManaging: Sendable {
 
-    /// Realtime capability configuration.
-    var options: RealtimeConfiguration { get }
+    /// The initial realtime configuration.
+    var configuration: RealtimeConfiguration { get }
 
     /// The current realtime connection and generation state.
     var currentState: RealtimeState { get async }

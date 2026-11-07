@@ -28,19 +28,10 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
         qos: .userInitiated
     )
 
-    /// The lock protecting the readiness callback.
-    private let stateLock = NSLock()
-
-    /// The listener notified when native capture is usable.
-    private var previewReadyListener: (@Sendable () -> Void)?
-
-    /// Whether capture feeds RTC directly without decoded frame submission.
-    var suppliesRTCVideo: Bool { true }
-
     /// Creates a native camera controller with device discovery and a readiness timeout.
     init(
         rtcManager: any RtcManaging,
-        listDevices: @escaping @Sendable () -> [CameraDevice] = CameraCaptureManager.availableCameraDevices,
+        listDevices: @escaping @Sendable () -> [CameraDevice] = CameraDeviceDiscovery.availableCameraDevices,
         startupTimeout: Duration = .seconds(10)
     ) {
         self.rtcManager = rtcManager
@@ -51,25 +42,15 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
     /// Lists camera devices without starting capture.
     func listCameraDevices() -> [CameraDevice] { listDevices() }
 
-    /// Replaces the callback for native capture readiness.
-    func setNativePreviewReadyListener(
-        _ listener: (@Sendable () -> Void)?
-    ) {
-        stateLock.withLock { previewReadyListener = listener }
-    }
-
     /// Starts native capture and waits for readiness, cancellation, or timeout.
-    ///
-    /// Agora owns local rendering and RTC video delivery; this implementation does not invoke the raw frame listener.
     func start(
         videoFormat: VideoFormat,
         frameRate: Int,
         deviceID: String,
-        frameListener: @escaping @Sendable (VideoFrame) throws -> Void,
+        previewReadyListener: @escaping @Sendable () -> Void,
         errorListener: @escaping XmaxErrorListener
     ) async throws {
         try Task.checkCancellation()
-        let readyListener = stateLock.withLock { previewReadyListener }
         let (events, continuation) = AsyncThrowingStream<Void, any Error>.makeStream()
         queue.async { [rtcManager] in
             do {
@@ -81,7 +62,7 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
                         frameRate: frameRate
                     ),
                     previewReadyListener: {
-                        readyListener?()
+                        previewReadyListener()
                         continuation.yield(())
                         continuation.finish()
                     },
@@ -151,9 +132,8 @@ final class AgoraCameraCaptureManager: CameraCaptureManaging, @unchecked Sendabl
         }
     }
 
-    /// Clears readiness observation and stops native capture on the control queue.
+    /// Stops native capture on the control queue.
     func stop() async {
-        setNativePreviewReadyListener(nil)
         await withCheckedContinuation { continuation in
             queue.async { [rtcManager] in
                 do { try rtcManager.stopCameraCapture() } catch {

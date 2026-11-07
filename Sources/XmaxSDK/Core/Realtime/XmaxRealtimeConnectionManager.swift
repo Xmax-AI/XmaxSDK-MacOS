@@ -108,23 +108,17 @@ actor XmaxRealtimeConnectionManager {
         self.timing = timing
     }
 
-    /// Updates remote track and render formats using the current return dimensions.
+    /// Updates the remote track format using the current return dimensions.
     ///
     /// - Parameter videoFormat: The generation video format; return dimensions override the track dimensions when
     ///   configured.
     func updateRemoteVideoFormat(
         _ videoFormat: RealtimeVideoFormat
-    ) async {
-        guard let activeRemoteTrack else { return }
-        let remoteFormat = remoteVideoFormat(for: videoFormat)
-        activeRemoteTrack.updateVideoFormat(remoteFormat)
-        await renderController.updateRemoteVideoFormat(
-            remoteFormat,
-            for: activeRemoteTrack
-        )
+    ) {
+        activeRemoteTrack?.updateVideoFormat(remoteVideoFormat(for: videoFormat))
     }
 
-    /// Stores return dimensions for the current connection and updates the remote render format.
+    /// Stores return dimensions for the current connection and updates the remote track format.
     ///
     /// - Parameters:
     ///   - size: The target server return video dimensions in pixels.
@@ -132,10 +126,10 @@ actor XmaxRealtimeConnectionManager {
     func updateTargetSize(
         _ size: CGSize,
         videoFormat: RealtimeVideoFormat
-    ) async {
+    ) {
         guard activeSession != nil else { return }
         currentTargetSize = size
-        await updateRemoteVideoFormat(videoFormat)
+        updateRemoteVideoFormat(videoFormat)
     }
 
     /// Creates a server session, joins RTC, publishes local streams, and returns the registered remote stream.
@@ -345,14 +339,9 @@ extension XmaxRealtimeConnectionManager {
             maximumSize: maximumSize,
             frameInterpolationEnabled: interpolation
         )
-        let format = QualityVideoFormat.resolve(
-            baseline,
-            level: level,
-            downlink: true
-        )
-        return format.resized(
-            width: Int(targetSize.width),
-            height: Int(targetSize.height)
+        return QualityVideoFormat.makeDownlinkFormat(
+            size: targetSize,
+            encoderPreference: baseline.encoderPreference
         )
     }
 
@@ -398,7 +387,7 @@ extension XmaxRealtimeConnectionManager {
                         ensureActive: { try ensureCurrent() }
                     )
                     // Synchronizes expected dimensions after sending; disconnect waits for this commit before releasing resources.
-                    await updateTargetSize(
+                    updateTargetSize(
                         format.size,
                         videoFormat: configuration.baseline
                     )
@@ -485,7 +474,7 @@ extension XmaxRealtimeConnectionManager {
 
             // Commits local configuration after sending the signal; concurrent disconnect waits for this operation before cleanup.
             if let mediaFormat, let targetSize {
-                await updateTargetSize(
+                updateTargetSize(
                     targetSize,
                     videoFormat: mediaFormat
                 )

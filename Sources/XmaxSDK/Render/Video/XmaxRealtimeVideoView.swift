@@ -72,9 +72,6 @@ public final class XmaxRealtimeVideoView: NSView {
     /// The registered interaction binding for the displayed remote track.
     private weak var trajectoryBinding: TrajectoryBinding?
 
-    /// Whether the local source requires mirrored presentation.
-    private var sourceMirrored = false
-
     /// The track attached for rendering.
     private weak var attachedTrack: RealtimeVideoTrack?
 
@@ -253,7 +250,7 @@ extension XmaxRealtimeVideoView {
     private func applyPreviewMirroring() {
         decodedVideoLayer?.setAffineTransform(
             CGAffineTransform(
-                scaleX: isMirrored || sourceMirrored ? -1 : 1,
+                scaleX: isMirrored ? -1 : 1,
                 y: 1
             )
         )
@@ -286,7 +283,7 @@ extension XmaxRealtimeVideoView {
     private func updateTrajectoryConfiguration() {
         trajectoryOverlay?.configure(
             contentMode: videoContentMode,
-            mirrored: isMirrored || sourceMirrored,
+            mirrored: isMirrored,
             requested: isInteractionEnabled
         )
     }
@@ -337,17 +334,6 @@ extension XmaxRealtimeVideoView {
         }
         decodedVideoLayer.videoGravity = contentMode == .fit ? .resizeAspect : .resizeAspectFill
         applyPreviewMirroring()
-    }
-
-    /// Sets horizontal mirroring for decoded video preview.
-    ///
-    /// - Parameter mirrored: Whether to mirror video horizontally.
-    func setDecodedVideoPreviewMirrored(
-        _ mirrored: Bool
-    ) {
-        sourceMirrored = mirrored
-        applyPreviewMirroring()
-        updateTrajectoryConfiguration()
     }
 
     /// Converts local NV12 or BGRA frames to samples and submits them for immediate preview.
@@ -548,7 +534,6 @@ extension XmaxRealtimeVideoView {
         }
         trajectoryOverlay = nil
         trajectoryBinding = nil
-        sourceMirrored = false
         do {
             try VideoRenderRegistry.binding(for: track)?.detach(from: self)
         } catch {
@@ -574,7 +559,6 @@ extension XmaxRealtimeVideoView {
         switch frame.format.pixelFormat {
         case .nv12: pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         case .bgra: pixelFormat = kCVPixelFormatType_32BGRA
-        default: throw Self.invalidImageFrameError
         }
         if localPreviewFormat != frame.format || localPreviewPixelBufferPool == nil {
             let attributes: [String: Any] = [

@@ -215,6 +215,7 @@ private actor BeautyRecorder {
 }
 
 private actor BeautyStub: BeautyProcessing {
+    private let converter = BeautyColorConverter()
     private let replacement: CVPixelBuffer?
     private let fails: Bool
     private let pressureObserved: XCTestExpectation?
@@ -230,7 +231,8 @@ private actor BeautyStub: BeautyProcessing {
         self.pressureObserved = pressureObserved
     }
     func update(_ options: RealtimeVideoBeautyOptions) {}
-    func process(_ frame: RealtimeVideoFrame) async throws -> RealtimeVideoFrame {
+    func process(_ input: BeautyFrameInput) async throws -> RealtimeVideoFrame {
+        let frame = try input.resolve(using: converter)
         calls += 1
         if let pressureObserved, calls == 1 {
             pressureObserved.fulfill()
@@ -247,6 +249,7 @@ private actor BeautyStub: BeautyProcessing {
                                   presentationTimeStamp: frame.presentationTimeStamp, duration: frame.duration)
     }
     func close() {
+        converter.close()
         closed = true
         waiting?.resume()
         waiting = nil

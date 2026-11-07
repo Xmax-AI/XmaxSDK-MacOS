@@ -258,7 +258,7 @@ final class StorageServiceTests: XCTestCase {
             .appendingPathComponent("video.mp4")
         let progress: StorageProgressListener = { _, _ in }
 
-        let result = try await service.downloadVideo(
+        let result = try await service.download(
             remoteURL: remoteURL,
             destinationURL: destinationURL,
             progress: progress

@@ -63,18 +63,11 @@ public struct RealtimeVideoFormat: Equatable, Sendable {
     ///
     /// - Throws: An error if dimensions, frame rate, or bitrate configuration is invalid.
     public func validate() throws {
-        guard width > 0,
-            height > 0,
-            fps > 0,
-            width.isMultiple(of: 2),
-            height.isMultiple(of: 2)
-        else {
-            throw XmaxError(
-                code: .invalidConfiguration,
-                message: "Realtime video width and height must be positive "
-                    + "even numbers, and fps must be greater than zero"
-            )
-        }
+        try Self.validateDimensions(
+            width: width,
+            height: height,
+            fps: fps
+        )
         if let minimumBitrate, minimumBitrate < 0 {
             throw XmaxError(
                 code: .invalidConfiguration,
@@ -97,6 +90,26 @@ public struct RealtimeVideoFormat: Equatable, Sendable {
 }
 
 extension RealtimeVideoFormat {
+
+    /// Requires positive even dimensions and a positive frame rate.
+    static func validateDimensions(
+        width: Int,
+        height: Int,
+        fps: Int
+    ) throws {
+        guard width > 0,
+            height > 0,
+            fps > 0,
+            width.isMultiple(of: 2),
+            height.isMultiple(of: 2)
+        else {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Realtime video width and height must be positive "
+                    + "even numbers, and fps must be greater than zero"
+            )
+        }
+    }
 
     /// Creates a resized video format retaining frame rate and encoding configuration.
     ///

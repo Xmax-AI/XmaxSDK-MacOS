@@ -70,6 +70,9 @@ struct RoomMessageDecoder {
         var bytes = 0
     }
 
+    /// Shared decoding rules for fragment envelopes and complete room messages.
+    private let decoder = JSONDecoder()
+
     /// Partial messages bounded by record count, per-message size, and total bytes.
     private var records: [Key: Record] = [:]
 
@@ -85,7 +88,7 @@ struct RoomMessageDecoder {
         data: Data
     ) -> Message? {
         guard data.count <= 262_144,
-            let message = try? JSONDecoder().decode(Message.self, from: data)
+            let message = try? decoder.decode(Message.self, from: data)
         else { return nil }
         guard message.event == "__trtc_chunk__" || message.event == "__agora_chunk__" else {
             return message
@@ -100,14 +103,17 @@ struct RoomMessageDecoder {
             eventID: eventID
         )
         sequence &+= 1
-        var record = records[key] ?? Record(
+        var record = records.removeValue(forKey: key) ?? Record(
             count: count,
             order: sequence
         )
-        guard record.count == count else { return nil }
+        guard record.count == count else {
+            records[key] = record
+            return nil
+        }
         let added = part.utf8.count - (record.parts[index]?.utf8.count ?? 0)
         guard record.bytes + added <= 262_144 else {
-            bytes -= records.removeValue(forKey: key)?.bytes ?? 0
+            bytes -= record.bytes
             return nil
         }
         record.parts[index] = part
@@ -120,11 +126,10 @@ struct RoomMessageDecoder {
             }
             bytes -= records.removeValue(forKey: oldest)?.bytes ?? 0
         }
-        guard records[key] != nil, record.parts.count == count else { return nil }
-        records.removeValue(forKey: key)
+        guard record.parts.count == count, records.removeValue(forKey: key) != nil else { return nil }
         bytes -= record.bytes
         let joined = (0..<count).compactMap { record.parts[$0] }.joined()
-        return try? JSONDecoder().decode(Message.self, from: Data(joined.utf8))
+        return try? decoder.decode(Message.self, from: Data(joined.utf8))
     }
 
     /// Releases all partial messages when the room is invalidated.

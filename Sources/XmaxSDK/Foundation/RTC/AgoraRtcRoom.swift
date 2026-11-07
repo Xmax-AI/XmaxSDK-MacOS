@@ -51,7 +51,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
         var listener: (@Sendable (RtcRoomEvent) -> Void)?
 
         /// The remote frame receivers indexed by native user identifier.
-        var frameListeners: [UInt: RtcRemoteVideoFrameListener] = [:]
+        var frameListeners: [UInt: RtcRemoteVideoSink.Subscription] = [:]
 
         /// The PCM receivers indexed by native user identifier.
         var audioListeners: [UInt: RtcRemoteAudioFrameListener] = [:]
@@ -136,13 +136,12 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
             )
             self.bridge = bridge
 
-            let sink = RtcRemoteVideoSink { [weak self] uid, channelID, frame in
-                guard let self else { return }
-                let callback = callbackLock.withLock {
-                    !callbackState.isClosed && callbackState.isJoined && channelID == roomID
-                        ? callbackState.frameListeners[uid] : nil
+            let sink = RtcRemoteVideoSink { [weak self] uid, channelID in
+                guard let self, channelID == roomID else { return nil }
+                return callbackLock.withLock {
+                    guard !callbackState.isClosed, callbackState.isJoined else { return nil }
+                    return callbackState.frameListeners[uid]
                 }
-                callback?(frame)
             }
             videoSink = sink
 
@@ -347,9 +346,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
     func setRemoteVideoFrameListener(
         _ listener: RtcRemoteVideoFrameListener?,
         for userID: String
-    )
-        throws
-    {
+    ) throws {
         try platform.lock.withLock {
             try requireJoined()
             let uid = try resolveUID(userID)
@@ -363,7 +360,9 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
                 }
             }
             callbackLock.withLock {
-                if !callbackState.isClosed { callbackState.frameListeners[uid] = listener }
+                if !callbackState.isClosed {
+                    callbackState.frameListeners[uid] = listener.map(RtcRemoteVideoSink.Subscription.init)
+                }
             }
         }
     }
@@ -431,17 +430,6 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
         platform.lock.withLock {
             sender?.discardPendingMessages(key: key)
         }
-    }
-
-    /// Waits for earlier queued signals to be submitted to RTC.
-    ///
-    /// - Throws: An error on send failure, room departure, or cancellation.
-    func awaitPendingMessages() async throws {
-        let sender = try platform.lock.withLock {
-            try requireJoined()
-            return sender
-        }
-        try await sender?.flush()
     }
 }
 

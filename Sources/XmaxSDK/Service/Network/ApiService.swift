@@ -282,13 +282,11 @@ private extension ApiService {
         statusCode: Int,
         as _: Response.Type
     ) throws -> Response {
-        let metadata: EnvelopeMetadata
-        do {
-            metadata = try JSONDecoder().decode(
-                EnvelopeMetadata.self,
-                from: data
-            )
-        } catch {
+        let decoder = JSONDecoder()
+        guard let metadata = try? decoder.decode(
+            EnvelopeMetadata.self,
+            from: data
+        ) else {
             throw XmaxError(
                 code: .apiError,
                 message: "Server returned invalid JSON",
@@ -315,28 +313,19 @@ private extension ApiService {
             )
         }
 
-        do {
-            let envelope = try JSONDecoder().decode(
-                PayloadEnvelope<Response>.self,
-                from: data
-            )
-            guard let value = envelope.data else {
-                throw DecodingError.valueNotFound(
-                    Response.self,
-                    .init(
-                        codingPath: [],
-                        debugDescription: "API response data is missing"
-                    )
-                )
-            }
-            return value
-        } catch {
+        guard let envelope = try? decoder.decode(
+            PayloadEnvelope<Response>.self,
+            from: data
+        ),
+            let value = envelope.data
+        else {
             throw XmaxError(
                 code: .apiError,
                 message: "Server returned invalid response data",
                 httpStatus: statusCode
             )
         }
+        return value
     }
 
     /// Converts network errors to SDK cancellation or network errors.

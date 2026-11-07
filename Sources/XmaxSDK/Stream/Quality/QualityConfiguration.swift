@@ -34,15 +34,6 @@ struct QualityConfiguration: Sendable {
             minimumInputPixels: minimumInputPixels
         )
     }
-
-    /// The maximum returned format for the current downlink level.
-    var downlink: RealtimeVideoFormat {
-        QualityVideoFormat.resolve(
-            baseline,
-            level: downlinkLevel,
-            downlink: true
-        )
-    }
 }
 
 /// The directional quality proposals for one sample; `nil` leaves a direction unchanged.

@@ -160,8 +160,7 @@ final class RtcRoomLifecycleTests: XCTestCase {
 
     func testRoomReceivesAccountAndMessagesWithoutVendorConversion() async throws {
         let started = expectation(description: "Join started")
-        let flushed = expectation(description: "Messages flushed")
-        let room = RtcRoomStub(onJoin: { started.fulfill() }, onFlush: { flushed.fulfill() })
+        let room = RtcRoomStub(onJoin: { started.fulfill() })
         let manager = makeManager { _ in room }
         try await manager.initialize()
         let configuration = config("room")
@@ -170,9 +169,12 @@ final class RtcRoomLifecycleTests: XCTestCase {
         room.emit(.joined)
         try await joining.value
 
-        try manager.sendRoomMessage("{\"event\":\"start\"}")
-        try await manager.awaitPendingMessages()
-        await fulfillment(of: [flushed], timeout: 2)
+        let sending = try manager.sendRoomMessage(
+            "{\"event\":\"start\"}",
+            reportFailure: true,
+            replacingPendingMessage: nil
+        )
+        try await sending.value
         XCTAssertEqual(room.configurations, [configuration])
         XCTAssertEqual(room.messages, ["{\"event\":\"start\"}"])
         await manager.destroy()

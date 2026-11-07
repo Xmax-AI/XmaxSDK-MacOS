@@ -148,14 +148,14 @@ final class OfflineBeautyProcessor: BeautyProcessing, @unchecked Sendable {
 
     /// Processes one shared surface, preserving PTS and duration for preview and frame output.
     func process(
-        _ frame: RealtimeVideoFrame
+        _ input: BeautyFrameInput
     ) async throws -> RealtimeVideoFrame {
         try Task.checkCancellation()
         return try await withCheckedThrowingContinuation { continuation in
             worker.async { [self] in
                 do {
-                    let input = try storage.colorConverter.prepare(frame)
-                    guard let surface = CVPixelBufferGetIOSurface(input.pixelBuffer)?.takeUnretainedValue() else {
+                    let frame = try input.resolve(using: storage.colorConverter)
+                    guard let surface = CVPixelBufferGetIOSurface(frame.pixelBuffer)?.takeUnretainedValue() else {
                         throw Self.error("Result beauty requires an IOSurface-backed pixel buffer")
                     }
                     let reply = Reply()

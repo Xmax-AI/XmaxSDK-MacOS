@@ -142,29 +142,33 @@ final class ApiServiceTests: XCTestCase {
     }
 
     func testInvalidSuccessPayloadMapsToAPIError() async {
-        ApiURLProtocolStub.setResponse(
-            statusCode: 200,
-            data: Data(
-                #"{"success":true,"data":{"unexpected":true}}"#.utf8
-            )
-        )
         let service = makeService()
+        for response in [
+            #"{"success":true,"data":{"unexpected":true}}"#,
+            #"{"success":true,"data":null}"#,
+            #"{"success":true}"#
+        ] {
+            ApiURLProtocolStub.setResponse(
+                statusCode: 200,
+                data: Data(response.utf8)
+            )
 
-        do {
-            _ = try await service.get(
-                "/resource",
-                as: ApiTestResponse.self
-            )
-            XCTFail("Expected invalid response data to fail")
-        } catch {
-            XCTAssertEqual(
-                error as? XmaxError,
-                XmaxError(
-                    code: .apiError,
-                    message: "Server returned invalid response data",
-                    httpStatus: 200
+            do {
+                _ = try await service.get(
+                    "/resource",
+                    as: ApiTestResponse.self
                 )
-            )
+                XCTFail("Expected invalid response data to fail")
+            } catch {
+                XCTAssertEqual(
+                    error as? XmaxError,
+                    XmaxError(
+                        code: .apiError,
+                        message: "Server returned invalid response data",
+                        httpStatus: 200
+                    )
+                )
+            }
         }
     }
 

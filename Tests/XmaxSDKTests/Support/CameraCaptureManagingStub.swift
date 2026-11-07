@@ -27,7 +27,7 @@ final class CameraCaptureManagingStub: CameraCaptureManaging, @unchecked Sendabl
     /// Call records
     private let lock = NSLock()
     private var recordedCalls: [Call] = []
-    private var frameListener: (@Sendable (VideoFrame) throws -> Void)?
+    private var previewReadyListener: (@Sendable () -> Void)?
 
     init(
         devices: [CameraDevice],
@@ -43,8 +43,8 @@ final class CameraCaptureManagingStub: CameraCaptureManaging, @unchecked Sendabl
 
     var calls: [Call] { lock.withLock { recordedCalls } }
 
-    var currentFrameListener: (@Sendable (VideoFrame) throws -> Void)? {
-        lock.withLock { frameListener }
+    var currentPreviewReadyListener: (@Sendable () -> Void)? {
+        lock.withLock { previewReadyListener }
     }
 
     func listCameraDevices() -> [CameraDevice] { devices }
@@ -53,12 +53,12 @@ final class CameraCaptureManagingStub: CameraCaptureManaging, @unchecked Sendabl
         videoFormat: VideoFormat,
         frameRate: Int,
         deviceID: String,
-        frameListener: @escaping @Sendable (VideoFrame) throws -> Void,
+        previewReadyListener: @escaping @Sendable () -> Void,
         errorListener: @escaping XmaxErrorListener
     ) async throws {
         lock.withLock {
             recordedCalls.append(.start(deviceID))
-            self.frameListener = frameListener
+            self.previewReadyListener = previewReadyListener
         }
         if let startError { throw startError }
         await startHandler?()
@@ -78,7 +78,7 @@ final class CameraCaptureManagingStub: CameraCaptureManaging, @unchecked Sendabl
     func stop() async {
         lock.withLock {
             recordedCalls.append(.stop)
-            frameListener = nil
+            previewReadyListener = nil
         }
     }
 }

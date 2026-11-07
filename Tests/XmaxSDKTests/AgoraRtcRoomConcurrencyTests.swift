@@ -132,6 +132,23 @@ final class AgoraRtcRoomConcurrencyTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(engine.registrationCount, 1, "Removing a listener must not register an observer")
     }
 
+    func testRemoteFramesAreRoutedOnlyToMatchingSubscriptions() async throws {
+        let (room, engine) = try await joinedRoom()
+        defer { room.destroy() }
+        let frame = try makeFrame()
+        let delivered = expectation(description: "Only the subscribed user in the joined room is delivered")
+        delivered.assertForOverFulfill = true
+        try room.setRemoteVideoFrameListener({ _ in delivered.fulfill() }, for: "bot")
+        let sink = try XCTUnwrap(engine.videoDelegate)
+
+        XCTAssertEqual(sink.onRenderVideoFrame?(frame, uid: 99, channelId: "room"), true)
+        XCTAssertEqual(sink.onRenderVideoFrame?(frame, uid: 42, channelId: "other-room"), true)
+        XCTAssertEqual(sink.onRenderVideoFrame?(frame, uid: 42, channelId: "room"), true)
+        try room.setRemoteVideoFrameListener(nil, for: "bot")
+        XCTAssertEqual(sink.onRenderVideoFrame?(frame, uid: 42, channelId: "room"), true)
+        await fulfillment(of: [delivered], timeout: 2)
+    }
+
     func testUnpublishLetsInFlightVideoCallbackReturn() async throws {
         let (room, engine) = try await joinedRoom()
         defer { room.destroy() }

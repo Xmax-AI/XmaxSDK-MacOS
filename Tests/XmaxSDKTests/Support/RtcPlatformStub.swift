@@ -83,7 +83,6 @@ final class RtcRoomStub: RtcRoom, @unchecked Sendable {
 
     /// Controllable operations
     private let onJoin: @Sendable () throws -> Void
-    private let onFlush: @Sendable () async throws -> Void
 
     /// Listeners and call records
     private let lock = NSLock()
@@ -102,11 +101,9 @@ final class RtcRoomStub: RtcRoom, @unchecked Sendable {
     var configurations: [RoomJoinConfiguration] { lock.withLock { joinedConfigurations } }
 
     init(
-        onJoin: @escaping @Sendable () throws -> Void = {},
-        onFlush: @escaping @Sendable () async throws -> Void = {}
+        onJoin: @escaping @Sendable () throws -> Void = {}
     ) {
         self.onJoin = onJoin
-        self.onFlush = onFlush
     }
 
     func setEventListener(_ listener: (@Sendable (RtcRoomEvent) -> Void)?) {
@@ -169,8 +166,4 @@ final class RtcRoomStub: RtcRoom, @unchecked Sendable {
     }
 
     func discardPendingMessages(key: String?) {}
-
-    func awaitPendingMessages() async throws {
-        try await onFlush()
-    }
 }

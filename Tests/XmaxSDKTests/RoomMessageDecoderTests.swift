@@ -53,5 +53,8 @@ final class RoomMessageDecoderTests: XCTestCase {
         ] {
             XCTAssertNil(decoder.decode(sender: "bot", data: Data(raw.utf8)))
         }
+        let finalPart = #"{"event":"__trtc_chunk__","eventId":"id","index":1,"count":2,"data":"\"event\":\"xid_ack\",\"xid\":\"one\",\"count\":1}"}"#
+        let completed = decoder.decode(sender: "bot", data: Data(finalPart.utf8))
+        XCTAssertEqual(completed?.xid, "one")
     }
 }

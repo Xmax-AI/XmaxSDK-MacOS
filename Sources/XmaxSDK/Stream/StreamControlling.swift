@@ -147,25 +147,6 @@ protocol StreamControlling: Sendable {
         _ published: Bool
     ) throws
 
-    /// Pushes local external video during an active generation task; ignores frames otherwise.
-    ///
-    /// - Parameter frame: The local video frame prepared for RTC.
-    ///
-    /// - Throws: An error if RTC resources are unready or frame conversion fails.
-    func pushLocalVideoFrame(
-        _ frame: VideoFrame
-    ) throws
-
-    /// Pushes a local external audio frame.
-    ///
-    /// - Parameter frame: The PCM frame prepared for RTC;
-    ///   Ignored before local audio publication.
-    ///
-    /// - Throws: An error if RTC resources are unready or audio frame conversion fails.
-    func pushLocalAudioFrame(
-        _ frame: AudioFrame
-    ) throws
-
     /// Creates a generation task, sends its start signal, and begins result confirmation.
     ///
     /// - Parameters:
@@ -236,18 +217,5 @@ protocol StreamControlling: Sendable {
     /// - Throws: An error if sending the RTC stop signal fails.
     func stopGeneration(
         taskID: String
-    ) async throws
-
-    /// Sends a generation task's interaction trajectory.
-    ///
-    /// - Parameters:
-    ///   - taskID: The generation task identifier receiving the trajectory.
-    ///   - points: The trajectory points to send; empty arrays are ignored.
-    ///
-    /// - Throws: An error on unready RTC room, invalid task identity, or trajectory signal
-    ///   failure.
-    func sendTracks(
-        taskID: String,
-        points: [RealtimePoint]
     ) async throws
 }

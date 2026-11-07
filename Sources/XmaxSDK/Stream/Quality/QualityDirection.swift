@@ -43,11 +43,6 @@ struct QualityDirection: Sendable {
     /// The post-upgrade probing deadline, in seconds.
     private var probeUntil: TimeInterval = 0
 
-    /// The transport format for this direction and level.
-    var format: RealtimeVideoFormat {
-        format(at: level)
-    }
-
     /// Creates a directional policy with a supported initial level.
     ///
     /// - Parameters:
@@ -66,7 +61,8 @@ struct QualityDirection: Sendable {
         self.downlink = downlink
         self.minimumInputPixels = minimumInputPixels
         self.level = level
-        while !supports(self.level),
+        while !downlink,
+            !Self.supportsUplink(format(at: self.level)),
             let higher = RealtimeQualityLevel(rawValue: self.level.rawValue - 1)
         {
             self.level = higher
@@ -78,7 +74,7 @@ struct QualityDirection: Sendable {
     /// - Parameter level: The target quality level.
     ///
     /// - Returns: The format derived from the baseline and direction.
-    func format(
+    private func format(
         at level: RealtimeQualityLevel
     ) -> RealtimeVideoFormat {
         QualityVideoFormat.resolve(
@@ -150,12 +146,15 @@ struct QualityDirection: Sendable {
             return nil
         }
 
-        var rawValue = level.rawValue + step
-        while let candidate = RealtimeQualityLevel(rawValue: rawValue) {
-            if format(at: candidate) != format, supports(candidate) {
+        var nextLevel = RealtimeQualityLevel(rawValue: level.rawValue + step)
+        guard nextLevel != nil else { return nil }
+        let currentFormat = format(at: level)
+        while let candidate = nextLevel {
+            let candidateFormat = format(at: candidate)
+            if candidateFormat != currentFormat, downlink || Self.supportsUplink(candidateFormat) {
                 return candidate
             }
-            rawValue += step
+            nextLevel = RealtimeQualityLevel(rawValue: candidate.rawValue + step)
         }
         return nil
     }
@@ -189,14 +188,10 @@ struct QualityDirection: Sendable {
         level = next
     }
 
-    /// Checks whether a quality level fits the directional bitrate budget.
-    ///
-    /// - Parameter level: The quality level to validate.
-    ///
-    /// - Returns: `true` if the direction's bitrate budget can be resolved.
-    func supports(
-        _ level: RealtimeQualityLevel
+    /// Checks whether an uplink format has a valid bitrate budget.
+    private static func supportsUplink(
+        _ format: RealtimeVideoFormat
     ) -> Bool {
-        downlink || (try? EncodingBitratePolicy.resolve(format(at: level))) != nil
+        (try? EncodingBitratePolicy.resolve(format)) != nil
     }
 }

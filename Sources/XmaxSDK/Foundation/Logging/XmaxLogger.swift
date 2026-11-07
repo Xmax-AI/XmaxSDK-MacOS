@@ -117,17 +117,6 @@ struct XmaxLogger: Sendable {
         state.environment == .china ? chinese : english
     }
 
-    /// Checks whether all specified log types are enabled.
-    ///
-    /// - Parameter option: The log options to check; empty options are disabled.
-    ///
-    /// - Returns: `true` if configuration includes every specified option.
-    static func isEnabled(
-        _ option: XmaxLoggerOption
-    ) -> Bool {
-        state.isEnabled(option)
-    }
-
     /// Emits a debug log, building the message only when its options are enabled.
     ///
     /// - Parameters:

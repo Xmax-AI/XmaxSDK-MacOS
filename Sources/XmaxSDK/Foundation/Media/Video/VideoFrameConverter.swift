@@ -12,49 +12,55 @@ import Accelerate
 import CoreVideo
 import Foundation
 
-/// Processes camera, decoder, and external pixel buffers to resolved media dimensions.
+/// Copies upright external pixels into the resolved video dimensions.
 enum VideoFrameConverter {
 
-    /// Center-crops, scales, and rotates pixels to the requested display dimensions.
+    /// Center-crops and scales pixels to the requested dimensions.
     ///
     /// - Parameters:
-    ///   - pixelBuffer: The source NV12 or BGRA buffer.
+    ///   - pixelBuffer: The source video-range NV12 or BGRA buffer.
     ///   - outputWidth: The positive, even output width, in pixels.
     ///   - outputHeight: The positive, even output height, in pixels.
-    ///   - rotation: The display rotation applied after scaling.
     ///   - timestampUs: The output timestamp, in microseconds.
     ///
-    /// - Returns: An independently owned frame retaining the input pixel format, with rotation
-    ///   applied to pixels.
+    /// - Returns: An independently owned frame retaining the input pixel format.
     ///
     /// - Throws: An error if the format, planes, or dimensions are invalid or conversion fails.
     static func convert(
         pixelBuffer: CVPixelBuffer,
         outputWidth: Int,
         outputHeight: Int,
-        rotation: VideoRotation,
         timestampUs: Int64
     ) throws -> VideoFrame {
-        let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
-        if pixelFormat == kCVPixelFormatType_32BGRA {
+        switch CVPixelBufferGetPixelFormatType(pixelBuffer) {
+        case kCVPixelFormatType_32BGRA:
             return try convertBGRA(
                 pixelBuffer,
                 outputWidth: outputWidth,
                 outputHeight: outputHeight,
-                rotation: rotation,
                 timestampUs: timestampUs
             )
+        case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
+            return try convertNV12(
+                pixelBuffer: pixelBuffer,
+                outputWidth: outputWidth,
+                outputHeight: outputHeight,
+                timestampUs: timestampUs
+            )
+        default:
+            throw mediaError("External video requires NV12 video-range (420v) or BGRA pixels")
         }
+    }
 
-        let isNV12 =
-            pixelFormat
-            == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-            || pixelFormat
-                == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-        guard isNV12,
-            CVPixelBufferGetPlaneCount(pixelBuffer) == 2
-        else {
-            throw mediaError("Video decoder returned a non-NV12 frame")
+    /// Creates a cropped and scaled frame from video-range NV12.
+    private static func convertNV12(
+        pixelBuffer: CVPixelBuffer,
+        outputWidth: Int,
+        outputHeight: Int,
+        timestampUs: Int64
+    ) throws -> VideoFrame {
+        guard CVPixelBufferGetPlaneCount(pixelBuffer) == 2 else {
+            throw mediaError("External video requires video-range NV12 or BGRA pixels")
         }
 
         let width = CVPixelBufferGetWidth(pixelBuffer)
@@ -84,7 +90,7 @@ enum VideoFrameConverter {
                 1
             ) >= height / 2
         else {
-            throw mediaError("Decoded NV12 video dimensions are invalid")
+            throw mediaError("NV12 video dimensions are invalid")
         }
 
         let lockStatus = CVPixelBufferLockBaseAddress(
@@ -92,7 +98,7 @@ enum VideoFrameConverter {
             .readOnly
         )
         guard lockStatus == kCVReturnSuccess else {
-            throw mediaError("Failed to lock decoded NV12 video data")
+            throw mediaError("Failed to lock NV12 video data")
         }
         defer {
             CVPixelBufferUnlockBaseAddress(
@@ -120,37 +126,26 @@ enum VideoFrameConverter {
                 1
             )
         else {
-            throw mediaError("Decoded NV12 video plane layout is invalid")
+            throw mediaError("NV12 video plane layout is invalid")
         }
 
-        let scaledDimensions = scaledDimensions(
-            outputWidth: outputWidth,
-            outputHeight: outputHeight,
-            rotation: rotation
-        )
         let crop = centerCrop(
             sourceWidth: width,
             sourceHeight: height,
-            targetWidth: scaledDimensions.width,
-            targetHeight: scaledDimensions.height
+            targetWidth: outputWidth,
+            targetHeight: outputHeight
         )
 
-        let scaledData = try scale(
+        let data = try scale(
             lumaBaseAddress: lumaBaseAddress,
             lumaStride: lumaStride,
             chromaBaseAddress: chromaBaseAddress,
             chromaStride: chromaStride,
             crop: crop,
-            outputWidth: scaledDimensions.width,
-            outputHeight: scaledDimensions.height
+            outputWidth: outputWidth,
+            outputHeight: outputHeight
         )
 
-        let data = try rotate(
-            scaledData,
-            sourceWidth: scaledDimensions.width,
-            sourceHeight: scaledDimensions.height,
-            rotation: rotation
-        )
         let lumaLength = outputWidth * outputHeight
 
         return try VideoFrame(
@@ -172,8 +167,7 @@ enum VideoFrameConverter {
                     byteOffset: lumaLength,
                     byteLength: lumaLength / 2
                 )
-            ],
-            rotation: .rotation0
+            ]
         )
     }
 
@@ -183,7 +177,6 @@ enum VideoFrameConverter {
     ///   - pixelBuffer: The BGRA pixel buffer.
     ///   - outputWidth: The final display width.
     ///   - outputHeight: The final display height.
-    ///   - rotation: The rotation applied after scaling.
     ///   - timestampUs: The monotonic timestamp, in microseconds.
     ///
     /// - Returns: A frame owning the processed BGRA pixels.
@@ -193,7 +186,6 @@ enum VideoFrameConverter {
         _ pixelBuffer: CVPixelBuffer,
         outputWidth: Int,
         outputHeight: Int,
-        rotation: VideoRotation,
         timestampUs: Int64
     ) throws -> VideoFrame {
         let width = CVPixelBufferGetWidth(pixelBuffer)
@@ -225,16 +217,11 @@ enum VideoFrameConverter {
             throw mediaError("BGRA video pixels are unavailable")
         }
 
-        let dimensions = scaledDimensions(
-            outputWidth: outputWidth,
-            outputHeight: outputHeight,
-            rotation: rotation
-        )
         let crop = centerCrop(
             sourceWidth: width,
             sourceHeight: height,
-            targetWidth: dimensions.width,
-            targetHeight: dimensions.height
+            targetWidth: outputWidth,
+            targetHeight: outputHeight
         )
         let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
         let start = source.advanced(by: crop.y * stride + crop.x * 4)
@@ -245,9 +232,9 @@ enum VideoFrameConverter {
                 throw mediaError("Failed to allocate BGRA video data")
             }
 
-            let rowBytes = dimensions.width * 4
-            if crop.width == dimensions.width, crop.height == dimensions.height {
-                for row in 0..<dimensions.height {
+            let rowBytes = outputWidth * 4
+            if crop.width == outputWidth, crop.height == outputHeight {
+                for row in 0..<outputHeight {
                     memcpy(
                         destination.advanced(by: row * rowBytes),
                         start.advanced(by: row * stride),
@@ -265,8 +252,8 @@ enum VideoFrameConverter {
             )
             var output = vImage_Buffer(
                 data: destination,
-                height: vImagePixelCount(dimensions.height),
-                width: vImagePixelCount(dimensions.width),
+                height: vImagePixelCount(outputHeight),
+                width: vImagePixelCount(outputWidth),
                 rowBytes: rowBytes
             )
             guard
@@ -279,46 +266,6 @@ enum VideoFrameConverter {
             else {
                 throw mediaError("Failed to scale BGRA video pixels")
             }
-        }
-
-        if rotation != .rotation0 {
-            var rotated = Data(count: byteCount)
-            try data.withUnsafeBytes { sourceBytes in
-                try rotated.withUnsafeMutableBytes { destinationBytes in
-                    guard let source = sourceBytes.baseAddress,
-                        let destination = destinationBytes.baseAddress
-                    else {
-                        throw mediaError("Failed to allocate rotated BGRA video data")
-                    }
-
-                    var input = vImage_Buffer(
-                        data: UnsafeMutableRawPointer(mutating: source),
-                        height: vImagePixelCount(dimensions.height),
-                        width: vImagePixelCount(dimensions.width),
-                        rowBytes: dimensions.width * 4
-                    )
-                    var output = vImage_Buffer(
-                        data: destination,
-                        height: vImagePixelCount(outputHeight),
-                        width: vImagePixelCount(outputWidth),
-                        rowBytes: outputWidth * 4
-                    )
-                    var background: Pixel_8888 = (0, 0, 0, 0)
-                    guard
-                        vImageRotate90_ARGB8888(
-                            &input,
-                            &output,
-                            rotationConstant(for: rotation),
-                            &background,
-                            vImage_Flags(kvImageNoFlags)
-                        ) == kvImageNoError
-                    else {
-                        throw mediaError("Failed to rotate BGRA video pixels")
-                    }
-                }
-            }
-
-            data = rotated
         }
 
         return try VideoFrame(
@@ -364,7 +311,7 @@ enum VideoFrameConverter {
         var data = Data(count: lumaLength + lumaLength / 2)
         try data.withUnsafeMutableBytes { bytes in
             guard let destination = bytes.baseAddress else {
-                throw mediaError("Failed to allocate decoded NV12 video data")
+                throw mediaError("Failed to allocate NV12 video data")
             }
 
             if crop.width == outputWidth, crop.height == outputHeight {
@@ -443,143 +390,6 @@ enum VideoFrameConverter {
         }
 
         return data
-    }
-
-    /// Rotates contiguous NV12 pixels.
-    ///
-    /// - Parameters:
-    ///   - data: The source NV12 data.
-    ///   - sourceWidth: The source width, in pixels.
-    ///   - sourceHeight: The source height, in pixels.
-    ///   - rotation: The rotation to apply.
-    ///
-    /// - Returns: The rotated NV12 data, or the source data for zero rotation.
-    ///
-    /// - Throws: An error if allocation or plane rotation fails.
-    private static func rotate(
-        _ data: Data,
-        sourceWidth: Int,
-        sourceHeight: Int,
-        rotation: VideoRotation
-    ) throws -> Data {
-        guard rotation != .rotation0 else {
-            return data
-        }
-
-        let swapsDimensions =
-            rotation == .rotation90
-            || rotation == .rotation270
-        let outputWidth = swapsDimensions ? sourceHeight : sourceWidth
-        let outputHeight = swapsDimensions ? sourceWidth : sourceHeight
-        let sourceLumaLength = sourceWidth * sourceHeight
-        let outputLumaLength = outputWidth * outputHeight
-        var output = Data(count: outputLumaLength + outputLumaLength / 2)
-
-        try data.withUnsafeBytes { sourceBytes in
-            try output.withUnsafeMutableBytes { outputBytes in
-                guard let source = sourceBytes.baseAddress, let destination = outputBytes.baseAddress else {
-                    throw mediaError(
-                        "Failed to allocate rotated NV12 video data"
-                    )
-                }
-
-                let rotationConstant = rotationConstant(for: rotation)
-                var sourceLuma = vImage_Buffer(
-                    data: UnsafeMutableRawPointer(mutating: source),
-                    height: vImagePixelCount(sourceHeight),
-                    width: vImagePixelCount(sourceWidth),
-                    rowBytes: sourceWidth
-                )
-                var targetLuma = vImage_Buffer(
-                    data: destination,
-                    height: vImagePixelCount(outputHeight),
-                    width: vImagePixelCount(outputWidth),
-                    rowBytes: outputWidth
-                )
-                guard
-                    vImageRotate90_Planar8(
-                        &sourceLuma,
-                        &targetLuma,
-                        rotationConstant,
-                        0,
-                        vImage_Flags(kvImageNoFlags)
-                    ) == kvImageNoError
-                else {
-                    throw mediaError("Failed to rotate decoded NV12 luma data")
-                }
-
-                var sourceChroma = vImage_Buffer(
-                    data: UnsafeMutableRawPointer(mutating: source).advanced(
-                        by: sourceLumaLength
-                    ),
-                    height: vImagePixelCount(sourceHeight / 2),
-                    width: vImagePixelCount(sourceWidth / 2),
-                    rowBytes: sourceWidth
-                )
-                var targetChroma = vImage_Buffer(
-                    data: destination.advanced(by: outputLumaLength),
-                    height: vImagePixelCount(outputHeight / 2),
-                    width: vImagePixelCount(outputWidth / 2),
-                    rowBytes: outputWidth
-                )
-                guard
-                    vImageRotate90_Planar16U(
-                        &sourceChroma,
-                        &targetChroma,
-                        rotationConstant,
-                        0,
-                        vImage_Flags(kvImageNoFlags)
-                    ) == kvImageNoError
-                else {
-                    throw mediaError(
-                        "Failed to rotate decoded NV12 chroma data"
-                    )
-                }
-            }
-        }
-
-        return output
-    }
-
-    /// Resolves scaled dimensions before rotation.
-    ///
-    /// - Parameters:
-    ///   - outputWidth: The final display width.
-    ///   - outputHeight: The final display height.
-    ///   - rotation: The rotation applied after scaling.
-    ///
-    /// - Returns: The width and height before rotation.
-    private static func scaledDimensions(
-        outputWidth: Int,
-        outputHeight: Int,
-        rotation: VideoRotation
-    ) -> (width: Int, height: Int) {
-        switch rotation {
-        case .rotation90, .rotation270:
-            (outputHeight, outputWidth)
-        case .rotation0, .rotation180:
-            (outputWidth, outputHeight)
-        }
-    }
-
-    /// Converts a display rotation to a vImage quarter-turn constant.
-    ///
-    /// - Parameter rotation: The video display rotation.
-    ///
-    /// - Returns: The vImage rotation constant.
-    private static func rotationConstant(
-        for rotation: VideoRotation
-    ) -> UInt8 {
-        switch rotation {
-        case .rotation0:
-            0
-        case .rotation90:
-            3
-        case .rotation180:
-            2
-        case .rotation270:
-            1
-        }
     }
 
     /// Resolves a centered crop matching the target aspect ratio.

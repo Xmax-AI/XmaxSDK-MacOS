@@ -1,19 +1,62 @@
 @preconcurrency import AgoraRtcKit
 import CoreMedia
 import CoreVideo
+import os
 import XCTest
 @testable import XmaxSDK
 
 final class RtcRemoteVideoSinkTests: XCTestCase, @unchecked Sendable {
+    func testSubscriptionLookupPrecedesPixelBufferValidation() {
+        let lookup = expectation(description: "Subscription checked even for a frame without a pixel buffer")
+        lookup.assertForOverFulfill = true
+        let sink = RtcRemoteVideoSink { _, _ in
+            lookup.fulfill()
+            return nil
+        }
+        let frame = AgoraOutputVideoFrame()
+        frame.pixelBuffer = nil
+
+        XCTAssertTrue(sink.onRenderVideoFrame(frame, uid: 42, channelId: "test"))
+        wait(for: [lookup], timeout: 1)
+    }
+
+    func testRetiredSubscriptionDoesNotReceiveOrRedirectTheInFlightFrame() throws {
+        let original = RtcRemoteVideoSink.Subscription { _ in XCTFail("Retired listener received the frame") }
+        let received = expectation(description: "Replacement receives the next frame")
+        received.assertForOverFulfill = true
+        let replacement = RtcRemoteVideoSink.Subscription { frame in
+            XCTAssertEqual(frame.presentationTimeStamp, CMTime(value: 1235, timescale: 1000))
+            received.fulfill()
+        }
+        let frame = try makeFrame()
+
+        for latest in [nil, replacement] {
+            let lookups = OSAllocatedUnfairLock(initialState: 0)
+            let sink = RtcRemoteVideoSink { _, _ in
+                lookups.withLock { count in
+                    count += 1
+                    return count == 1 ? original : latest
+                }
+            }
+            frame.renderTimeMs = 1234
+            XCTAssertTrue(sink.onRenderVideoFrame(frame, uid: 42, channelId: "test"))
+            XCTAssertEqual(lookups.withLock { $0 }, 2)
+            if latest != nil {
+                frame.renderTimeMs = 1235
+                XCTAssertTrue(sink.onRenderVideoFrame(frame, uid: 42, channelId: "test"))
+                XCTAssertEqual(lookups.withLock { $0 }, 4)
+            }
+        }
+        wait(for: [received], timeout: 1)
+    }
+
     func testUntaggedFramesUseRTCDefaultColorsWithoutChangingPixelsOrRange() throws {
         for format in [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
                        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange] {
             let source = try makeFrame(format: format)
             source.colorSpace = nil
             let received = expectation(description: "Decoded frame delivered")
-            let sink = RtcRemoteVideoSink { uid, channel, frame in
-                XCTAssertEqual(uid, 42)
-                XCTAssertEqual(channel, "test")
+            let sink = makeSink { frame in
                 XCTAssertEqual(frame.presentationTimeStamp, CMTime(value: 1234, timescale: 1000))
                 XCTAssertEqual(CVPixelBufferGetPixelFormatType(frame.pixelBuffer), format)
                 self.assertColor(frame.pixelBuffer)
@@ -50,7 +93,7 @@ final class RtcRemoteVideoSinkTests: XCTestCase, @unchecked Sendable {
         color.matrixID = .IDSMPTE170M
         source.colorSpace = color
         let received = expectation(description: "SD frame delivered")
-        let sink = RtcRemoteVideoSink { _, _, frame in
+        let sink = makeSink { frame in
             self.assertColor(frame.pixelBuffer, primaries: kCVImageBufferColorPrimaries_SMPTE_C,
                              matrix: kCVImageBufferYCbCrMatrix_ITU_R_601_4)
             received.fulfill()
@@ -67,7 +110,7 @@ final class RtcRemoteVideoSinkTests: XCTestCase, @unchecked Sendable {
         CVBufferSetAttachment(pixels, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_601_4, .shouldPropagate)
         CVBufferSetAttachment(pixels, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_sRGB, .shouldPropagate)
         let received = expectation(description: "Tagged frame delivered")
-        let sink = RtcRemoteVideoSink { _, _, frame in
+        let sink = makeSink { frame in
             self.assertColor(frame.pixelBuffer, primaries: kCVImageBufferColorPrimaries_SMPTE_C,
                              transfer: kCVImageBufferTransferFunction_sRGB,
                              matrix: kCVImageBufferYCbCrMatrix_ITU_R_601_4)
@@ -88,7 +131,7 @@ final class RtcRemoteVideoSinkTests: XCTestCase, @unchecked Sendable {
             color.matrixID = .IDBT2020_NCL
             source.colorSpace = color
             let received = expectation(description: "HDR frame delivered")
-            let sink = RtcRemoteVideoSink { _, _, frame in
+            let sink = makeSink { frame in
                 self.assertColor(frame.pixelBuffer, primaries: kCVImageBufferColorPrimaries_ITU_R_2020,
                                  transfer: expected, matrix: kCVImageBufferYCbCrMatrix_ITU_R_2020)
                 received.fulfill()
@@ -108,7 +151,7 @@ final class RtcRemoteVideoSinkTests: XCTestCase, @unchecked Sendable {
         untagged.renderTimeMs = 1235
         let received = expectation(description: "Both frames delivered")
         received.expectedFulfillmentCount = 2
-        let sink = RtcRemoteVideoSink { _, _, frame in
+        let sink = makeSink { frame in
             if frame.presentationTimeStamp == CMTime(value: 1234, timescale: 1000) {
                 self.assertColor(frame.pixelBuffer, transfer: kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ)
             } else {
@@ -120,6 +163,15 @@ final class RtcRemoteVideoSinkTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(sink.onRenderVideoFrame(tagged, uid: 42, channelId: "test"))
         XCTAssertTrue(sink.onRenderVideoFrame(untagged, uid: 42, channelId: "test"))
         wait(for: [received], timeout: 1)
+    }
+
+    private func makeSink(_ listener: @escaping RtcRemoteVideoFrameListener) -> RtcRemoteVideoSink {
+        let subscription = RtcRemoteVideoSink.Subscription(listener)
+        return RtcRemoteVideoSink { uid, channel in
+            XCTAssertEqual(uid, 42)
+            XCTAssertEqual(channel, "test")
+            return subscription
+        }
     }
 
     private func makeFrame(format: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) throws -> AgoraOutputVideoFrame {

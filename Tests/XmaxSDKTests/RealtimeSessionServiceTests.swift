@@ -151,29 +151,31 @@ final class RealtimeSessionServiceTests: XCTestCase {
         }
     }
 
-    func testCreateSessionRejectsIncompleteConnection() async {
-        let apiService = RealtimeApiServiceStub(
-            responses: [
-                .success(
-                    Data(
-                        #"{"sessionUid":"session-3","modelExtra":{"room_id":"room-3"}}"#.utf8
+    func testCreateSessionRejectsInvalidConnectionAndClosesSession() async {
+        for response in [
+            #"{"sessionUid":"session-3","modelExtra":{"room_id":"room-3"}}"#,
+            #"{"sessionUid":"session-3","modelExtra":"not-json"}"#,
+            #"{"sessionUid":"session-3","modelExtra":42}"#
+        ] {
+            let apiService = RealtimeApiServiceStub(
+                responses: [.success(Data(response.utf8)), .success(Data("{}".utf8))]
+            )
+            let service = RealtimeSessionService(apiService: apiService)
+
+            do {
+                _ = try await service.createSession(model: .x2_1)
+                XCTFail("Expected invalid RTC information to fail")
+            } catch {
+                XCTAssertEqual(
+                    error as? XmaxError,
+                    XmaxError(
+                        code: .sessionError,
+                        message: "Session does not contain complete RTC join information"
                     )
                 )
-            ]
-        )
-        let service = RealtimeSessionService(apiService: apiService)
-
-        do {
-            _ = try await service.createSession(model: .x2_1)
-            XCTFail("Expected incomplete RTC information to fail")
-        } catch {
-            XCTAssertEqual(
-                error as? XmaxError,
-                XmaxError(
-                    code: .sessionError,
-                    message: "Session does not contain complete RTC join information"
-                )
-            )
+            }
+            XCTAssertEqual(apiService.requests.map(\.path), ["/session", "/session/session-3"])
+            XCTAssertEqual(apiService.requests.last?.method, .delete)
         }
     }
 
@@ -413,8 +415,8 @@ private final class ManualRealtimeHeartbeatSleeper: @unchecked Sendable {
         self.continuation = continuation!
     }
 
-    var sleeper: RealtimeHeartbeatSleeper {
-        RealtimeHeartbeatSleeper { [stream] in
+    var sleeper: HeartbeatSleeper {
+        HeartbeatSleeper { [stream] in
             var iterator = stream.makeAsyncIterator()
             guard await iterator.next() != nil else {
                 throw CancellationError()

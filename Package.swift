@@ -23,7 +23,6 @@ let package = Package(
             dependencies: [
                 .product(name: "RtcBasic", package: "AgoraRtcEngine_macOS"),
                 "BeautyIPC",
-                .product(name: "ClearVision", package: "AgoraRtcEngine_macOS"),
                 "QCloudCore",
                 "QCloudCOSXML"
             ],

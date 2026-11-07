@@ -272,7 +272,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let close = Task { await components.manager.close() }
         try await waitUntil { capture.calls.contains(.stop) }
         XCTAssertNil(camera.currentTrack)
-        XCTAssertNil(capture.currentFrameListener)
+        XCTAssertNil(capture.currentPreviewReadyListener)
         await gate.release()
         do {
             _ = try await start.value
@@ -280,7 +280,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         } catch { XCTAssertEqual((error as? XmaxError)?.code, .cancelled) }
         await close.value
         XCTAssertNil(camera.currentTrack)
-        XCTAssertNil(capture.currentFrameListener)
+        XCTAssertNil(capture.currentPreviewReadyListener)
         let state = await components.manager.currentState
         XCTAssertEqual(state.connectionState, .idle)
     }
@@ -322,7 +322,10 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             rtcManager: rtc, permissionManager: PermissionManagingStub(),
             mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), captureManager: capture
         )
-        let media = MediaController(rtcManager: rtc, cameraController: camera)
+        let media = MediaController(
+            rtcManager: rtc, cameraController: camera, videoFrameListener: { _ in },
+            errorListener: { _ in }, interactionListener: { _, _ in }
+        )
         _ = try await media.createLocalCameraStream(
             videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), deviceID: nil
         )
@@ -987,23 +990,14 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             errorListener: { errors.forward($0, target: .connection) },
             remoteStreamListener: { try render.setRemoteStream($0) }, timing: timing
         )
-        let media: MediaController
-        if let camera {
-            media = MediaController(
-                rtcManager: rtc,
-                cameraController: camera,
-                microphoneDevices: microphoneDevices
-            )
-        } else {
-            media = MediaController(
-                rtcManager: rtc, mediaService: service,
-                videoFrameListener: { try stream.pushLocalVideoFrame($0) },
-                audioFrameListener: { try stream.pushLocalAudioFrame($0) },
-                errorListener: { errors.forward($0, target: .all) },
-                microphoneDevices: microphoneDevices,
-                interactionListener: { try await stream.sendTracks(taskID: $0, points: $1) }
-            )
-        }
+        let media = MediaController(
+            rtcManager: rtc, mediaService: service, cameraController: camera,
+            videoFrameListener: { try stream.pushLocalVideoFrame($0) },
+            audioFrameListener: { try stream.pushLocalAudioFrame($0) },
+            errorListener: { errors.forward($0, target: .all) },
+            microphoneDevices: microphoneDevices,
+            interactionListener: { try await stream.sendTracks(taskID: $0, points: $1) }
+        )
         let session = RealtimeSession(
             id: "session", userID: "user", status: "ACTIVE",
             connection: RealtimeSessionConnection(roomID: "room", userID: "user", token: "token", botName: "bot"),
@@ -1016,9 +1010,11 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let generation = XmaxRealtimeGenerationManager(interactionController: media, streamController: stream, renderController: render, timing: timing)
         let manager = XmaxRealtimeManager(
             options: options,
-            streamController: stream, mediaController: media, renderController: render,
-            mediaService: service, connectionManager: connection, errorManager: errors,
-            generationManager: generation, timing: timing
+            components: XmaxRealtimeFactory.assemble(
+                connectionManager: connection, generationManager: generation, errorManager: errors,
+                mediaController: media, renderController: render, streamController: stream,
+                mediaService: service, timing: timing
+            )
         )
         return (manager, media, rtc)
     }

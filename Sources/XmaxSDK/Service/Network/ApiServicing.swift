@@ -71,27 +71,6 @@ extension ApiServicing {
         )
     }
 
-    /// Sends a POST request and parses response data.
-    ///
-    /// - Parameters:
-    ///   - path: The request path relative to the API base URL.
-    ///   - responseType: The response data decoding type.
-    ///
-    /// - Returns: The business data parsed from the API response.
-    ///
-    /// - Throws: An error on request failure, server error, or response parsing failure.
-    func post<Response: Decodable & Sendable>(
-        _ path: String,
-        as responseType: Response.Type
-    ) async throws -> Response {
-        try await request(
-            .post,
-            path: path,
-            body: nil,
-            as: responseType
-        )
-    }
-
     /// Sends a POST request with a JSON body.
     ///
     /// - Parameters:

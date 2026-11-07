@@ -171,7 +171,9 @@ final class GenerationSizingTests: XCTestCase {
             let configuration = try XCTUnwrap(controller.qualityConfiguration)
             XCTAssertEqual(configuration.minimumInputPixels, 200000)
             XCTAssertEqual(configuration.uplink.size, CGSize(width: 528, height: 396))
-            XCTAssertLessThan(configuration.downlink.width * configuration.downlink.height, 200000)
+            XCTAssertEqual(configuration.downlinkLevel, .l5)
+            let downlink = QualityVideoFormat.resolveDownlinkMaximumSize(configuration.baseline, level: configuration.downlinkLevel)
+            XCTAssertLessThan(downlink.width * downlink.height, 200000)
         }
     }
 

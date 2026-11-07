@@ -39,13 +39,21 @@ final class RealtimeEventRelayService: Sendable {
         message: String
     ) async throws {
         try Task.checkCancellation()
-        let data = Data(message.utf8)
-        let command = try JSONDecoder().decode(Command.self, from: data)
+        let object = try JSONSerialization.jsonObject(with: Data(message.utf8))
+        guard let command = object as? [String: Any],
+            let event = command["event"] as? String,
+            let xid = command["xid"] as? String
+        else {
+            throw XmaxError(
+                code: .internalError,
+                message: "Event relay command requires string event and xid fields"
+            )
+        }
         let body = try JSONSerialization.data(
             withJSONObject: [
                 "sessionId": sessionID,
                 "modelId": modelID,
-                "data": try JSONSerialization.jsonObject(with: data)
+                "data": command
             ]
         )
         let startedAt = ProcessInfo.processInfo.systemUptime
@@ -56,7 +64,7 @@ final class RealtimeEventRelayService: Sendable {
             as: Receipt.self
         )
         try Task.checkCancellation()
-        guard receipt.xid == command.xid, let accepted = receipt.accepted else {
+        guard receipt.xid == xid, let accepted = receipt.accepted else {
             throw XmaxError(
                 code: .apiError,
                 message: "Server returned invalid event relay response"
@@ -66,20 +74,10 @@ final class RealtimeEventRelayService: Sendable {
         let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
         XmaxLogger.room.info(
             message: "HTTP 信令转发 (HTTP Signaling Relay)\n"
-                + "├─ event: \(command.event), xid: \(command.xid)\n"
+                + "├─ event: \(event), xid: \(xid)\n"
                 + "├─ sessionId: \(sessionID), modelId: \(modelID)\n"
                 + "└─ accepted: \(accepted), elapsed: \(elapsed) ms"
         )
-    }
-
-    /// Identifies the frozen command without changing its payload.
-    private struct Command: Decodable {
-
-        /// The generation control event.
-        let event: String
-
-        /// The logical identifier shared with RTC delivery.
-        let xid: String
     }
 
     /// A relay receipt whose fields must be validated before accepting it.

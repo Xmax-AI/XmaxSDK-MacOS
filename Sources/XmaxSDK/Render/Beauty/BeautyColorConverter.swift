@@ -51,33 +51,10 @@ final class BeautyColorConverter {
         if let session { VTPixelTransferSessionInvalidate(session) }
     }
 
-    /// Prepares supported SDR output independently of the beauty switch.
-    /// HDR and other formats remain unchanged unless an enabled effect explicitly requests validation.
+    /// Prepares SDR output and records unsupported colors for beauty.
     func prepareOutput(
         _ frame: RealtimeVideoFrame
-    ) throws -> RealtimeVideoFrame {
-        let input = frame.pixelBuffer
-        let format = CVPixelBufferGetPixelFormatType(input)
-        guard [kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-               kCVPixelFormatType_420YpCbCr8BiPlanarFullRange].contains(format),
-            CVPixelBufferGetWidth(input).isMultiple(of: 2),
-            CVPixelBufferGetHeight(input).isMultiple(of: 2)
-        else { return frame }
-        if let transfer = CVBufferCopyAttachment(input, kCVImageBufferTransferFunctionKey, nil) as? String,
-            !Self.sdrTransfers.contains(transfer) { return frame }
-        return try prepare(frame)
-    }
-
-    /// Preserves compatible buffers or converts their SDR colors without changing frame timing or input pixels.
-    ///
-    /// - Parameter frame: The post-interpolation result frame, with its source color attachments.
-    ///
-    /// - Returns: The original frame or an owned, video-range BT.709 NV12 frame of the same dimensions.
-    ///
-    /// - Throws: A media error for unsupported transfer functions or failed system conversion.
-    func prepare(
-        _ frame: RealtimeVideoFrame
-    ) throws -> RealtimeVideoFrame {
+    ) throws -> BeautyFrameInput {
         let input = frame.pixelBuffer
         let format = CVPixelBufferGetPixelFormatType(input)
         guard [kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
@@ -85,11 +62,17 @@ final class BeautyColorConverter {
             CVPixelBufferGetWidth(input).isMultiple(of: 2),
             CVPixelBufferGetHeight(input).isMultiple(of: 2)
         else {
-            throw Self.error("Beauty requires even-sized NV12 or BGRA frames")
+            return .unsupported(
+                frame,
+                Self.error("Beauty requires even-sized NV12 or BGRA frames")
+            )
         }
         let transfer = CVBufferCopyAttachment(input, kCVImageBufferTransferFunctionKey, nil) as? String
         if let transfer, !Self.sdrTransfers.contains(transfer) {
-            throw Self.error("Result beauty requires SDR video; unsupported transfer function: \(transfer)")
+            return .unsupported(
+                frame,
+                Self.error("Result beauty requires SDR video; unsupported transfer function: \(transfer)")
+            )
         }
 
         let colors = [
@@ -98,9 +81,12 @@ final class BeautyColorConverter {
             (kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_709_2)
         ]
         guard colors.contains(where: { key, expected in
-            guard let actual = CVBufferCopyAttachment(input, key, nil) as? String else { return false }
+            let actual = key == kCVImageBufferTransferFunctionKey
+                ? transfer
+                : CVBufferCopyAttachment(input, key, nil) as? String
+            guard let actual else { return false }
             return actual != expected as String
-        }) else { return frame }
+        }) else { return .prepared(frame) }
 
         let session = try conversionSession()
         let output = try makeOutputBuffer(input: input)
@@ -116,11 +102,22 @@ final class BeautyColorConverter {
             }.joined(separator: ", ")
             throw Self.error("Unable to convert result beauty input to BT.709 (\(status)): \(sourceColors)")
         }
-        return RealtimeVideoFrame(
-            pixelBuffer: output,
-            presentationTimeStamp: frame.presentationTimeStamp,
-            duration: frame.duration
+        return .prepared(
+            RealtimeVideoFrame(
+                pixelBuffer: output,
+                presentationTimeStamp: frame.presentationTimeStamp,
+                duration: frame.duration
+            )
         )
+    }
+
+    /// Prepares standalone beauty input and rejects unsupported colors.
+    func prepare(
+        _ frame: RealtimeVideoFrame
+    ) throws -> RealtimeVideoFrame {
+        let input = try prepareOutput(frame)
+        if case .unsupported(_, let error) = input { throw error }
+        return input.frame
     }
 
     /// Releases system conversion and pool resources on the beauty worker queue.

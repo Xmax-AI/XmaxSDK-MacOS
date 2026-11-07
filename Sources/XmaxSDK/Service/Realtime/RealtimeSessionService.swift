@@ -17,13 +17,13 @@ final class RealtimeSessionService: RealtimeSessionServicing, @unchecked Sendabl
     private let apiService: any ApiServicing
 
     /// The heartbeat interval provider.
-    private let heartbeatSleeper: RealtimeHeartbeatSleeper
+    private let heartbeatSleeper: HeartbeatSleeper
 
     /// The lock protecting heartbeat startup and cancellation.
     private let heartbeatLock = NSLock()
 
     /// The revision rejecting stale heartbeat results.
-    private let heartbeatVersion = RealtimeHeartbeatVersion()
+    private let heartbeatVersion = HeartbeatVersion()
 
     /// The current session heartbeat task.
     private var heartbeatTask: Task<Void, Never>?
@@ -31,7 +31,7 @@ final class RealtimeSessionService: RealtimeSessionServicing, @unchecked Sendabl
     /// Creates a realtime session service with a periodic heartbeat wait strategy.
     init(
         apiService: any ApiServicing,
-        heartbeatSleeper: RealtimeHeartbeatSleeper = .live
+        heartbeatSleeper: HeartbeatSleeper = .live
     ) {
         self.apiService = apiService
         self.heartbeatSleeper = heartbeatSleeper
@@ -161,10 +161,10 @@ private extension RealtimeSessionService {
         let apiService: any ApiServicing
 
         /// The wait for the next heartbeat interval.
-        let sleeper: RealtimeHeartbeatSleeper
+        let sleeper: HeartbeatSleeper
 
         /// The current heartbeat validity check.
-        let versionState: RealtimeHeartbeatVersion
+        let versionState: HeartbeatVersion
 
         /// The heartbeat loop revision.
         let version: UInt64
@@ -195,7 +195,7 @@ private extension RealtimeSessionService {
         let status: String?
 
         /// The RTC connection payload.
-        let modelExtra: ModelExtra?
+        let connectionPayload: ConnectionPayload?
 
         /// The server session closure reason.
         let closeReason: String?
@@ -247,45 +247,21 @@ private extension RealtimeSessionService {
                 String.self,
                 forKey: .status
             )
-            modelExtra = try? container.decode(
-                ModelExtra.self,
-                forKey: .modelExtra
-            )
+            if let json = try? container.decode(String.self, forKey: .modelExtra) {
+                connectionPayload = try? JSONDecoder().decode(
+                    ConnectionPayload.self,
+                    from: Data(json.utf8)
+                )
+            } else {
+                connectionPayload = try? container.decode(
+                    ConnectionPayload.self,
+                    forKey: .modelExtra
+                )
+            }
             closeReason = try? container.decode(
                 String.self,
                 forKey: .closeReason
             )
-        }
-    }
-
-    /// Receives extra RTC parameters as an object or JSON string.
-    enum ModelExtra: Decodable, Sendable {
-
-        /// An RTC connection object.
-        case object(ConnectionPayload)
-
-        /// RTC connection information encoded as a JSON string.
-        case json(String)
-
-        /// An unrecognized connection payload.
-        case invalid
-
-        /// Decodes extra RTC connection information as an object or JSON string.
-        ///
-        /// - Parameter decoder: The decoder supplying extra information.
-        ///
-        /// - Throws: A decoding error if a single-value container cannot be created.
-        init(
-            from decoder: any Decoder
-        ) throws {
-            let container = try decoder.singleValueContainer()
-            if let json = try? container.decode(String.self) {
-                self = .json(json)
-            } else if let payload = try? ConnectionPayload(from: decoder) {
-                self = .object(payload)
-            } else {
-                self = .invalid
-            }
         }
     }
 
@@ -471,7 +447,7 @@ private extension RealtimeSessionService {
         }
 
         let userID = nonEmpty(payload.userUID)
-        let connection = makeConnection(from: payload.modelExtra)
+        let connection = makeConnection(from: payload.connectionPayload)
         if requiresConnection, connection == nil {
             throw XmaxError(
                 code: .sessionError,
@@ -489,33 +465,16 @@ private extension RealtimeSessionService {
         )
     }
 
-    /// Parses extra RTC fields and validates application identity.
+    /// Validates RTC join fields and application identity.
     ///
-    /// - Parameter modelExtra: The extra RTC fields as an object or JSON string.
+    /// - Parameter payload: The decoded RTC join fields.
     ///
     /// - Returns: Complete connection parameters matching the current RTC app, or `nil` for invalid fields.
     static func makeConnection(
-        from modelExtra: ModelExtra?
+        from payload: ConnectionPayload?
     ) -> RealtimeSessionConnection? {
-        let payload: ConnectionPayload
-        switch modelExtra {
-        case .object(let value):
-            payload = value
-        case .json(let value):
-            guard let data = value.data(using: .utf8),
-                let value = try? JSONDecoder().decode(
-                    ConnectionPayload.self,
-                    from: data
-                )
-            else {
-                return nil
-            }
-            payload = value
-        case .invalid, nil:
-            return nil
-        }
-
-        guard let roomID = nonEmpty(payload.roomID),
+        guard let payload,
+            let roomID = nonEmpty(payload.roomID),
             let token = nonEmpty(payload.token),
             let userID = nonEmpty(payload.userID),
             let botName = nonEmpty(payload.botName),
@@ -543,66 +502,5 @@ private extension RealtimeSessionService {
             in: .whitespacesAndNewlines
         )
         return normalized?.isEmpty == false ? normalized : nil
-    }
-}
-
-/// Wraps the asynchronous wait strategy before each heartbeat.
-struct RealtimeHeartbeatSleeper: Sendable {
-
-    /// The cancellable heartbeat wait.
-    let sleep: @Sendable () async throws -> Void
-
-    /// A heartbeat wait using a 10-second interval.
-    static let live = RealtimeHeartbeatSleeper {
-        try await Task.sleep(nanoseconds: 10_000_000_000)
-    }
-}
-
-/// Uses a version counter to invalidate late results from stopped heartbeats.
-private final class RealtimeHeartbeatVersion: @unchecked Sendable {
-
-    /// The lock protecting heartbeat revision updates.
-    private let lock = NSLock()
-
-    /// The current heartbeat revision.
-    private var value: UInt64 = 0
-
-    /// Advances the heartbeat version, invalidating earlier results.
-    ///
-    /// - Returns: The updated version.
-    @discardableResult
-    func advance() -> UInt64 {
-        lock.withLock {
-            value &+= 1
-            return value
-        }
-    }
-
-    /// Checks whether a heartbeat version belongs to the current lifecycle.
-    ///
-    /// - Parameter version: The heartbeat version to check.
-    ///
-    /// - Returns: `true` if it matches the current version.
-    func isCurrent(
-        _ version: UInt64
-    ) -> Bool {
-        lock.withLock { value == version }
-    }
-
-    /// Advances the version only if still valid, invalidating that heartbeat.
-    ///
-    /// - Parameter version: The heartbeat version to invalidate.
-    ///
-    /// - Returns: `true` if the current version was invalidated; `false` for stale versions.
-    func invalidate(
-        _ version: UInt64
-    ) -> Bool {
-        lock.withLock {
-            guard value == version else {
-                return false
-            }
-            value &+= 1
-            return true
-        }
     }
 }

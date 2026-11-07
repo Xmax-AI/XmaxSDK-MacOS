@@ -26,7 +26,7 @@ actor MediaController: MediaControlling {
     private let cameraController: any CameraControlling
 
     /// The external video and preview controller.
-    private let externalController: (any ExternalVideoControlling)?
+    private let externalController: ExternalVideoController
 
     /// The trajectory coordinate and delivery controller.
     private let interactionController: any InteractionControlling
@@ -64,7 +64,7 @@ actor MediaController: MediaControlling {
         case .camera:
             return cameraController.useMicrophone
         case .external:
-            return externalController?.hasAudio ?? false
+            return externalController.hasAudio
         default:
             return false
         }
@@ -75,6 +75,7 @@ actor MediaController: MediaControlling {
     /// - Parameters:
     ///   - rtcManager: The RTC engine and media adapter.
     ///   - mediaService: The media service providing model dimension rules.
+    ///   - cameraController: The camera controller, or `nil` to use the system camera.
     ///   - videoFrameListener: The callback receiving local video frames.
     ///   - audioFrameListener: Receives converted external audio without local playback.
     ///   - errorListener: The callback receiving media runtime errors.
@@ -84,6 +85,7 @@ actor MediaController: MediaControlling {
     init(
         rtcManager: any RtcManaging,
         mediaService: any MediaServicing = MediaService(),
+        cameraController: (any CameraControlling)? = nil,
         videoFrameListener: @escaping MediaVideoFrameListener,
         audioFrameListener: @escaping MediaAudioFrameListener = { _ in },
         errorListener: @escaping XmaxErrorListener,
@@ -92,10 +94,9 @@ actor MediaController: MediaControlling {
     ) {
         self.rtcManager = rtcManager
         self.microphoneDevices = microphoneDevices
-        cameraController = CameraController(
+        self.cameraController = cameraController ?? CameraController(
             rtcManager: rtcManager,
             mediaService: mediaService,
-            videoFrameListener: videoFrameListener,
             errorListener: errorListener
         )
         externalController = ExternalVideoController(
@@ -105,30 +106,6 @@ actor MediaController: MediaControlling {
             audioFrameListener: audioFrameListener,
             errorListener: errorListener
         )
-        interactionController = InteractionController(
-            listener: interactionListener
-        )
-    }
-
-    /// Creates a unified media controller with the specified components.
-    ///
-    /// - Parameters:
-    ///   - rtcManager: The RTC engine and media adapter.
-    ///   - cameraController: The camera media controller.
-    ///   - externalController: The external video input controller.
-    ///   - microphoneDevices: Reads current audio input descriptions without opening devices.
-    ///   - interactionListener: The callback receiving video pixel interaction coordinates.
-    init(
-        rtcManager: any RtcManaging,
-        cameraController: any CameraControlling,
-        externalController: (any ExternalVideoControlling)? = nil,
-        microphoneDevices: @escaping @Sendable () -> [MicrophoneDevice] = { MicrophoneDeviceDiscovery.list() },
-        interactionListener: @escaping InteractionListener = { _, _ in }
-    ) {
-        self.rtcManager = rtcManager
-        self.microphoneDevices = microphoneDevices
-        self.cameraController = cameraController
-        self.externalController = externalController
         interactionController = InteractionController(
             listener: interactionListener
         )
@@ -218,14 +195,8 @@ actor MediaController: MediaControlling {
         source: any RealtimeExternalVideoSource,
         videoFormat: RealtimeVideoFormat?
     ) async throws -> RealtimeMediaStream {
-        guard let externalController else {
-            throw XmaxError(
-                code: .invalidConfiguration,
-                message: "External video input is unavailable"
-            )
-        }
-        return try await createSource(kind: .external) {
-            try await externalController.create(
+        try await createSource(kind: .external) {
+            try await self.externalController.create(
                 source: source,
                 videoFormat: videoFormat
             )
@@ -556,7 +527,7 @@ private extension MediaController {
         case .camera:
             await stopLocalCapture()
         case .external:
-            await externalController?.stop()
+            await externalController.stop()
         }
     }
 
@@ -572,7 +543,7 @@ private extension MediaController {
         case .camera:
             cameraController.currentTrack
         case .external:
-            externalController?.currentTrack
+            externalController.currentTrack
         }
     }
 

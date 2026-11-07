@@ -47,9 +47,6 @@ actor RoomCommandController {
         /// Completes only on transport success, initial failure, or explicit cancellation.
         let completion: AsyncThrowingStream<Void, any Error>.Continuation
 
-        /// The caller-visible result independent of the receipt deadline.
-        let result: Task<Void, any Error>
-
         /// The redundant-send timers and final deadline.
         var scheduled: [Task<Void, Never>] = []
 
@@ -78,8 +75,7 @@ actor RoomCommandController {
             xid: String,
             message: String,
             ensureCurrent: @escaping @Sendable () throws -> Void,
-            completion: AsyncThrowingStream<Void, any Error>.Continuation,
-            result: Task<Void, any Error>
+            completion: AsyncThrowingStream<Void, any Error>.Continuation
         ) {
             self.kind = kind
             self.taskID = taskID
@@ -87,7 +83,6 @@ actor RoomCommandController {
             self.message = message
             self.ensureCurrent = ensureCurrent
             self.completion = completion
-            self.result = result
         }
     }
 
@@ -151,8 +146,7 @@ actor RoomCommandController {
             xid: xid,
             message: message,
             ensureCurrent: ensureCurrent,
-            completion: completion,
-            result: result
+            completion: completion
         )
         pending[xid] = command
         let previous = sendTail

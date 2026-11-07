@@ -48,7 +48,7 @@ public extension XmaxRealtimeManaging {
         microphone: RealtimeMicrophone = .disabled
     ) async throws -> RealtimeMediaStream {
         guard
-            let format = options.model.supportedVideoFormats.first(
+            let format = configuration.model.supportedVideoFormats.first(
                 where: {
                     $0.size == preset.size
                 }
@@ -154,7 +154,7 @@ public extension XmaxRealtimeManaging {
         microphone: RealtimeMicrophone = .disabled
     ) async throws -> RealtimeMediaStream {
         try await createLocalCameraStream(
-            videoFormat: options.model.defaultCameraVideoFormat,
+            videoFormat: configuration.model.defaultCameraVideoFormat,
             deviceID: deviceID,
             mirror: mirror,
             microphone: microphone

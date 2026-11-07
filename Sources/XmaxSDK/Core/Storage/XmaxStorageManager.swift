@@ -205,13 +205,11 @@ final class XmaxStorageManager: XmaxStorageManaging, Sendable {
         to destinationURL: URL,
         progress: XmaxStorageProgressHandler?
     ) async throws -> XmaxDownloadedFile {
-        try await downloadedFile {
-            try await storageService.downloadImage(
-                remoteURL: remoteURL,
-                destinationURL: destinationURL,
-                progress: progressListener(progress)
-            )
-        }
+        try await download(
+            from: remoteURL,
+            to: destinationURL,
+            progress: progress
+        )
     }
 
     /// Downloads a video to the specified local file.
@@ -229,13 +227,11 @@ final class XmaxStorageManager: XmaxStorageManaging, Sendable {
         to destinationURL: URL,
         progress: XmaxStorageProgressHandler?
     ) async throws -> XmaxDownloadedFile {
-        try await downloadedFile {
-            try await storageService.downloadVideo(
-                remoteURL: remoteURL,
-                destinationURL: destinationURL,
-                progress: progressListener(progress)
-            )
-        }
+        try await download(
+            from: remoteURL,
+            to: destinationURL,
+            progress: progress
+        )
     }
 }
 
@@ -281,18 +277,18 @@ private extension XmaxStorageManager {
         }
     }
 
-    /// Downloads a file and converts the result to the public download type.
-    ///
-    /// - Parameter operation: The asynchronous operation returning the service download result.
-    ///
-    /// - Returns: The local file information exposed to callers.
-    ///
-    /// - Throws: The converted XmaxError on download failure.
-    func downloadedFile(
-        _ operation: () async throws -> DownloadedFile
+    /// Downloads a file and maps failures to XmaxError.
+    func download(
+        from remoteURL: URL,
+        to destinationURL: URL,
+        progress: XmaxStorageProgressHandler?
     ) async throws -> XmaxDownloadedFile {
         do {
-            let file = try await operation()
+            let file = try await storageService.download(
+                remoteURL: remoteURL,
+                destinationURL: destinationURL,
+                progress: progressListener(progress)
+            )
             return XmaxDownloadedFile(
                 fileURL: file.fileURL,
                 byteCount: file.byteCount

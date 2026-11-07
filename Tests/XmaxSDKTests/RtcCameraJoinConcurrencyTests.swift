@@ -41,6 +41,22 @@ final class RtcCameraJoinConcurrencyTests: XCTestCase, @unchecked Sendable {
         await manager.destroy()
     }
 
+    func testCameraStartsWithRequestedEncoderAspectRatioAndMirror() async throws {
+        let engine = BlockingCameraAgoraEngine(onCameraStart: {})
+        let manager = makeManager(engine)
+        try await manager.initialize()
+        try manager.configureLocalVideoMirror(true)
+        try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 1920, height: 1080, frameRate: 30))
+        try manager.startCameraCapture(
+            configuration: RtcCameraConfiguration(deviceID: "camera", width: 1408, height: 1408, frameRate: 30),
+            previewReadyListener: {},
+            errorListener: { _ in }
+        )
+        XCTAssertEqual(engine.encoderSizesAtCapture, [CGSize(width: 1408, height: 1408)])
+        XCTAssertEqual(engine.encodedMirrors, [.enabled, .enabled])
+        await manager.destroy()
+    }
+
     func testNativeCameraCanStartWhileVendorJoinCallIsBlocked() async throws {
         let entered = expectation(description: "Vendor join call entered")
         let captured = expectation(description: "Camera starts before vendor join returns")
@@ -180,6 +196,10 @@ final class RtcCameraJoinConcurrencyTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(engine.configurations.map { $0.frameRate }, [30, 24, 30])
         try manager.updateCameraCapture(videoFormat: format, frameRate: 24)
         XCTAssertEqual(engine.configurations.map { $0.width }, [4, 8, 4, 8])
+        XCTAssertEqual(engine.encoderSizesAtCapture, [
+            CGSize(width: 4, height: 4), CGSize(width: 8, height: 4),
+            CGSize(width: 4, height: 4), CGSize(width: 8, height: 4)
+        ])
         await manager.destroy()
     }
 
@@ -259,11 +279,16 @@ private final class BlockingCameraAgoraEngine: AgoraRtcCameraEngine, AgoraRtcRoo
     var cameraReturned: Bool { stateLock.withLock { returned } }
     private var storedEncodedMirrors: [AgoraVideoMirrorMode] = []
     var encodedMirrors: [AgoraVideoMirrorMode] { stateLock.withLock { storedEncodedMirrors } }
+    private var encoderSize: CGSize?
+    private var storedEncoderSizesAtCapture: [CGSize?] = []
+    var encoderSizesAtCapture: [CGSize?] { stateLock.withLock { storedEncoderSizesAtCapture } }
 
     func setVideoEncoderConfiguration(_ config: AgoraVideoEncoderConfiguration) -> Int32 {
         stateLock.withLock {
             storedEncodedMirrors.append(config.mirrorMode)
-            return failingEncoderCalls.contains(storedEncodedMirrors.count) ? -1 : 0
+            guard !failingEncoderCalls.contains(storedEncodedMirrors.count) else { return -1 }
+            encoderSize = config.dimensions
+            return 0
         }
     }
     func setVideoEncoderConfigurationEx(_ config: AgoraVideoEncoderConfiguration, connection: AgoraRtcConnection) -> Int32 {
@@ -285,6 +310,7 @@ private final class BlockingCameraAgoraEngine: AgoraRtcCameraEngine, AgoraRtcRoo
 
     func enableLocalVideo(_ enabled: Bool) -> Int32 { 0 }
     func startCameraCapture(_ sourceType: AgoraVideoSourceType, config: AgoraCameraCapturerConfiguration?) -> Int32 {
+        stateLock.withLock { storedEncoderSizesAtCapture.append(encoderSize) }
         onCameraStart()
         return stateLock.withLock {
             returned = true

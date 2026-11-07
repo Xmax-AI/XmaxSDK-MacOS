@@ -10,6 +10,7 @@
 //
 
 import CoreMedia
+import CoreVideo
 import Foundation
 @preconcurrency import AgoraRtcKit
 import XCTest
@@ -38,10 +39,6 @@ final class RtcFoundationTests: XCTestCase {
         }
     }
 
-
-    func testRemoteStreamBuildsStableKey() {
-        XCTAssertEqual(RemoteStream(roomID: "room-a", userID: "user-b").key, "room-a:user-b")
-    }
 
     func testVideoEncodingConfigurationUsesAdaptiveBitrateDefaults() {
         let configuration = VideoEncodingConfiguration(width: 720, height: 1280, frameRate: 24)
@@ -75,20 +72,19 @@ final class RtcFoundationTests: XCTestCase {
             planes: [
                 VideoFramePlane(data: Data([99, 1, 2, 88, 3, 4, 98]), stride: 3, byteOffset: 1, byteLength: 5),
                 VideoFramePlane(data: Data([97, 5, 6, 96]), stride: 2, byteOffset: 1, byteLength: 2)
-            ],
-            rotation: .rotation90
+            ]
         )
-        let converted = try RtcVideoConverter.convertFrame(frame).value
+        let converted = try RtcVideoConverter.convertFrame(frame)
         XCTAssertEqual(converted.format, 8)
         XCTAssertEqual(converted.strideInPixels, 2)
         XCTAssertEqual(converted.height, 2)
-        XCTAssertEqual(converted.rotation, 90)
+        XCTAssertEqual(converted.rotation, 0)
         XCTAssertEqual(converted.dataBuf, Data([1, 2, 3, 4, 5, 6]))
         XCTAssertEqual(CMTimeConvertScale(converted.time, timescale: 1000000, method: .default).value, 12345)
     }
 
     func testVideoConverterRetainsDataAfterSourceIsReleased() throws {
-        let converted: RtcVideoFrame = try autoreleasepool {
+        let converted = try autoreleasepool {
             var data = Data((0..<24).map(UInt8.init))
             let frame = try VideoFrame(
                 format: VideoFormat(width: 4, height: 4, pixelFormat: .nv12), timestampUs: 0,
@@ -101,12 +97,57 @@ final class RtcFoundationTests: XCTestCase {
             data[0] = 255
             return result
         }
-        XCTAssertEqual(converted.value.dataBuf, Data((0..<24).map(UInt8.init)))
+        XCTAssertEqual(converted.dataBuf, Data((0..<24).map(UInt8.init)))
+    }
+
+    func testVideoConverterRepacksAdjacentPlaneRangesFromDifferentStorage() throws {
+        let frame = try VideoFrame(
+            format: VideoFormat(width: 4, height: 4, pixelFormat: .nv12), timestampUs: 0,
+            planes: [
+                VideoFramePlane(data: Data(repeating: 1, count: 24), stride: 4, byteLength: 16),
+                VideoFramePlane(data: Data(repeating: 2, count: 24), stride: 4, byteOffset: 16, byteLength: 8)
+            ]
+        )
+        let converted = try RtcVideoConverter.convertFrame(frame)
+        XCTAssertEqual(converted.dataBuf, Data(repeating: 1, count: 16) + Data(repeating: 2, count: 8))
+    }
+
+    func testExternalVideoPixelsReachAgoraForBothFormatsAfterSourceRelease() throws {
+        for (format, agoraFormat, expected) in [
+            (kCVPixelFormatType_32BGRA, 2, Data(repeating: 31, count: 64)),
+            (kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, 8,
+             Data(repeating: 31, count: 16) + Data(repeating: 97, count: 8))
+        ] {
+            let converted = try autoreleasepool {
+                var buffer: CVPixelBuffer?
+                let attributes = [kCVPixelBufferBytesPerRowAlignmentKey: 64] as CFDictionary
+                XCTAssertEqual(CVPixelBufferCreate(nil, 4, 4, format, attributes, &buffer), kCVReturnSuccess)
+                let source = try XCTUnwrap(buffer)
+                XCTAssertEqual(CVPixelBufferLockBaseAddress(source, []), kCVReturnSuccess)
+                if format == kCVPixelFormatType_32BGRA {
+                    let base = try XCTUnwrap(CVPixelBufferGetBaseAddress(source))
+                    memset(base, 31, CVPixelBufferGetBytesPerRow(source) * 4)
+                } else {
+                    let luma = try XCTUnwrap(CVPixelBufferGetBaseAddressOfPlane(source, 0))
+                    let chroma = try XCTUnwrap(CVPixelBufferGetBaseAddressOfPlane(source, 1))
+                    memset(luma, 31, CVPixelBufferGetBytesPerRowOfPlane(source, 0) * 4)
+                    memset(chroma, 97, CVPixelBufferGetBytesPerRowOfPlane(source, 1) * 2)
+                }
+                CVPixelBufferUnlockBaseAddress(source, [])
+                let frame = try VideoFrameConverter.convert(
+                    pixelBuffer: source, outputWidth: 4, outputHeight: 4, timestampUs: 42
+                )
+                return try RtcVideoConverter.convertFrame(frame)
+            }
+            XCTAssertEqual(converted.dataBuf, expected)
+            XCTAssertEqual(converted.format, agoraFormat)
+            XCTAssertEqual(converted.time, CMTime(value: 42, timescale: 1_000_000))
+        }
     }
 
     func testVideoConverterRejectsWrongPlaneCountAndShortRows() throws {
         let missingPlane = try VideoFrame(
-            format: VideoFormat(width: 2, height: 2, pixelFormat: .i420), timestampUs: 0,
+            format: VideoFormat(width: 2, height: 2, pixelFormat: .nv12), timestampUs: 0,
             planes: [VideoFramePlane(data: Data(repeating: 0, count: 4), stride: 2)]
         )
         XCTAssertThrowsError(try RtcVideoConverter.convertFrame(missingPlane))
@@ -115,16 +156,5 @@ final class RtcFoundationTests: XCTestCase {
             planes: [VideoFramePlane(data: Data(repeating: 0, count: 8), stride: 8)]
         )
         XCTAssertThrowsError(try RtcVideoConverter.convertFrame(shortPlane))
-    }
-
-    func testVideoFrameCacheReusesStaticPixelsAndUpdatesTimestamp() throws {
-        let format = try VideoFormat(width: 2, height: 2, pixelFormat: .bgra)
-        let plane = try VideoFramePlane(data: Data(repeating: 7, count: 16), stride: 8)
-        let id = UUID()
-        let cache = RtcVideoFrameCache()
-        let first = try cache.frame(for: VideoFrame(format: format, timestampUs: 1000, planes: [plane], bufferReuseID: id))
-        let second = try cache.frame(for: VideoFrame(format: format, timestampUs: 2000, planes: [plane], bufferReuseID: id))
-        XCTAssertTrue(first === second)
-        XCTAssertEqual(CMTimeConvertScale(second.value.time, timescale: 1000000, method: .default).value, 2000)
     }
 }

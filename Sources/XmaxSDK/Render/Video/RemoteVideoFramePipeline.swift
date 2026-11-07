@@ -365,9 +365,9 @@ private extension RemoteVideoFramePipeline {
                 else {
                     break
                 }
-                let preparedFrame: RealtimeVideoFrame
+                let beautyInput: BeautyFrameInput
                 do {
-                    preparedFrame = try outputColorConverter.prepareOutput(outputFrame)
+                    beautyInput = try outputColorConverter.prepareOutput(outputFrame)
                     reportedColorFailure = false
                 } catch BeautyProcessingError.outputBackpressure {
                     continue
@@ -378,9 +378,9 @@ private extension RemoteVideoFramePipeline {
                         )
                         reportedColorFailure = true
                     }
-                    preparedFrame = outputFrame
+                    beautyInput = .unprepared(outputFrame)
                 }
-                guard let finalFrame = await processBeauty(preparedFrame, generation: activeGeneration),
+                guard let finalFrame = await processBeauty(beautyInput, generation: activeGeneration),
                     !Task.isCancelled, generation == activeGeneration else { continue }
                 await outputListener(
                     finalFrame,
@@ -395,10 +395,10 @@ private extension RemoteVideoFramePipeline {
 
     /// Processes one interpolated frame; stale work is discarded and failures bypass only beauty.
     func processBeauty(
-        _ frame: RealtimeVideoFrame,
+        _ input: BeautyFrameInput,
         generation activeGeneration: Int
     ) async -> RealtimeVideoFrame? {
-        guard let options = beautyOptions else { return frame }
+        guard let options = beautyOptions else { return input.frame }
         let revision = beautyRevision
         do {
             let processor: any BeautyProcessing
@@ -412,7 +412,7 @@ private extension RemoteVideoFramePipeline {
                 }
                 beautyProcessor = processor
             }
-            let result = try await processor.process(frame)
+            let result = try await processor.process(input)
             guard generation == activeGeneration, revision == beautyRevision, !Task.isCancelled else { return nil }
             return result
         } catch BeautyProcessingError.outputBackpressure {
@@ -429,7 +429,7 @@ private extension RemoteVideoFramePipeline {
             guard generation == activeGeneration, beautyRevision == fallbackRevision else { return nil }
             let resolved = XmaxError.from(error)
             if let beautyErrorListener { await beautyErrorListener(resolved) }
-            return frame
+            return input.frame
         }
     }
 
