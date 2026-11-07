@@ -362,22 +362,12 @@ extension XmaxRealtimeVideoView {
             let pixelBuffer = try makeLocalPreviewPixelBuffer(frame)
             let formatDescription = try localPreviewDescription(for: pixelBuffer)
             let presentationTime = CMTimebaseGetTime(decodedVideoTimebase)
-            var timing = CMSampleTimingInfo(
-                duration: .invalid,
-                presentationTimeStamp: presentationTime,
-                decodeTimeStamp: .invalid
-            )
-            var sampleBuffer: CMSampleBuffer?
-            guard
-                CMSampleBufferCreateReadyWithImageBuffer(
-                    allocator: kCFAllocatorDefault,
-                    imageBuffer: pixelBuffer,
-                    formatDescription: formatDescription,
-                    sampleTiming: &timing,
-                    sampleBufferOut: &sampleBuffer
-                ) == noErr,
-                let sampleBuffer
-            else {
+            guard let sampleBuffer = Self.makeSampleBuffer(
+                pixelBuffer: pixelBuffer,
+                formatDescription: formatDescription,
+                presentationTime: presentationTime,
+                duration: .invalid
+            ) else {
                 throw Self.invalidImageFrameError
             }
             CMSetAttachment(
@@ -447,27 +437,41 @@ extension XmaxRealtimeVideoView {
                 value: 1,
                 timescale: 24
             )
+        guard let sampleBuffer = Self.makeSampleBuffer(
+            pixelBuffer: frame.pixelBuffer,
+            formatDescription: formatDescription,
+            presentationTime: presentationTime,
+            duration: duration
+        ) else {
+            return
+        }
+        decodedVideoLayer.enqueue(sampleBuffer)
+        nextDecodedVideoPresentationTime = presentationTime + duration
+        notifyVideoFrameSubmitted()
+    }
+
+    private static func makeSampleBuffer(
+        pixelBuffer: CVPixelBuffer,
+        formatDescription: CMVideoFormatDescription,
+        presentationTime: CMTime,
+        duration: CMTime
+    ) -> CMSampleBuffer? {
         var timing = CMSampleTimingInfo(
             duration: duration,
             presentationTimeStamp: presentationTime,
             decodeTimeStamp: .invalid
         )
         var sampleBuffer: CMSampleBuffer?
-        guard
-            CMSampleBufferCreateReadyWithImageBuffer(
-                allocator: kCFAllocatorDefault,
-                imageBuffer: frame.pixelBuffer,
-                formatDescription: formatDescription,
-                sampleTiming: &timing,
-                sampleBufferOut: &sampleBuffer
-            ) == noErr,
-            let sampleBuffer
-        else {
-            return
+        guard CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescription: formatDescription,
+            sampleTiming: &timing,
+            sampleBufferOut: &sampleBuffer
+        ) == noErr else {
+            return nil
         }
-        decodedVideoLayer.enqueue(sampleBuffer)
-        nextDecodedVideoPresentationTime = presentationTime + duration
-        notifyVideoFrameSubmitted()
+        return sampleBuffer
     }
 
     /// Removes video layers and releases display clock and preview buffers.

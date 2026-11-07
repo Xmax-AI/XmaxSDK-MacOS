@@ -54,7 +54,7 @@ actor XmaxRealtimeConnectionManager {
     private var activeRemoteTrack: RealtimeVideoTrack?
 
     /// The server session owned by this connection.
-    private var activeSession: RealtimeSession?
+    private(set) var currentSession: RealtimeSession?
 
     /// The monotonic time immediately before creating the current server session.
     private var connectionStartedAt: ContinuousClock.Instant?
@@ -70,23 +70,18 @@ actor XmaxRealtimeConnectionManager {
 
     /// The current session identifier; an empty string if no session is active.
     var currentSessionID: String {
-        activeSession?.id ?? ""
+        currentSession?.id ?? ""
     }
 
     /// The connected remote media stream, or `nil` before its session and tracks are ready.
     var currentRemoteStream: RealtimeMediaStream? {
-        guard activeSession != nil, let activeRemoteTrack else {
+        guard currentSession != nil, let activeRemoteTrack else {
             return nil
         }
         return RealtimeMediaStream(
             id: StreamID.remote.rawValue,
             videoTrack: activeRemoteTrack
         )
-    }
-
-    /// The connected session and its assigned model instance, or `nil` while disconnected.
-    var currentSession: RealtimeSession? {
-        activeSession
     }
 
     /// Creates a realtime connection manager.
@@ -108,16 +103,6 @@ actor XmaxRealtimeConnectionManager {
         self.timing = timing
     }
 
-    /// Updates the remote track format using the current return dimensions.
-    ///
-    /// - Parameter videoFormat: The generation video format; return dimensions override the track dimensions when
-    ///   configured.
-    func updateRemoteVideoFormat(
-        _ videoFormat: RealtimeVideoFormat
-    ) {
-        activeRemoteTrack?.updateVideoFormat(remoteVideoFormat(for: videoFormat))
-    }
-
     /// Stores return dimensions for the current connection and updates the remote track format.
     ///
     /// - Parameters:
@@ -127,9 +112,9 @@ actor XmaxRealtimeConnectionManager {
         _ size: CGSize,
         videoFormat: RealtimeVideoFormat
     ) {
-        guard activeSession != nil else { return }
+        guard currentSession != nil else { return }
         currentTargetSize = size
-        updateRemoteVideoFormat(videoFormat)
+        activeRemoteTrack?.updateVideoFormat(remoteVideoFormat(for: videoFormat))
     }
 
     /// Creates a server session, joins RTC, publishes local streams, and returns the registered remote stream.
@@ -191,7 +176,7 @@ actor XmaxRealtimeConnectionManager {
                 resolvedMediaSize: videoFormat.size
             )
 
-            activeSession = session
+            currentSession = session
             activeRemoteTrack = remoteTrack
             heartbeatFailureHandler = onHeartbeatFailure
             sessionActivated = true
@@ -223,7 +208,7 @@ actor XmaxRealtimeConnectionManager {
     func startHeartbeat(
         sessionID: String
     ) {
-        guard activeSession?.id == sessionID, !heartbeatStarted,
+        guard currentSession?.id == sessionID, !heartbeatStarted,
             let connectionStartedAt, let heartbeatFailureHandler
         else { return }
         heartbeatStarted = true
@@ -245,17 +230,8 @@ actor XmaxRealtimeConnectionManager {
     /// - Throws: An error if closing the server session fails.
     @discardableResult
     func disconnect() async throws -> String? {
-        let session = activeSession
-        let remoteTrack = activeRemoteTrack
-        activeSession = nil
-        activeRemoteTrack = nil
-        currentTargetSize = nil
-        connectionStartedAt = nil
-        heartbeatStarted = false
-        heartbeatFailureHandler = nil
-
-        sessionService.stopHeartbeat()
-        let sessionID = session?.id
+        let sessionID = currentSession?.id
+        let remoteTrack = clearConnectionState()
         async let serverClose: Void = { [sessionService] in
             if let sessionID {
                 try await sessionService.closeSession(sessionID: sessionID)
@@ -601,8 +577,15 @@ private extension XmaxRealtimeConnectionManager {
 
     /// Clears local connection state, stops heartbeats, and releases remote rendering and RTC resources.
     func rollbackConnection() async {
+        let remoteTrack = clearConnectionState()
+        await resetRemoteRendering(track: remoteTrack)
+        await streamController.disconnect()
+    }
+
+    /// Clears the session and stops heartbeats before releasing resources.
+    func clearConnectionState() -> RealtimeVideoTrack? {
         let remoteTrack = activeRemoteTrack
-        activeSession = nil
+        currentSession = nil
         activeRemoteTrack = nil
         currentTargetSize = nil
         connectionStartedAt = nil
@@ -610,8 +593,7 @@ private extension XmaxRealtimeConnectionManager {
         heartbeatFailureHandler = nil
 
         sessionService.stopHeartbeat()
-        await resetRemoteRendering(track: remoteTrack)
-        await streamController.disconnect()
+        return remoteTrack
     }
 
     /// Releases remote track render resources and logs failures.

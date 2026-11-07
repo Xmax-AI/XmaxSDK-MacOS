@@ -84,7 +84,7 @@ actor RemoteVideoFramePipeline {
     private var cleanupTask: Task<Void, Never>?
 
     /// The requested interpolation setting.
-    private var interpolationEnabled: Bool
+    private(set) var isFrameInterpolationEnabled: Bool
 
     /// The current processor's video dimensions.
     private var interpolationVideoSize: CGSize?
@@ -97,11 +97,6 @@ actor RemoteVideoFramePipeline {
 
     /// The output stream identifier.
     private var outputToken: UInt64
-
-    /// Whether interpolation is requested.
-    var isFrameInterpolationEnabled: Bool {
-        interpolationEnabled
-    }
 
     /// Creates a remote frame pipeline with stream validity checks.
     ///
@@ -134,7 +129,7 @@ actor RemoteVideoFramePipeline {
         outputListener: @escaping OutputListener,
         errorListener: @escaping XmaxErrorListener
     ) {
-        self.interpolationEnabled = interpolationEnabled
+        isFrameInterpolationEnabled = interpolationEnabled
         self.outputToken = outputToken
         self.frameInterpolationSupportChecker =
             frameInterpolationSupportChecker
@@ -189,18 +184,6 @@ actor RemoteVideoFramePipeline {
         beautyErrorListener = nil
     }
 
-    /// Enqueues a frame for the current output stream.
-    ///
-    /// - Parameter frame: The latest remote decoded frame.
-    func enqueue(
-        _ frame: RealtimeVideoFrame
-    ) {
-        enqueue(
-            frame,
-            outputToken: outputToken
-        )
-    }
-
     /// Accepts the latest valid stream frame and starts processing after cleanup finishes.
     ///
     /// - Parameters:
@@ -248,7 +231,7 @@ actor RemoteVideoFramePipeline {
                 throw Self.unsupportedError(videoSize: videoSize)
             }
         }
-        interpolationEnabled = enabled
+        isFrameInterpolationEnabled = enabled
         interpolationVideoSize = enabled ? videoSize : nil
         // Mode changes retain stream identity and cannot overwrite a stream switched during an asynchronous wait.
         resetProcessing(outputToken: max(outputToken, self.outputToken))
@@ -446,7 +429,7 @@ private extension RemoteVideoFramePipeline {
         sourceDuration: CMTime,
         generation activeGeneration: Int
     ) async -> [RealtimeVideoFrame] {
-        guard interpolationEnabled else {
+        guard isFrameInterpolationEnabled else {
             return [
                 passthrough(
                     frame,
@@ -529,7 +512,7 @@ private extension RemoteVideoFramePipeline {
     func disableAfterFailure(
         _ error: XmaxError
     ) async {
-        interpolationEnabled = false
+        isFrameInterpolationEnabled = false
         let previousManager = interpolationManager
         interpolationManager = nil
         errorListener(error)

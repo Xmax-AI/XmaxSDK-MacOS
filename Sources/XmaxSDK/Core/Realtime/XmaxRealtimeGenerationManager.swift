@@ -115,13 +115,11 @@ actor XmaxRealtimeGenerationManager {
             }
             try ensureCurrent()
 
-            await interactionController.startInteraction(
+            try await activateInteraction(
                 taskID: taskID,
-                videoFormat: videoFormat
+                videoFormat: videoFormat,
+                ensureCurrent: ensureCurrent
             )
-            try ensureCurrent()
-            await renderController.setInteractionEnabled(true)
-            try ensureCurrent()
             try await renderController.waitUntilRemoteFrameReady()
             try ensureCurrent()
             timing.finishFirstFrame(taskID: taskID)
@@ -171,13 +169,11 @@ actor XmaxRealtimeGenerationManager {
         )
         try ensureCurrent()
         await renderController.setInteractionEnabled(false)
-        await interactionController.startInteraction(
+        try await activateInteraction(
             taskID: taskID,
-            videoFormat: videoFormat
+            videoFormat: videoFormat,
+            ensureCurrent: ensureCurrent
         )
-        try ensureCurrent()
-        await renderController.setInteractionEnabled(true)
-        try ensureCurrent()
         currentContext = resolvedContext
         cachedFaceRestoration = faceRestoration
     }
@@ -206,6 +202,21 @@ actor XmaxRealtimeGenerationManager {
         currentContext = nil
         cachedFaceRestoration = false
         try await stop(taskID: taskID)
+    }
+
+    /// Starts interaction for the current generation operation.
+    private func activateInteraction(
+        taskID: String,
+        videoFormat: RealtimeVideoFormat,
+        ensureCurrent: RealtimeGenerationValidity
+    ) async throws {
+        await interactionController.startInteraction(
+            taskID: taskID,
+            videoFormat: videoFormat
+        )
+        try ensureCurrent()
+        await renderController.setInteractionEnabled(true)
+        try ensureCurrent()
     }
 
     /// Creates a random task identifier with the macOS platform marker.

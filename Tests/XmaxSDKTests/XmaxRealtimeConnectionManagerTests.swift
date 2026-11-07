@@ -347,7 +347,7 @@ final class XmaxRealtimeConnectionManagerTests: XCTestCase {
         )
     }
 
-    func testUpdatingRemoteVideoFormatUpdatesActiveTrack() async throws {
+    func testUpdatingTargetSizeUpdatesActiveTrackFormat() async throws {
         let components = makeManager(
             sessionService: RealtimeSessionServicingStub(session: session)
         )
@@ -358,15 +358,21 @@ final class XmaxRealtimeConnectionManagerTests: XCTestCase {
             isCurrent: { true },
             onHeartbeatFailure: { _, _ in }
         )
-        let updatedFormat = RealtimeVideoFormat(
-            width: 540,
-            height: 960,
+        let generationFormat = RealtimeVideoFormat(
+            width: 720,
+            height: 1280,
             fps: 15
         )
 
-        await components.manager.updateRemoteVideoFormat(updatedFormat)
+        await components.manager.updateTargetSize(
+            CGSize(width: 540, height: 960),
+            videoFormat: generationFormat
+        )
 
-        XCTAssertEqual(stream.videoTrack?.videoFormat, updatedFormat)
+        XCTAssertEqual(
+            stream.videoTrack?.videoFormat,
+            RealtimeVideoFormat(width: 540, height: 960, fps: 15)
+        )
         _ = try await components.manager.disconnect()
     }
 }

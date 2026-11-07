@@ -639,16 +639,7 @@ final class StreamController: StreamControlling, RtcEventListener,
                 )
             }
 
-            var continuation: AsyncThrowingStream<Void, any Error>.Continuation?
-            let stream = AsyncThrowingStream<Void, any Error> {
-                continuation = $0
-            }
-            guard let continuation else {
-                throw XmaxError(
-                    code: .internalError,
-                    message: "Failed to create generation confirmation"
-                )
-            }
+            let (stream, continuation) = AsyncThrowingStream<Void, any Error>.makeStream()
             let waiter = GenerationWaiter(
                 taskID: taskID,
                 continuation: continuation
@@ -749,12 +740,7 @@ final class StreamController: StreamControlling, RtcEventListener,
             )
         )
         for userID in result.remoteAudioUserIDs.sorted() {
-            performCleanup("取消订阅 RTC 远端音频失败 (Failed to Unsubscribe from RTC Remote Audio)") {
-                try rtcManager.subscribeRemoteAudio(
-                    userID: userID,
-                    subscribe: false
-                )
-            }
+            unsubscribeRTCRemoteAudio(userID: userID)
         }
         await clearRemoteStream()
         return result.taskID
@@ -1092,6 +1078,13 @@ private extension StreamController {
         guard wasSubscribed else {
             return
         }
+        unsubscribeRTCRemoteAudio(userID: userID)
+    }
+
+    /// Releases a remote audio subscription after its state has been cleared.
+    func unsubscribeRTCRemoteAudio(
+        userID: String
+    ) {
         performCleanup("取消订阅 RTC 远端音频失败 (Failed to Unsubscribe from RTC Remote Audio)") {
             try rtcManager.subscribeRemoteAudio(
                 userID: userID,

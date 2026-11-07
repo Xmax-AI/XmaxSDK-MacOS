@@ -18,9 +18,9 @@ final class RemoteBeautyTests: XCTestCase, @unchecked Sendable {
             XCTFail("Temporary capacity pressure must not disable beauty or notify the user")
         }
         try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions(smoothness: 0.5))
-        await pipeline.enqueue(try frame())
+        await pipeline.enqueue(try frame(), outputToken: 0)
         await fulfillment(of: [pressure], timeout: 2)
-        await pipeline.enqueue(try frame(timestamp: 2))
+        await pipeline.enqueue(try frame(timestamp: 2), outputToken: 0)
         await fulfillment(of: [resumed], timeout: 2)
         let calls = await processor.calls
         XCTAssertEqual(calls, 2)
@@ -56,7 +56,7 @@ final class RemoteBeautyTests: XCTestCase, @unchecked Sendable {
             XCTAssertEqual(frame.presentationTimeStamp, input.presentationTimeStamp)
             output.fulfill()
         })
-        await pipeline.enqueue(input)
+        await pipeline.enqueue(input, outputToken: 0)
         await fulfillment(of: [output], timeout: 2)
         await pipeline.closeBeauty()
     }
@@ -81,7 +81,7 @@ final class RemoteBeautyTests: XCTestCase, @unchecked Sendable {
                 output.fulfill()
             })
             try await pipeline.setRemoteVideoBeauty(options)
-            await pipeline.enqueue(input)
+            await pipeline.enqueue(input, outputToken: 0)
             await fulfillment(of: [output], timeout: 2)
             await pipeline.closeBeauty()
         }
@@ -108,10 +108,10 @@ final class RemoteBeautyTests: XCTestCase, @unchecked Sendable {
         })
         try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions(smoothness: 0.5))
         try await pipeline.setRemoteVideoBeauty(nil)
-        await pipeline.enqueue(input)
+        await pipeline.enqueue(input, outputToken: 0)
         await fulfillment(of: [bypassed], timeout: 2)
         await pipeline.closeBeauty()
-        await pipeline.enqueue(afterClose)
+        await pipeline.enqueue(afterClose, outputToken: 0)
         await fulfillment(of: [restored], timeout: 2)
         await pipeline.closeBeauty()
     }
@@ -133,12 +133,12 @@ final class RemoteBeautyTests: XCTestCase, @unchecked Sendable {
         }
         try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions(smoothness: 0.5))
         let input = try frame()
-        await pipeline.enqueue(input)
+        await pipeline.enqueue(input, outputToken: 0)
         await fulfillment(of: [failed, first], timeout: 2)
         let recorded = await recorder.first()
         let fallback = try XCTUnwrap(recorded)
         XCTAssertTrue(fallback.pixelBuffer === input.pixelBuffer)
-        await pipeline.enqueue(try frame(timestamp: 2))
+        await pipeline.enqueue(try frame(timestamp: 2), outputToken: 0)
         await fulfillment(of: [second], timeout: 2)
         let calls = await processor.calls
         XCTAssertEqual(calls, 1)

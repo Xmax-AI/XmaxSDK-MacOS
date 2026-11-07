@@ -361,7 +361,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         resolve: @escaping @Sendable (RealtimeVideoFormat) -> RealtimeVideoFormat
     ) async throws {
         try await lifecycleManager.run(kind: .media) { [self] token in
-            try await ensureLocalMediaCanChange(
+            try await ensureDisconnected(
                 message: "Disconnect realtime before updating the camera format"
             )
 
@@ -385,7 +385,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         try await lifecycleManager.run(
             kind: .media
         ) { [self] token in
-            try await ensureLocalMediaCanChange(
+            try await ensureDisconnected(
                 message: "Disconnect realtime before stopping the local camera stream"
             )
             token.setFailureScope(.all)
@@ -412,7 +412,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     /// Unbinds external input after connection cleanup, preserving caller capture ownership.
     func stopExternalVideoStream() async throws {
         try await lifecycleManager.run(kind: .media) { [self] token in
-            try await ensureLocalMediaCanChange(
+            try await ensureDisconnected(
                 message: "Disconnect realtime before stopping the external video stream"
             )
             guard await mediaController.isExternalVideo else { return }
@@ -427,45 +427,17 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         to deviceID: String
     ) async throws -> RealtimeMediaStream {
         let current = await lifecycleManager.currentState
-        guard current.connectionState != .connecting,
-            current.connectionState != .disconnecting
-        else {
-            throw await reportError(
-                XmaxError(
-                    code: .invalidConfiguration,
-                    message: "Camera switching is unavailable while realtime " + "is transitioning"
-                )
-            )
-        }
-        guard current.connectionState == .generating || !streamController.hasGenerationTask else {
-            throw await reportError(
-                XmaxError(
-                    code: .invalidConfiguration,
-                    message: "Camera switching is unavailable while " + "realtime generation is starting"
-                )
-            )
+        do {
+            _ = try cameraSwitchRequiresGenerationRestart(in: current)
+        } catch {
+            throw await reportError(error)
         }
 
         return try await lifecycleManager.run(
             kind: .cameraSwitch
         ) { [self] token in
             let current = await lifecycleManager.currentState
-            guard current.connectionState != .connecting,
-                current.connectionState != .disconnecting
-            else {
-                throw XmaxError(
-                    code: .invalidConfiguration,
-                    message: "Camera switching is unavailable while realtime " + "is transitioning"
-                )
-            }
-
-            let wasGenerating = current.connectionState == .generating
-            guard wasGenerating || !streamController.hasGenerationTask else {
-                throw XmaxError(
-                    code: .invalidConfiguration,
-                    message: "Camera switching is unavailable while " + "realtime generation is starting"
-                )
-            }
+            let wasGenerating = try cameraSwitchRequiresGenerationRestart(in: current)
 
             if wasGenerating {
                 token.setFailureScope(.connection)
@@ -840,16 +812,7 @@ private extension XmaxRealtimeManager {
         token: XmaxRealtimeLifecycleManager.Token,
         completesOperation: Bool = false
     ) async throws -> RealtimeMediaStream {
-        let current = await lifecycleManager.currentState
-        guard await connectionManager.currentSessionID == "",
-            current.connectionState != .connecting,
-            current.connectionState != .disconnecting
-        else {
-            throw XmaxError(
-                code: .invalidConfiguration,
-                message: "Realtime connection is already open"
-            )
-        }
+        try await ensureDisconnected(message: "Realtime connection is already open")
         guard await mediaController.owns(localStream) else {
             throw XmaxError(
                 code: .invalidConfiguration,
@@ -938,7 +901,7 @@ private extension XmaxRealtimeManager {
         return try await lifecycleManager.run(
             kind: .media
         ) { [self] token in
-            try await ensureLocalMediaCanChange(
+            try await ensureDisconnected(
                 message: "Local \(source.rawValue) stream is unavailable during " + "a realtime connection"
             )
             guard await mediaController.currentTrack == nil else {
@@ -990,8 +953,8 @@ private extension XmaxRealtimeManager {
         )
     }
 
-    /// Requires a fully disconnected session before local media can change.
-    func ensureLocalMediaCanChange(
+    /// Requires no active session or connection transition.
+    func ensureDisconnected(
         message: String
     ) async throws {
         let current = await lifecycleManager.currentState
@@ -1004,6 +967,29 @@ private extension XmaxRealtimeManager {
                 message: message
             )
         }
+    }
+
+    /// Validates camera switching and indicates whether active generation must restart.
+    nonisolated func cameraSwitchRequiresGenerationRestart(
+        in state: RealtimeState
+    ) throws -> Bool {
+        guard state.connectionState != .connecting,
+            state.connectionState != .disconnecting
+        else {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Camera switching is unavailable while realtime " + "is transitioning"
+            )
+        }
+
+        let isGenerating = state.connectionState == .generating
+        guard isGenerating || !streamController.hasGenerationTask else {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Camera switching is unavailable while " + "realtime generation is starting"
+            )
+        }
+        return isGenerating
     }
 
     /// Ends the current session after heartbeat failure and ignores late notifications from ended sessions.

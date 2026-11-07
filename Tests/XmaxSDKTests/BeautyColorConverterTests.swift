@@ -67,7 +67,7 @@ final class BeautyColorConverterTests: XCTestCase, @unchecked Sendable {
                 },
                 errorListener: { _ in XCTFail("Unexpected failure") }
             )
-            await pipeline.enqueue(input)
+            await pipeline.enqueue(input, outputToken: 0)
             await fulfillment(of: [output], timeout: 2)
             await pipeline.closeBeauty()
         }
@@ -98,7 +98,7 @@ final class BeautyColorConverterTests: XCTestCase, @unchecked Sendable {
             failure.fulfill()
         }
         try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions())
-        await pipeline.enqueue(input)
+        await pipeline.enqueue(input, outputToken: 0)
         await fulfillment(of: [failure, output], timeout: 2, enforceOrder: true)
         await pipeline.closeBeauty()
     }
@@ -179,17 +179,27 @@ final class BeautyColorConverterTests: XCTestCase, @unchecked Sendable {
             },
             errorListener: { _ in XCTFail("Output color preparation must not end generation") }
         )
-        await pipeline.enqueue(input)
+        await pipeline.enqueue(input, outputToken: 0)
         await fulfillment(of: [first], timeout: 2)
         try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions())
-        await pipeline.enqueue(RealtimeVideoFrame(pixelBuffer: input.pixelBuffer,
-                                                 presentationTimeStamp: CMTime(value: 124, timescale: 24),
-                                                 duration: input.duration))
+        await pipeline.enqueue(
+            RealtimeVideoFrame(
+                pixelBuffer: input.pixelBuffer,
+                presentationTimeStamp: CMTime(value: 124, timescale: 24),
+                duration: input.duration
+            ),
+            outputToken: 0
+        )
         await fulfillment(of: [initialized, second], timeout: 2)
         try await pipeline.setRemoteVideoBeauty(nil)
-        await pipeline.enqueue(RealtimeVideoFrame(pixelBuffer: input.pixelBuffer,
-                                                 presentationTimeStamp: CMTime(value: 125, timescale: 24),
-                                                 duration: input.duration))
+        await pipeline.enqueue(
+            RealtimeVideoFrame(
+                pixelBuffer: input.pixelBuffer,
+                presentationTimeStamp: CMTime(value: 125, timescale: 24),
+                duration: input.duration
+            ),
+            outputToken: 0
+        )
         await fulfillment(of: [third], timeout: 2)
         let frames = await recorder.values()
         XCTAssertEqual(frames.count, 3)

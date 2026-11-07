@@ -499,7 +499,7 @@ private extension StorageService {
             XmaxLogger.storage.info(
                 message: "上传完成 (Upload Completed)\n"
                     + "├─ \(XmaxLogger.localized("地址：", "URL: "))\(result.url.absoluteString)\n"
-                    + "└─ \(XmaxLogger.localized("耗时：", "Duration: "))\(formatDuration(since: startedAt))"
+                    + XmaxLogger.durationDetail(since: startedAt)
             )
             return result
         } catch let error as XmaxError {
@@ -989,24 +989,6 @@ private extension StorageService {
         )
     }
 
-    /// Calculates operation duration and selects milliseconds or seconds.
-    ///
-    /// - Parameter startedAt: The operation start time.
-    ///
-    /// - Returns: The formatted duration text.
-    func formatDuration(
-        since startedAt: Date
-    ) -> String {
-        let milliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
-        if milliseconds < 1_000 {
-            return "\(milliseconds) ms"
-        }
-        return String(
-            format: "%.2f s",
-            Double(milliseconds) / 1_000
-        )
-    }
-
     /// Logs the upload error code, reason, and duration.
     ///
     /// - Parameters:
@@ -1020,7 +1002,7 @@ private extension StorageService {
             message: "上传失败 (Upload Failed)\n"
                 + "├─ \(XmaxLogger.localized("错误码：", "Error Code: "))\(error.code.rawValue)\n"
                 + "├─ \(XmaxLogger.localized("原因：", "Reason: "))\(error.message)\n"
-                + "└─ \(XmaxLogger.localized("耗时：", "Duration: "))\(formatDuration(since: startedAt))"
+                + XmaxLogger.durationDetail(since: startedAt)
         )
     }
 

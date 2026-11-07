@@ -117,6 +117,19 @@ struct XmaxLogger: Sendable {
         state.environment == .china ? chinese : english
     }
 
+    /// Formats elapsed time as the final detail in an operation log.
+    static func durationDetail(
+        since startedAt: Date
+    ) -> String {
+        let label = localized("耗时：", "Duration: ")
+        let milliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
+        let duration =
+            milliseconds < 1_000
+            ? "\(milliseconds) ms"
+            : String(format: "%.2f s", Double(milliseconds) / 1_000)
+        return "└─ \(label)\(duration)"
+    }
+
     /// Emits a debug log, building the message only when its options are enabled.
     ///
     /// - Parameters:

@@ -239,12 +239,7 @@ actor XmaxRealtimeLifecycleManager {
         guard termination == nil, activeOperation == nil,
             request != nil || generationRequest == nil
         else {
-            let error = XmaxError(
-                code: .invalidConfiguration,
-                message: "Another realtime operation is in progress; wait for it to finish"
-            )
-            await errorManager.report(error)
-            throw error
+            throw await reportOperationInProgress()
         }
 
         // An active generation request updates conditions using the shared configuration operation.
@@ -538,12 +533,7 @@ private extension XmaxRealtimeLifecycleManager {
             activeOperation == nil || activeOperation?.background == true
                 || activeOperation?.generationRequest != nil
         else {
-            let error = XmaxError(
-                code: .invalidConfiguration,
-                message: "Another realtime operation is in progress; wait for it to finish"
-            )
-            await errorManager.report(error)
-            throw error
+            throw await reportOperationInProgress()
         }
 
         let previous = generationRequest
@@ -995,6 +985,16 @@ private extension XmaxRealtimeLifecycleManager {
         if let stateListener {
             await stateListener(nextState)
         }
+    }
+
+    /// Reports a conflict with another realtime operation.
+    func reportOperationInProgress() async -> XmaxError {
+        let error = XmaxError(
+            code: .invalidConfiguration,
+            message: "Another realtime operation is in progress; wait for it to finish"
+        )
+        await errorManager.report(error)
+        return error
     }
 
     /// Checks whether an error represents operation cancellation.

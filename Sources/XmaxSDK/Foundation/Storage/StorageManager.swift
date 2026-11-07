@@ -541,7 +541,7 @@ private final class StorageUploadOperation: @unchecked Sendable {
                         + "├─ \(XmaxLogger.localized("错误域：", "Error Domain: "))\(platformError.domain)\n"
                         + "├─ \(XmaxLogger.localized("错误码：", "Error Code: "))\(platformError.code)\n"
                         + "├─ \(XmaxLogger.localized("错误信息：", "Error Message: "))\(platformError.localizedDescription)\n"
-                        + "└─ \(XmaxLogger.localized("耗时：", "Duration: "))\(formatDuration())"
+                        + XmaxLogger.durationDetail(since: startedAt)
                 )
                 finish(
                     .failure(
@@ -650,20 +650,6 @@ private final class StorageUploadOperation: @unchecked Sendable {
         lock.unlock()
 
         continuation?.resume(with: result)
-    }
-
-    /// Formats the current upload duration.
-    ///
-    /// - Returns: The duration text in milliseconds or seconds.
-    private func formatDuration() -> String {
-        let milliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
-        if milliseconds < 1_000 {
-            return "\(milliseconds) ms"
-        }
-        return String(
-            format: "%.2f s",
-            Double(milliseconds) / 1_000
-        )
     }
 
     /// Reads string response headers in priority order.

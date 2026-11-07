@@ -310,16 +310,7 @@ final class RenderController: RenderControlling {
 
         let waiterID = UUID()
         let activeToken = renderingToken
-        var continuation: AsyncThrowingStream<Void, any Error>.Continuation?
-        let stream = AsyncThrowingStream<Void, any Error> {
-            continuation = $0
-        }
-        guard let continuation else {
-            throw XmaxError(
-                code: .internalError,
-                message: "Failed to create remote first frame waiter"
-            )
-        }
+        let (stream, continuation) = AsyncThrowingStream<Void, any Error>.makeStream()
         let waiter = RemoteFrameReadyWaiter(continuation: continuation)
         remoteFrameReadyWaiters[waiterID] = waiter
         waiter.timeoutTask = Task { @MainActor [weak self] in

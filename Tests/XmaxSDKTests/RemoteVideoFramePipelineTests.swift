@@ -37,7 +37,10 @@ final class RemoteVideoFramePipelineTests: XCTestCase {
         )
         try await pipeline.setFrameInterpolationEnabled(true, videoSize: target, outputToken: 0)
         let oldBuffer = try makePixelBuffer(width: 832, height: 1472)
-        await pipeline.enqueue(RealtimeVideoFrame(pixelBuffer: oldBuffer, presentationTimeStamp: .zero))
+        await pipeline.enqueue(
+            RealtimeVideoFrame(pixelBuffer: oldBuffer, presentationTimeStamp: .zero),
+            outputToken: 0
+        )
         let output = try await waitForOutput(recorder)
         XCTAssertTrue(output.frame.pixelBuffer === oldBuffer)
         let enabled = await pipeline.isFrameInterpolationEnabled
@@ -61,10 +64,10 @@ final class RemoteVideoFramePipelineTests: XCTestCase {
             }
         )
         let pixelBuffer = try makePixelBuffer(width: 832, height: 1472)
-        await pipeline.enqueue(RealtimeVideoFrame(
-            pixelBuffer: pixelBuffer,
-            presentationTimeStamp: .zero
-        ))
+        await pipeline.enqueue(
+            RealtimeVideoFrame(pixelBuffer: pixelBuffer, presentationTimeStamp: .zero),
+            outputToken: 0
+        )
         await fulfillment(of: [reportedError], timeout: 2)
         let output = try await waitForOutput(recorder)
         XCTAssertTrue(output.frame.pixelBuffer === pixelBuffer)
@@ -89,7 +92,8 @@ final class RemoteVideoFramePipelineTests: XCTestCase {
             RealtimeVideoFrame(
                 pixelBuffer: pixelBuffer,
                 presentationTimeStamp: .zero
-            )
+            ),
+            outputToken: token
         )
 
         let output = try await waitForOutput(recorder)
