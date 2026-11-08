@@ -237,9 +237,9 @@ view.addSubview(videoView)
 // Create a camera stream and bind the preview
 let localStream = try await realtime.createLocalCameraStream(
     videoFormat: RealtimeVideoFormat(width: 1920, height: 1080, fps: 30),
-    cameraId: nil,
-    mirror: false,
-    microphone: .disabled
+    camera: .systemDefault,
+    microphone: .disabled,
+    mirror: false
 )
 videoView.localTrack = localStream.videoTrack
 

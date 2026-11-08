@@ -303,7 +303,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         let local = try await components.manager.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), cameraId: nil, microphone: .systemDefault
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), camera: .systemDefault, microphone: .systemDefault
         )
         _ = try await components.manager.connect(localStream: local)
         let close = Task { await components.manager.close() }
@@ -331,7 +331,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let components = makeComponents(rtc: rtc, camera: camera)
         let start = Task {
             try await components.manager.createLocalCameraStream(
-                videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), cameraId: nil
+                videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), camera: .systemDefault
             )
         }
         try await waitUntil { await gate.isWaiting }
@@ -364,7 +364,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         let local = try await components.manager.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), cameraId: nil, microphone: .systemDefault
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), camera: .systemDefault, microphone: .systemDefault
         )
         let connect = Task { try await components.manager.connect(localStream: local) }
         try await waitUntil { await gate.isWaiting }
@@ -426,7 +426,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         _ = try await components.manager.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), cameraId: nil
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), camera: .systemDefault
         )
         try await components.manager.stopExternalVideoStream()
         let state = await components.manager.currentState
@@ -691,7 +691,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let initial = RealtimeModel.x2_1.defaultCameraVideoFormat
         let missing = await manager.currentCameraVideoFormat
         XCTAssertNil(missing)
-        let local = try await manager.createLocalCameraStream(videoFormat: initial, cameraId: nil)
+        let local = try await manager.createLocalCameraStream(videoFormat: initial, camera: .systemDefault)
         let track = try XCTUnwrap(local.videoTrack)
         let next = RealtimeVideoFormat(width: 1080, height: 1920, fps: 24)
         do { try await manager.updateCameraFormat(next); XCTFail("Expected preview readiness requirement") }
@@ -741,12 +741,13 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         await components.manager.close()
     }
 
-    func testCameraCreationForwardsMirrorAndMicrophoneChoiceThroughPublicOverloads() async throws {
+    func testCameraCreationForwardsCameraMirrorAndMicrophoneChoicesThroughPublicOverloads() async throws {
         for variant in 0..<7 {
             let rtc = RtcManagingStub()
             let permissions = PermissionManagingStub()
-            let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
-            let capture = CameraCaptureControllingStub(devices: [device], automaticallyReady: true)
+            let usb = CameraDevice(id: "usb", name: "USB", isDefault: false, position: .unspecified)
+            let builtin = CameraDevice(id: "builtin", name: "Built-in", isDefault: true, position: .front)
+            let capture = CameraCaptureControllingStub(devices: [usb, builtin], automaticallyReady: true)
             let microphone = MicrophoneCaptureControllingStub()
             let camera = CameraController(
                 rtcManager: rtc, permissionManager: permissions, mediaService: MediaService(),
@@ -759,48 +760,50 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             switch variant {
             case 0:
                 _ = try await manager.createLocalCameraStream(
-                    mirror: true,
-                    microphone: .device(id: "usb-input")
+                    microphone: .device(id: "usb-input"),
+                    mirror: true
                 )
             case 1:
                 _ = try await manager.createLocalCameraStream(
                     videoFormat: format,
-                    mirror: true,
-                    microphone: .device(id: "usb-input")
+                    microphone: .device(id: "usb-input"),
+                    mirror: true
                 )
             case 2:
                 _ = try await manager.createLocalCameraStream(
                     videoFormat: format,
-                    cameraId: "usb",
-                    mirror: true,
-                    microphone: .device(id: "usb-input")
+                    camera: .device(id: "usb"),
+                    microphone: .device(id: "usb-input"),
+                    mirror: true
                 )
             case 3:
                 _ = try await manager.createLocalCameraStream(
                     videoFormat: format,
-                    cameraId: "usb",
+                    camera: .device(id: "usb"),
                     mirror: true
                 )
             case 4:
                 _ = try await manager.createLocalCameraStream(
                     preset: .resolution1920x1080,
-                    mirror: true,
-                    microphone: .device(id: "usb-input")
+                    microphone: .device(id: "usb-input"),
+                    mirror: true
                 )
             case 5:
                 _ = try await manager.createLocalCameraStream(
                     videoFormat: format,
-                    cameraId: "usb",
+                    camera: .device(id: "usb"),
                     microphone: .device(id: "usb-input")
                 )
             default:
                 _ = try await manager.createLocalCameraStream(
                     videoFormat: format,
-                    cameraId: "usb",
-                    mirror: true,
-                    microphone: .systemDefault
+                    camera: .device(id: "usb"),
+                    microphone: .systemDefault,
+                    mirror: true
                 )
             }
+            let expectedCameraID = [0, 1, 4].contains(variant) ? builtin.id : usb.id
+            XCTAssertEqual(capture.calls, [.start(expectedCameraID)])
             XCTAssertEqual(rtc.cameraMirrors, [variant != 5])
             XCTAssertTrue(microphone.calls.contains(.select([3, 6].contains(variant) ? nil : "usb-input")))
             XCTAssertEqual(permissions.microphoneRequestCount, variant == 3 ? 0 : 1)
@@ -862,7 +865,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             for preset in RealtimeCameraPreset.allCases {
                 let expected = try XCTUnwrap(model.supportedVideoFormats.first { $0.size == preset.size })
                 let local = try await manager.createLocalCameraStream(
-                    preset: preset, cameraId: "usb", microphone: .systemDefault
+                    preset: preset, camera: .device(id: "usb"), microphone: .systemDefault
                 )
                 XCTAssertEqual(local.videoTrack?.videoFormat, expected)
                 XCTAssertEqual(local.videoTrack?.device, device)
@@ -977,7 +980,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         var replacement: Task<RealtimeMediaStream, any Error>?
         await manager.setStateListener { state in
             if state.connectionState == .idle, replacement == nil {
-                replacement = Task { try await manager.createLocalCameraStream(videoFormat: format, cameraId: "usb") }
+                replacement = Task { try await manager.createLocalCameraStream(videoFormat: format, camera: .device(id: "usb")) }
             }
         }
         try await manager.stopLocalCameraStream()

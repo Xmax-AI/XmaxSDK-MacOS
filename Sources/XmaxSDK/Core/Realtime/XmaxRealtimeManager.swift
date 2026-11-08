@@ -319,14 +319,14 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     /// Creates a local camera stream and starts preview.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
-        cameraId: String?,
-        mirror: Bool = false,
-        microphone: RealtimeMicrophone = .disabled
+        camera: RealtimeCamera,
+        microphone: RealtimeMicrophone = .disabled,
+        mirror: Bool = false
     ) async throws -> RealtimeMediaStream {
         return try await createLocalMediaStream(source: .camera) { [self] token in
             let stream = try await mediaController.createLocalCameraStream(
                 videoFormat: videoFormat,
-                deviceID: cameraId,
+                deviceID: camera.deviceID,
                 mirror: mirror,
                 microphone: microphone
             )

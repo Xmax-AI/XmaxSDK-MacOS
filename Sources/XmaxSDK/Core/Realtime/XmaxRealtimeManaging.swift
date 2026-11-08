@@ -244,12 +244,12 @@ public protocol XmaxRealtimeManaging: Sendable {
     ///
     /// - Parameters:
     ///   - videoFormat: The camera capture video format.
-    ///   - cameraId: The initial camera identifier; an empty value uses the system default camera.
-    ///   - mirror: Whether to mirror both native local preview and the encoded camera stream.
-    ///     Generated output and frame callbacks retain the direction returned by the server.
+    ///   - camera: The initial camera selection.
     ///   - microphone: The initial microphone selection. Enabled inputs request permission at creation,
     ///     start capture on connection, and stop on disconnect. Use `switchMicrophone(to:)`
     ///     and `setMicrophoneEnabled(_:)` for runtime changes.
+    ///   - mirror: Whether to mirror both native local preview and the encoded camera stream.
+    ///     Generated output and frame callbacks retain the direction returned by the server.
     ///
     /// - Returns: The media stream containing the local camera video track.
     ///
@@ -257,9 +257,9 @@ public protocol XmaxRealtimeManaging: Sendable {
     ///   or capture startup failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
-        cameraId: String?,
-        mirror: Bool,
-        microphone: RealtimeMicrophone
+        camera: RealtimeCamera,
+        microphone: RealtimeMicrophone,
+        mirror: Bool
     ) async throws -> RealtimeMediaStream
 
     /// Stops the local camera stream and updates media readiness.
