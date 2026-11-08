@@ -842,11 +842,6 @@ private extension XmaxRealtimeManager {
         )
         let targetSize = preparedQuality.targetSize
         try token.ensureCurrent()
-        if !(await mediaController.isExternalVideo) {
-            // Let camera startup exposure settle before connecting and publishing local media.
-            try await Task.sleep(for: .milliseconds(500))
-            try token.ensureCurrent()
-        }
         try await mediaController.startMicrophoneCapture()
         try token.ensureCurrent()
         let remoteStream = try await connectionManager.connect(
