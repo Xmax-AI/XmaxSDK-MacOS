@@ -277,15 +277,12 @@ assistance and technical support, contact us at [sdk@xmax.ai](mailto:sdk@xmax.ai
 ## Responsible Use
 
 Use XmaxSDK in compliance with applicable laws and respect the rights of others.
-Obtain any required permissions and consents before submitting or using another
-person’s likeness, voice, or other protected material. Do not use the SDK to
-facilitate fraud, unlawful impersonation, or other illegal activity.
-
-XmaxSDK is licensed under the MIT License. Access to Xmax-hosted services is
-governed by the applicable Xmax service terms.
+Do not use the SDK to facilitate fraud, unlawful impersonation, harassment,
+privacy violations, or other unlawful activity.
 
 <br>
 
 ## License
 
-XmaxSDK is available under the terms of the [MIT License](LICENSE).
+XmaxSDK is licensed under the [MIT License](LICENSE). Use of Xmax-hosted
+services is governed by the applicable terms of service.
