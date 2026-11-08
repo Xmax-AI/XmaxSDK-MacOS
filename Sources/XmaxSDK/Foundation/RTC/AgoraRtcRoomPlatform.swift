@@ -23,9 +23,6 @@ protocol AgoraRtcRoomPlatform: AnyObject, Sendable {
     /// The active custom audio track identifier, when custom audio is configured.
     var audioTrackID: Int? { get }
 
-    /// Whether local video publication uses the native camera track.
-    var usesCameraTrack: Bool { get }
-
     /// Installs the remote frame receiver and returns whether registration succeeds.
     func setRemoteVideoSink(
         _ sink: RtcRemoteVideoSink?
@@ -33,33 +30,14 @@ protocol AgoraRtcRoomPlatform: AnyObject, Sendable {
 
     /// Reapplies stored encoding settings after source or publication changes.
     func reapplyVideoConfiguration() throws
-
-    /// Reconfigures level observation after a connection receives its native local UID.
-    func refreshMicrophoneLevelObservation()
-
-    /// Forwards current-connection input metadata without acquiring room control locks.
-    func receiveMicrophoneEvent(
-        _ event: RtcMicrophoneEvent
-    )
 }
 
 extension AgoraRtcRoomPlatform {
-
-    /// Whether local video publication uses the native camera track.
-    var usesCameraTrack: Bool { false }
 
     /// Installs the remote frame receiver and returns whether registration succeeds.
     func setRemoteVideoSink(
         _ sink: RtcRemoteVideoSink?
     ) -> Bool { roomEngine.setVideoFrameDelegate(sink) }
-
-    /// Leaves optional microphone observation unused in platforms that provide no input metadata.
-    func refreshMicrophoneLevelObservation() {}
-
-    /// Ignores optional input metadata when the platform does not expose microphone observation.
-    func receiveMicrophoneEvent(
-        _ event: RtcMicrophoneEvent
-    ) {}
 }
 
 /// The native channel, subscription, and signaling operations used by the room adapter.

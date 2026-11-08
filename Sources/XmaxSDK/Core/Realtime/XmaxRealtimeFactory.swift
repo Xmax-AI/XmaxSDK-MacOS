@@ -264,16 +264,7 @@ enum XmaxRealtimeFactory {
         if scope == .all {
             await mediaController.stopLocalCapture()
         }
-        do {
-            try await mediaController.stopMicrophoneCapture()
-        } catch {
-            XmaxLogger.realtime.error(
-                message: """
-                    停止麦克风采集失败 (Failed to Stop Microphone Capture)
-                    └─ \(XmaxLogger.localized("原因：", "Reason: "))\((error as NSError).localizedDescription)
-                    """
-            )
-        }
+        await mediaController.stopMicrophoneCapture()
 
         do {
             try await generationManager.reset(taskID: taskID)

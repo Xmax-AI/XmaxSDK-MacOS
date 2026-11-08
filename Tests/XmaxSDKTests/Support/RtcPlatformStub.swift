@@ -10,7 +10,6 @@
 //
 
 import Foundation
-import AppKit
 
 @testable import XmaxSDK
 
@@ -19,56 +18,13 @@ final class RtcPlatformStub: RtcPlatform, @unchecked Sendable {
 
     /// Room factory
     private let makeRoom: @Sendable (String) throws -> any RtcRoom
-    private let onPreviewAttach: @MainActor @Sendable (NSView) -> Void
-    private let onAudioCapture: @Sendable (String?) throws -> Void
-    private let onMicrophoneDevice: @Sendable (String?) throws -> Void
-    private let onAudioStop: @Sendable () throws -> Void
-    private let audioLock = NSLock()
-    private var storedMicrophoneLevelListener: RtcMicrophoneLevelListener?
-    private var audioCaptures = 0
-    private var audioStops = 0
-
-    var microphoneLevelListener: RtcMicrophoneLevelListener? { audioLock.withLock { storedMicrophoneLevelListener } }
-    var audioCaptureCount: Int { audioLock.withLock { audioCaptures } }
-    var audioStopCount: Int { audioLock.withLock { audioStops } }
-
-    init(makeRoom: @escaping @Sendable (String) throws -> any RtcRoom = { _ in RtcRoomStub() },
-         onPreviewAttach: @escaping @MainActor @Sendable (NSView) -> Void = { _ in },
-         onAudioCapture: @escaping @Sendable (String?) throws -> Void = { _ in },
-         onMicrophoneDevice: @escaping @Sendable (String?) throws -> Void = { _ in },
-         onAudioStop: @escaping @Sendable () throws -> Void = {}) {
+    init(makeRoom: @escaping @Sendable (String) throws -> any RtcRoom = { _ in RtcRoomStub() }) {
         self.makeRoom = makeRoom
-        self.onPreviewAttach = onPreviewAttach
-        self.onAudioCapture = onAudioCapture
-        self.onMicrophoneDevice = onMicrophoneDevice
-        self.onAudioStop = onAudioStop
     }
 
     func configureVideoEncoding(_ configuration: VideoEncodingConfiguration) throws {}
     func configureLocalVideoMirror(_ mirror: Bool) throws {}
     func useExternalVideoSource(useTexture: Bool) throws {}
-    func startCameraCapture(
-        configuration: RtcCameraConfiguration,
-        previewReadyListener: @escaping @Sendable () -> Void,
-        errorListener: @escaping XmaxErrorListener
-    ) throws {}
-    func switchCameraCapture(to deviceID: String) throws {}
-    func updateCameraCapture(videoFormat: VideoFormat, frameRate: Int) throws {}
-    func stopCameraCapture() throws {}
-    @MainActor func attachCameraPreview(to view: NSView, contentMode: VideoContentMode, mirrored: Bool) throws { onPreviewAttach(view) }
-    @MainActor func detachCameraPreview(from view: NSView) throws {}
-    func startAudioCapture(deviceID: String?) throws {
-        audioLock.withLock { audioCaptures += 1 }
-        try onAudioCapture(deviceID)
-    }
-    func setMicrophoneDevice(_ deviceID: String?) throws { try onMicrophoneDevice(deviceID) }
-    func setMicrophoneLevelListener(_ listener: RtcMicrophoneLevelListener?) {
-        audioLock.withLock { storedMicrophoneLevelListener = listener }
-    }
-    func stopAudioCapture() throws {
-        audioLock.withLock { audioStops += 1 }
-        try onAudioStop()
-    }
     func startExternalAudioSource() throws {}
     func stopExternalAudioSource() throws {}
     func pushExternalVideoFrame(_ frame: VideoFrame) throws {}

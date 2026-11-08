@@ -11,7 +11,7 @@
 import Foundation
 
 /// Defines RTC engine, room, media transport, and remote frame output capabilities.
-protocol RtcManaging: RtcCameraCapturing {
+protocol RtcManaging: Sendable {
 
     /// Replaces the current room's signaling receiver; `nil` removes it.
     func setRoomMessageListener(
@@ -43,26 +43,6 @@ protocol RtcManaging: RtcCameraCapturing {
     func configureVideoEncoding(
         _ configuration: VideoEncodingConfiguration
     ) throws
-
-    /// Switches to microphone input and starts capture.
-    ///
-    /// - Throws: An error on audio source switching or capture failure.
-    func startAudioCapture() throws
-
-    /// Selects an input UID, or follows the system default when nil, without changing capture state.
-    func setMicrophoneDevice(
-        _ deviceID: String?
-    ) throws
-
-    /// Replaces the main-actor microphone receiver and replays the latest reading without starting capture.
-    func setMicrophoneLevelListener(
-        _ listener: RealtimeMicrophoneLevelListener?
-    ) async
-
-    /// Stops microphone capture.
-    ///
-    /// - Throws: An error if the vendor engine fails to stop capture.
-    func stopAudioCapture() throws
 
     /// Enables external video input.
     ///

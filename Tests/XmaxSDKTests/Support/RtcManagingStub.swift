@@ -10,7 +10,6 @@
 //
 
 import Foundation
-import AppKit
 import CoreMedia
 import CoreVideo
 @testable import XmaxSDK
@@ -19,16 +18,7 @@ enum RtcManagingCall: Equatable {
     case initialize
     case destroy
     case configureVideoEncoding(VideoEncodingConfiguration)
-    case startAudioCapture
-    case setMicrophoneDevice(String?)
-    case stopAudioCapture
     case useExternalVideoSource
-    case startCameraCapture(RtcCameraConfiguration)
-    case switchCameraCapture(String)
-    case updateCameraCapture(VideoFormat, Int)
-    case stopCameraCapture
-    case attachCameraPreview(VideoContentMode, mirrored: Bool)
-    case detachCameraPreview
     case startExternalAudioSource
     case stopExternalAudioSource
     case pushExternalVideoFrame
@@ -59,9 +49,6 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     private let initializationError: (any Error)?
     private let initializationHandler: (@Sendable () async throws -> Void)?
     private let destroyHandler: (@Sendable () async -> Void)?
-    private let startAudioCaptureError: (any Error)?
-    private let microphoneDeviceError: (any Error)?
-    private let stopAudioCaptureError: (any Error)?
     private let publishLocalVideoError: (any Error)?
     private let unpublishLocalVideoError: (any Error)?
     private let publishLocalAudioError: (any Error)?
@@ -81,11 +68,8 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     private var microphoneLevelListener: RealtimeMicrophoneLevelListener?
     private var nextAudioRemovalError: (any Error)?
     var commandSendHandler: (@Sendable () async throws -> Void)?
-    var audioControlHandler: (@Sendable () -> Void)?
     var videoFrameAdmissionHandler: (@Sendable (VideoFrame) -> Void)?
     var videoFrameHandler: (@Sendable (VideoFrame) throws -> Void)?
-    var reportsCameraReadyOnStart = true
-    var cameraStartHandler: (@Sendable () -> Void)?
 
     func setMicrophoneLevelListener(_ listener: RealtimeMicrophoneLevelListener?) async {
         await MainActor.run {
@@ -113,7 +97,6 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     func configureLocalVideoMirror(_ mirror: Bool) throws {
         lock.withLock { storedCameraMirrors.append(mirror) }
     }
-    private var cameraPreviewReadyListener: (@Sendable () -> Void)?
     private weak var storedEventListener: (any RtcEventListener)?
 
     private var roomMessageListener: (@Sendable (String, Data) -> Void)?
@@ -127,9 +110,6 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
         initializationHandler: (@Sendable () async throws -> Void)? = nil,
         destroyHandler: (@Sendable () async -> Void)? = nil,
         encodingError: (any Error)? = nil,
-        startAudioCaptureError: (any Error)? = nil,
-        microphoneDeviceError: (any Error)? = nil,
-        stopAudioCaptureError: (any Error)? = nil,
         publishLocalVideoError: (any Error)? = nil,
         unpublishLocalVideoError: (any Error)? = nil,
         publishLocalAudioError: (any Error)? = nil,
@@ -149,9 +129,6 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
         self.initializationHandler = initializationHandler
         self.destroyHandler = destroyHandler
         self.encodingError = encodingError
-        self.startAudioCaptureError = startAudioCaptureError
-        self.microphoneDeviceError = microphoneDeviceError
-        self.stopAudioCaptureError = stopAudioCaptureError
         self.publishLocalVideoError = publishLocalVideoError
         self.unpublishLocalVideoError = unpublishLocalVideoError
         self.publishLocalAudioError = publishLocalAudioError
@@ -213,61 +190,6 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
         lock.withLock {
             storedCalls.append(.useExternalVideoSource)
         }
-    }
-
-    func startCameraCapture(
-        configuration: RtcCameraConfiguration,
-        previewReadyListener: @escaping @Sendable () -> Void,
-        errorListener: @escaping XmaxErrorListener
-    ) throws {
-        lock.withLock {
-            storedCalls.append(.startCameraCapture(configuration))
-            cameraPreviewReadyListener = previewReadyListener
-        }
-        cameraStartHandler?()
-        if reportsCameraReadyOnStart { previewReadyListener() }
-    }
-
-    func switchCameraCapture(to deviceID: String) throws {
-        lock.withLock { storedCalls.append(.switchCameraCapture(deviceID)) }
-    }
-
-    func updateCameraCapture(videoFormat: VideoFormat, frameRate: Int) throws {
-        lock.withLock { storedCalls.append(.updateCameraCapture(videoFormat, frameRate)) }
-    }
-
-    func stopCameraCapture() throws {
-        lock.withLock {
-            storedCalls.append(.stopCameraCapture)
-            cameraPreviewReadyListener = nil
-        }
-    }
-
-    var currentCameraPreviewReadyListener: (@Sendable () -> Void)? { lock.withLock { cameraPreviewReadyListener } }
-    func emitCameraPreviewReady() { lock.withLock { cameraPreviewReadyListener }?() }
-
-    @MainActor
-    func attachCameraPreview(to view: NSView, contentMode: VideoContentMode, mirrored: Bool) throws {
-        lock.withLock { storedCalls.append(.attachCameraPreview(contentMode, mirrored: mirrored)) }
-    }
-
-    @MainActor
-    func detachCameraPreview(from view: NSView) throws {
-        lock.withLock { storedCalls.append(.detachCameraPreview) }
-    }
-
-    func startAudioCapture() throws {
-        try record(.startAudioCapture, error: startAudioCaptureError)
-        audioControlHandler?()
-    }
-
-    func setMicrophoneDevice(_ deviceID: String?) throws {
-        try record(.setMicrophoneDevice(deviceID), error: microphoneDeviceError)
-    }
-
-    func stopAudioCapture() throws {
-        try record(.stopAudioCapture, error: stopAudioCaptureError)
-        audioControlHandler?()
     }
 
     func startExternalAudioSource() throws {

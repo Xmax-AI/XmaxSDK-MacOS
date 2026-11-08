@@ -25,7 +25,6 @@ final class ExternalVideoControllerTests: XCTestCase {
         await controller.stop()
         XCTAssertFalse(controller.hasAudio)
         XCTAssertEqual(rtc.calls.filter { $0 == .stopExternalAudioSource }.count, 1)
-        XCTAssertFalse(rtc.calls.contains(.startAudioCapture))
     }
 
     func testFailedAudioSourceStartupReleasesTrackAndAllowsSilentRetry() async throws {

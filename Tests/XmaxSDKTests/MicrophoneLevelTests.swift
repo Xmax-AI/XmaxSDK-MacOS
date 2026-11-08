@@ -1,4 +1,3 @@
-@preconcurrency import AgoraRtcKit
 import Foundation
 import XCTest
 @testable import XmaxSDK
@@ -11,7 +10,6 @@ final class MicrophoneLevelTests: XCTestCase {
         monitor.setListener { readings.append($0) }
         XCTAssertEqual(readings.count, 1)
         XCTAssertNil(readings[0])
-        XCTAssertFalse(monitor.isCapturing)
         XCTAssertNil(monitor.sourceListener())
     }
 
@@ -159,136 +157,4 @@ final class MicrophoneLevelTests: XCTestCase {
         XCTAssertNil(monitor.sourceListener())
         XCTAssertTrue(readings.compactMap { $0 }.isEmpty)
     }
-
-    func testNativeVolumeUsesOnlyLocalInputAndIgnoresRemoteMixTotals() {
-        let sink = RtcCameraEventSink()
-        let engine = AgoraRtcEngineKit()
-        let recorder = MicrophoneReadingRecorder()
-        sink.setMicrophoneLevelListener { recorder.append($0) }
-        let remote = AgoraRtcAudioVolumeInfo()
-        remote.uid = 42
-        remote.volume = 255
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [remote], totalVolume: 255)
-        XCTAssertTrue(recorder.values.isEmpty)
-        let local = AgoraRtcAudioVolumeInfo()
-        local.uid = 0
-        local.volume = 0
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        local.volume = 128
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        local.volume = 255
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 0)
-        XCTAssertEqual(recorder.values.compactMap { $0 }, [0, Float(128) / 255, 1])
-    }
-
-    func testNativeAudioFailureClearsInputWithoutChangingCameraReadiness() {
-        let sink = RtcCameraEventSink()
-        let recorder = MicrophoneReadingRecorder()
-        sink.setMicrophoneLevelListener { recorder.append($0) }
-        let engine = AgoraRtcEngineKit()
-        sink.rtcEngine(engine, localAudioStateChanged: .failed, reason: .recordFailure)
-        sink.rtcEngine(engine, localAudioStateChanged: .stopped, reason: .OK)
-        XCTAssertEqual(recorder.values.count, 2)
-        XCTAssertTrue(recorder.values.allSatisfy { $0 == nil })
-        let local = AgoraRtcAudioVolumeInfo()
-        local.uid = 0
-        local.volume = 255
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        XCTAssertEqual(recorder.values.count, 2, "Input remains unavailable until native capture resumes")
-        sink.setMicrophoneLevelListener { recorder.append($0) }
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        XCTAssertEqual(recorder.values.count, 2, "Replacing observation must not mark failed capture as valid")
-        sink.rtcEngine(engine, localAudioStateChanged: .recording, reason: .OK)
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        XCTAssertEqual(recorder.values.last!, 1)
-    }
-
-    func testNativeObservationUsesTheFixedIntervalAndRemovalStopsMetadata() {
-        let sink = RtcCameraEventSink()
-        let engine = AgoraRtcEngineKit()
-        var intervals: [Int] = []
-        let platform = AgoraRtcPlatform(
-            engine: engine,
-            cameraEvents: sink,
-            microphoneLevelIndication: { interval, smooth, vad, _ in
-                intervals.append(interval)
-                XCTAssertEqual(smooth, 3)
-                XCTAssertFalse(vad)
-                return 0
-            }
-        )
-        let recorder = MicrophoneReadingRecorder()
-        platform.setMicrophoneLevelListener { recorder.append($0) }
-        let local = AgoraRtcAudioVolumeInfo()
-        local.uid = 0
-        local.volume = 255
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        XCTAssertEqual(recorder.values, [1])
-        platform.setMicrophoneLevelListener(nil)
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        XCTAssertEqual(recorder.values, [1])
-        XCTAssertEqual(intervals, [200, 0])
-    }
-
-    func testRejectedNativeObservationLeavesNoListenerAndCanBeRetried() {
-        let sink = RtcCameraEventSink()
-        let engine = AgoraRtcEngineKit()
-        var acceptsObservation = false
-        var intervals: [Int] = []
-        let platform = AgoraRtcPlatform(
-            engine: engine,
-            cameraEvents: sink,
-            microphoneLevelIndication: { interval, _, _, _ in
-                intervals.append(interval)
-                return acceptsObservation ? 0 : -1
-            }
-        )
-        let recorder = MicrophoneReadingRecorder()
-        platform.setMicrophoneLevelListener { recorder.append($0) }
-        let local = AgoraRtcAudioVolumeInfo()
-        local.uid = 0
-        local.volume = 255
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        XCTAssertEqual(recorder.values.count, 1)
-        XCTAssertNil(recorder.values[0], "Rejected observation reports an unavailable reading")
-        acceptsObservation = true
-        platform.setMicrophoneLevelListener { recorder.append($0) }
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        XCTAssertEqual(recorder.values, [nil, 1])
-        XCTAssertEqual(intervals, [200, 200])
-    }
-
-    func testFailedNativeRemovalStillRemovesTheReceiverAndRetriesDisablingMetadata() {
-        let sink = RtcCameraEventSink()
-        let engine = AgoraRtcEngineKit()
-        var acceptsRemoval = false
-        var intervals: [Int] = []
-        let platform = AgoraRtcPlatform(
-            engine: engine,
-            cameraEvents: sink,
-            microphoneLevelIndication: { interval, _, _, _ in
-                intervals.append(interval)
-                return interval > 0 || acceptsRemoval ? 0 : -1
-            }
-        )
-        let recorder = MicrophoneReadingRecorder()
-        platform.setMicrophoneLevelListener { recorder.append($0) }
-        platform.setMicrophoneLevelListener(nil)
-        let local = AgoraRtcAudioVolumeInfo()
-        local.uid = 0
-        local.volume = 255
-        sink.rtcEngine(engine, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        XCTAssertTrue(recorder.values.isEmpty)
-        acceptsRemoval = true
-        platform.setMicrophoneLevelListener(nil)
-        platform.setMicrophoneLevelListener(nil)
-        XCTAssertEqual(intervals, [200, 0, 0])
-    }
-}
-
-private final class MicrophoneReadingRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var readings: [Float?] = []
-    var values: [Float?] { lock.withLock { readings } }
-    func append(_ value: Float?) { lock.withLock { readings.append(value) } }
 }

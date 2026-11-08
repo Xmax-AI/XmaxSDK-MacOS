@@ -212,9 +212,9 @@ actor MediaController: MediaControlling {
         await stopSource(ifKindIs: .external)
     }
 
-    /// Prepares camera-stream audio for RTC and starts physical capture if enabled.
+    /// Prepares the camera stream's audio track and starts microphone capture if enabled.
     ///
-    /// - Throws: An error on cancellation or RTC audio capture startup failure.
+    /// - Throws: An error on cancellation, audio track creation, or microphone startup failure.
     func startMicrophoneCapture() throws {
         try Task.checkCancellation()
         guard let activeSource, activeSource.kind == .camera else { return }
@@ -223,11 +223,9 @@ actor MediaController: MediaControlling {
     }
 
     /// Stops microphone capture while retaining camera preview and microphone configuration.
-    ///
-    /// - Throws: An error if stopping RTC audio capture fails.
-    func stopMicrophoneCapture() throws {
+    func stopMicrophoneCapture() {
         guard activeSource?.kind == .camera else { return }
-        try cameraController.stopMicrophoneCapture()
+        cameraController.stopMicrophoneCapture()
     }
 
     /// Changes only the active camera stream's audio input, preserving video capture and external sources.

@@ -63,9 +63,7 @@ protocol CameraControlling: Sendable {
     func startMicrophoneCapture() throws
 
     /// Stops microphone capture while retaining configuration for the next connection.
-    ///
-    /// - Throws: An error if stopping RTC microphone capture fails.
-    func stopMicrophoneCapture() throws
+    func stopMicrophoneCapture()
 
     /// Selects a microphone by its system UID.
     func switchMicrophone(to deviceID: String?) throws

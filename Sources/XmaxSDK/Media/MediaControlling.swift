@@ -73,15 +73,13 @@ protocol MediaControlling: Actor, InteractionControlling {
     /// Unbinds external video input and releases its SDK resources.
     func stopExternalVideoStream() async
 
-    /// Starts internal audio capture for a microphone-enabled camera stream; other sources are unaffected.
+    /// Prepares the camera stream's audio track and starts microphone capture if enabled.
     ///
-    /// - Throws: An error on cancellation or RTC audio capture startup failure.
+    /// - Throws: An error on cancellation, audio track creation, or microphone startup failure.
     func startMicrophoneCapture() throws
 
     /// Stops microphone capture while retaining camera preview and microphone configuration.
-    ///
-    /// - Throws: An error if stopping RTC audio capture fails.
-    func stopMicrophoneCapture() throws
+    func stopMicrophoneCapture()
 
     /// Changes input selection for the active camera stream without starting capture.
     func switchMicrophone(

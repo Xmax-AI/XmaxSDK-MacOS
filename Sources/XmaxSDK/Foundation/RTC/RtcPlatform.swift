@@ -13,21 +13,8 @@ import Foundation
 /// Receives remote video frames in SDK-owned pixel buffers.
 typealias RtcRemoteVideoFrameListener = @Sendable (RealtimeVideoFrame) -> Void
 
-/// Receives normalized native input metadata; application delivery belongs to the microphone monitor.
-typealias RtcMicrophoneLevelListener = @Sendable (Float?) -> Void
-
-/// The local microphone metadata supplied by native engine or channel delegates.
-enum RtcMicrophoneEvent: Sendable {
-
-    /// The normalized strength of the physical local input.
-    case level(Float)
-
-    /// Whether native capture remains able to supply usable readings.
-    case availability(Bool)
-}
-
 /// Isolates third-party RTC capabilities from connection waits, timeouts, and lease management.
-protocol RtcPlatform: AnyObject, RtcCameraCapturing {
+protocol RtcPlatform: AnyObject, Sendable {
 
     /// Sets camera upstream mirroring, retaining the setting across encoder reconfiguration.
     ///
@@ -53,30 +40,6 @@ protocol RtcPlatform: AnyObject, RtcCameraCapturing {
     func useExternalVideoSource(
         useTexture: Bool
     ) throws
-
-    /// Switches to microphone input and starts capture.
-    ///
-    /// - Parameter deviceID: The Core Audio input UID; nil follows the system default input.
-    ///
-    /// - Throws: An error on audio source switching or capture failure.
-    func startAudioCapture(
-        deviceID: String?
-    ) throws
-
-    /// Selects an input UID, or follows the system default when nil, without changing capture state.
-    func setMicrophoneDevice(
-        _ deviceID: String?
-    ) throws
-
-    /// Configures best-effort local input observation without enabling audio capture.
-    func setMicrophoneLevelListener(
-        _ listener: RtcMicrophoneLevelListener?
-    )
-
-    /// Stops microphone capture.
-    ///
-    /// - Throws: An error if the vendor engine fails to stop capture.
-    func stopAudioCapture() throws
 
     /// Enables external PCM input.
     ///

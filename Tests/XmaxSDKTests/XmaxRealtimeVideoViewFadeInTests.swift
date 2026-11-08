@@ -96,24 +96,6 @@ final class XmaxRealtimeVideoViewFadeInTests: XCTestCase {
         try assertFade(in: view, duration: 0.7)
     }
 
-    func testNativePreviewFadesOnceWithoutWaitingForDecodedFrames() throws {
-        let view = XmaxRealtimeVideoView(fadeInDuration: 0.3)
-        let presenter = RtcCameraPreviewPresenter(rtcManager: RtcManagingStub(), mirrored: false)
-
-        try presenter.attach(to: view, contentMode: .fit)
-
-        try assertFade(in: view, duration: 0.3)
-        view.fadeInDuration = 0.7
-        view.isMirrored = true
-        try assertFade(in: view, duration: 0.3)
-
-        try presenter.clear()
-        XCTAssertNil(fade(in: view))
-        try presenter.attach(to: view, contentMode: .fit)
-        try assertFade(in: view, duration: 0.7)
-        try presenter.clear()
-    }
-
     func testSingleTrackFadeDoesNotAddASecondAnimationToDualViews() throws {
         let view = XmaxRealtimeDualVideoView(remoteTrack: RealtimeVideoTrack(id: "remote"))
         let local = try XCTUnwrap(view.subviews.first as? XmaxRealtimeVideoView)

@@ -143,18 +143,11 @@ enum RtcVideoConverter {
 
     /// Converts SDK encoding parameters to Agora configuration.
     ///
-    /// - Parameters:
-    ///   - configuration: Dimensions, frame rate, bitrate bounds, and encoding preferences.
-    ///   - usesCameraTrack: Whether Agora's native camera supplies the input.
-    ///
-    /// - Returns: Agora encoding configuration with upstream mirroring disabled.
+    /// - Parameter configuration: Dimensions, frame rate, bitrate bounds, and encoding preferences.
+    /// - Returns: Agora encoding configuration with upstream mirroring disabled and adaptive orientation.
     static func makeEncoderConfiguration(
-        _ configuration: VideoEncodingConfiguration,
-        usesCameraTrack: Bool = false
+        _ configuration: VideoEncodingConfiguration
     ) -> AgoraVideoEncoderConfiguration {
-        // Adaptive orientation follows the camera sensor, even for portrait encoder dimensions.
-        let orientation: AgoraVideoOutputOrientationMode =
-            usesCameraTrack && configuration.width < configuration.height ? .fixedPortrait : .adaptative
         let result = AgoraVideoEncoderConfiguration(
             size: CGSize(
                 width: configuration.width,
@@ -162,7 +155,7 @@ enum RtcVideoConverter {
             ),
             frameRate: configuration.frameRate,
             bitrate: max(0, configuration.maximumBitrate),
-            orientationMode: orientation,
+            orientationMode: .adaptative,
             mirrorMode: .disabled
         )
         result.minBitrate = configuration.minimumBitrate

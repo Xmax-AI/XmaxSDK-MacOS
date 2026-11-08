@@ -9,7 +9,6 @@
 //
 
 import Foundation
-import AppKit
 
 /// Manages RTC leases, connection waits, cancellation, and event validity.
 final class RtcManager: RtcManaging, @unchecked Sendable {
@@ -20,12 +19,6 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// The exclusive engine lease provider.
     private let engineManager: RtcEngineManager
 
-    /// The selected input UID, or nil to follow the system default during microphone capture.
-    private var microphoneDeviceID: String?
-
-    /// Coalesces physical input readings and invalidates callbacks across capture and listener changes.
-    private let microphoneLevels = MicrophoneLevelMonitor()
-
     /// The room join timeout, in nanoseconds.
     private let joinTimeout: UInt64
 
@@ -34,9 +27,6 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
 
     /// The lock serializing compound RTC operations.
     private let operationLock = NSRecursiveLock()
-
-    /// Camera calls can block inside Agora; serialize them independently of room operations.
-    private let cameraOperationLock = NSRecursiveLock()
 
     /// The engine lease held by this manager.
     private var engineLease: RtcEngineLease?
@@ -59,23 +49,12 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// The shared engine initialization operation.
     private var initialization: Initialization?
 
-    /// Camera and room calls can block independently; preview commands must not wait on AppKit's thread.
-    @MainActor private var previewCommandID = UUID()
-
-    /// The pending main-actor retry task for a deferred preview operation.
-    @MainActor private var previewCommand: Task<Void, Never>?
-
-    /// The canvas requested by the latest preview attachment.
-    @MainActor private weak var requestedPreviewView: NSView?
-
     /// Creates an RTC manager with a room join timeout.
     init(
         engineManager: RtcEngineManager = .shared,
-        joinTimeoutNanoseconds: UInt64 = RtcManager.joinTimeoutNanoseconds,
-        microphoneDeviceID: String? = nil
+        joinTimeoutNanoseconds: UInt64 = RtcManager.joinTimeoutNanoseconds
     ) {
         self.engineManager = engineManager
-        self.microphoneDeviceID = microphoneDeviceID
         joinTimeout = joinTimeoutNanoseconds
     }
 
@@ -137,16 +116,11 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// Destroys the RTC engine and releases resources.
     func destroy() async {
         await leaveRoom()
-        let resources = cameraOperationLock.withLock {
-            operationLock.withLock {
-                let resources = stateLock.withLock { () -> (RtcEngineLease?, Initialization?) in
-                    let resources = (engineLease, initialization)
-                    engineLease = nil
-                    initialization = nil
-                    return resources
-                }
-                microphoneLevels.endCapture()
-                resources.0?.engine.setMicrophoneLevelListener(nil)
+        let resources = operationLock.withLock {
+            stateLock.withLock { () -> (RtcEngineLease?, Initialization?) in
+                let resources = (engineLease, initialization)
+                engineLease = nil
+                initialization = nil
                 return resources
             }
         }
@@ -194,196 +168,11 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
         try withEngine { try $0.useExternalVideoSource(useTexture: useTexture) }
     }
 
-    /// Starts native capture using the engine under camera operation ownership.
-    func startCameraCapture(
-        configuration: RtcCameraConfiguration,
-        previewReadyListener: @escaping @Sendable () -> Void,
-        errorListener: @escaping XmaxErrorListener
-    ) throws {
-        try withCameraEngine {
-            try $0.startCameraCapture(
-                configuration: configuration,
-                previewReadyListener: previewReadyListener,
-                errorListener: errorListener
-            )
-        }
-    }
-
-    /// Switches the active native camera under camera operation ownership.
-    func switchCameraCapture(
-        to deviceID: String
-    ) throws {
-        try withCameraEngine { try $0.switchCameraCapture(to: deviceID) }
-    }
-
-    /// Updates native camera capture without replacing its engine or preview canvas.
-    func updateCameraCapture(
-        videoFormat: VideoFormat,
-        frameRate: Int
-    ) throws {
-        try withCameraEngine {
-            try $0.updateCameraCapture(
-                videoFormat: videoFormat,
-                frameRate: frameRate
-            )
-        }
-    }
-
-    /// Stops native camera capture without requiring an active engine.
-    func stopCameraCapture() throws {
-        try cameraOperationLock.withLock {
-            let engine = stateLock.withLock { engineLease?.engine }
-            try engine?.stopCameraCapture()
-        }
-    }
-
-    /// Requests native rendering in an AppKit canvas, deferring work when engine locks are busy.
-    @MainActor
-    func attachCameraPreview(
-        to view: NSView,
-        contentMode: VideoContentMode,
-        mirrored: Bool
-    ) throws {
-        requestedPreviewView = view
-        try submitPreviewCommand {
-            try $0.attachCameraPreview(
-                to: view,
-                contentMode: contentMode,
-                mirrored: mirrored
-            )
-        }
-    }
-
-    /// Detaches the requested canvas and discards stale preview requests.
-    @MainActor
-    func detachCameraPreview(
-        from view: NSView
-    ) throws {
-        guard requestedPreviewView === view else { return }
-        requestedPreviewView = nil
-        try submitPreviewCommand { try $0.detachCameraPreview(from: view) }
-    }
-
-    /// Applies the latest preview operation immediately or retries it without blocking the main actor.
-    @MainActor
-    private func submitPreviewCommand(
-        _ operation: @escaping @MainActor @Sendable (any RtcPlatform) throws -> Void
-    )
-        throws
-    {
-        previewCommand?.cancel()
-        let id = UUID()
-        previewCommandID = id
-        if try tryPreviewCommand(operation) { return }
-        previewCommand = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
-                guard let self, previewCommandID == id else { return }
-                do {
-                    if try tryPreviewCommand(operation) { return }
-                } catch {
-                    XmaxRealtimeVideoView.logRenderingFailure(
-                        title: "Failed to bind native camera preview",
-                        error: error
-                    )
-                    return
-                }
-            }
-        }
-    }
-
-    /// Attempts a preview operation without blocking and reports whether engine locks were available.
-    @MainActor
-    private func tryPreviewCommand(
-        _ operation: @MainActor (any RtcPlatform) throws -> Void
-    ) throws -> Bool {
-        guard cameraOperationLock.try() else { return false }
-        defer { cameraOperationLock.unlock() }
-        guard operationLock.try() else { return false }
-        defer { operationLock.unlock() }
-        if let platform = stateLock.withLock({ engineLease?.engine }) { try operation(platform) }
-        return true
-    }
-
-    /// Switches to microphone input and starts capture.
-    ///
-    /// - Throws: An error on audio source switching or capture failure.
-    func startAudioCapture() throws {
-        try withEngine { platform in
-            do {
-                try platform.startAudioCapture(deviceID: microphoneDeviceID)
-                microphoneLevels.beginCapture()
-                platform.setMicrophoneLevelListener(microphoneLevels.sourceListener())
-            } catch {
-                microphoneLevels.endCapture()
-                platform.setMicrophoneLevelListener(nil)
-                throw error
-            }
-        }
-    }
-
-    /// Applies and retains input selection under the audio control lock, restoring the previous route on failure.
-    func setMicrophoneDevice(
-        _ deviceID: String?
-    ) throws {
-        try withEngine { platform in
-            let wasCapturing = microphoneLevels.isCapturing
-            if wasCapturing {
-                microphoneLevels.endCapture()
-                platform.setMicrophoneLevelListener(nil)
-            }
-            do {
-                try platform.setMicrophoneDevice(deviceID)
-                microphoneDeviceID = deviceID
-            } catch {
-                do {
-                    try platform.setMicrophoneDevice(microphoneDeviceID)
-                    if wasCapturing {
-                        microphoneLevels.beginCapture()
-                        platform.setMicrophoneLevelListener(microphoneLevels.sourceListener())
-                    }
-                } catch { XmaxLogger.realtime.error(message: "Failed to restore microphone input: \(error)") }
-                throw error
-            }
-            if wasCapturing {
-                microphoneLevels.beginCapture()
-                platform.setMicrophoneLevelListener(microphoneLevels.sourceListener())
-            }
-        }
-    }
-
-    /// Replays input strength on the main actor, then updates native observation without acquiring an engine.
-    func setMicrophoneLevelListener(
-        _ listener: RealtimeMicrophoneLevelListener?
-    ) async {
-        await microphoneLevels.setListener(listener)
-        try? withOptionalEngine { platform in
-            platform.setMicrophoneLevelListener(microphoneLevels.sourceListener())
-        }
-    }
-
-    /// Stops microphone capture.
-    ///
-    /// - Throws: An error if the vendor engine fails to stop capture.
-    func stopAudioCapture() throws {
-        try operationLock.withLock {
-            microphoneLevels.endCapture()
-            try withOptionalEngine { platform in
-                platform.setMicrophoneLevelListener(nil)
-                try platform.stopAudioCapture()
-            }
-        }
-    }
-
     /// Enables external PCM input.
     ///
     /// - Throws: An error if external audio track creation fails.
     func startExternalAudioSource() throws {
-        try withEngine { platform in
-            microphoneLevels.endCapture()
-            platform.setMicrophoneLevelListener(nil)
-            try platform.startExternalAudioSource()
-        }
+        try withEngine { try $0.startExternalAudioSource() }
     }
 
     /// Stops external PCM input and releases the audio track.
@@ -458,9 +247,6 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
     /// Leaves the current RTC room.
     func leaveRoom() async {
         operationLock.withLock {
-            microphoneLevels.endCapture()
-            let platform = stateLock.withLock { engineLease?.engine }
-            platform?.setMicrophoneLevelListener(nil)
             let resources = stateLock.withLock { () -> (RoomContext?, PendingJoin?) in
                 let result = (activeRoom, pendingJoin)
                 activeRoom = nil
@@ -1132,17 +918,6 @@ private extension RtcManager {
         _ operation: (any RtcPlatform) throws -> T
     ) throws -> T {
         try operationLock.withLock { try operation(requireEngine()) }
-    }
-
-    /// Keeps the lease alive for camera work without holding the room control lock.
-    /// Destruction waits for the camera lock before releasing the engine lease.
-    func withCameraEngine<T>(
-        _ operation: (any RtcPlatform) throws -> T
-    ) throws -> T {
-        try cameraOperationLock.withLock {
-            let engine = try requireEngine()
-            return try operation(engine)
-        }
     }
 
     /// Executes synchronously if an engine exists.

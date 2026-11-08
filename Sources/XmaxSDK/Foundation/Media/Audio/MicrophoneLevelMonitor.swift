@@ -19,7 +19,7 @@ final class MicrophoneLevelMonitor: @unchecked Sendable {
     /// The current application receiver, invoked only on the main actor outside the lock.
     private var listener: RealtimeMicrophoneLevelListener?
 
-    /// The physical capture identity accepted by native observation callbacks.
+    /// The physical capture identity accepted by input callbacks.
     private var captureID: UUID?
 
     /// The latest finite, normalized input reading, or nil without usable input.
@@ -28,14 +28,11 @@ final class MicrophoneLevelMonitor: @unchecked Sendable {
     /// Rejects delivery queued before a listener replacement or capture reset.
     private var revision: UInt64 = 0
 
-    /// Keeps pending native readings bounded to one main-actor delivery task per revision.
+    /// Keeps pending input readings bounded to one main-actor delivery task per revision.
     private var deliveryQueued = false
 
     /// Preserves an input-clear event even if fresh audio arrives before main-actor delivery.
     private var clearPending = false
-
-    /// Whether physical microphone capture currently accepts input readings.
-    var isCapturing: Bool { lock.withLock { captureID != nil } }
 
     /// Replaces the receiver and synchronously replays the latest reading on the main actor.
     @MainActor
@@ -63,8 +60,8 @@ final class MicrophoneLevelMonitor: @unchecked Sendable {
         replaceCapture(with: nil)
     }
 
-    /// Binds native readings to the current physical source only while an application observes them.
-    func sourceListener() -> RtcMicrophoneLevelListener? {
+    /// Binds input readings to the current physical source only while an application observes them.
+    func sourceListener() -> (@Sendable (Float?) -> Void)? {
         let source = lock.withLock { () -> (UUID, UInt64)? in
             guard listener != nil, let captureID else { return nil }
             return (captureID, revision)

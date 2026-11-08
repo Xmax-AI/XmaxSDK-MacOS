@@ -122,18 +122,10 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
                 )
             }
             account = configuration.userID
-            let bridge = RtcRoomEventBridge(
-                microphoneListener: { [weak self] event in
-                    guard let self,
-                        self.callbackLock.withLock({ !self.callbackState.isClosed && self.callbackState.isJoined })
-                    else { return }
-                    self.platform.receiveMicrophoneEvent(event)
-                },
-                handler: { [weak self] event in
-                    // Return to Agora immediately; lifecycle handling can acquire control locks or call the engine.
-                    self?.enqueue(event)
-                }
-            )
+            let bridge = RtcRoomEventBridge { [weak self] event in
+                // Return to Agora immediately; lifecycle handling can acquire control locks or call the engine.
+                self?.enqueue(event)
+            }
             self.bridge = bridge
 
             let sink = RtcRemoteVideoSink { [weak self] uid, channelID in
@@ -221,7 +213,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
 
     /// Updates local video publication state.
     ///
-    /// - Parameter publish: Whether to publish the active camera or custom video track.
+    /// - Parameter publish: Whether to publish the custom video track.
     ///
     /// - Throws: An error if publication configuration fails.
     func publishLocalVideo(
@@ -230,8 +222,8 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
         try platform.lock.withLock {
             try requireJoined()
             let options = AgoraRtcChannelMediaOptions()
-            options.publishCameraTrack = publish && platform.usesCameraTrack
-            options.publishCustomVideoTrack = publish && !platform.usesCameraTrack
+            options.publishCameraTrack = false
+            options.publishCustomVideoTrack = publish
             options.customVideoTrackId = 0
             try update(
                 options,
@@ -243,7 +235,7 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
 
     /// Updates local audio publication state.
     ///
-    /// - Parameter publish: Whether to publish the current audio source.
+    /// - Parameter publish: Whether to publish the custom audio track.
     ///
     /// - Throws: An error if publication configuration fails.
     func publishLocalAudio(
@@ -251,10 +243,15 @@ final class AgoraRtcRoom: RtcRoom, @unchecked Sendable {
     ) throws {
         try platform.lock.withLock {
             try requireJoined()
+            let audioTrackID = platform.audioTrackID
+            guard !publish || audioTrackID != nil else {
+                throw XmaxError(code: .rtcError, message: "RTC custom audio track is unavailable")
+            }
+
             let options = AgoraRtcChannelMediaOptions()
-            options.publishMicrophoneTrack = publish && platform.audioTrackID == nil
-            options.publishCustomAudioTrack = publish && platform.audioTrackID != nil
-            if let audioTrackID = platform.audioTrackID {
+            options.publishMicrophoneTrack = false
+            options.publishCustomAudioTrack = publish
+            if let audioTrackID {
                 options.publishCustomAudioTrackId = audioTrackID
             }
             try update(
@@ -588,7 +585,6 @@ private extension AgoraRtcRoom {
         callbackLock.withLock {
             if !callbackState.isClosed { callbackState.isJoined = true }
         }
-        platform.refreshMicrophoneLevelObservation()
     }
 
     /// Sends an event to a valid room listener.

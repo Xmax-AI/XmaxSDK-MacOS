@@ -5,99 +5,6 @@ import XCTest
 @testable import XmaxSDK
 
 final class AgoraRtcRoomConcurrencyTests: XCTestCase, @unchecked Sendable {
-    func testMicrophoneObservationMovesToTheJoinedConnectionAndReceivesChannelMetadata() async throws {
-        let (room, engine, platform, recorder) = try await joinedMeterRoom()
-        let delegate = try XCTUnwrap(engine.roomDelegate)
-        let local = AgoraRtcAudioVolumeInfo()
-        local.uid = 0
-        local.volume = 128
-        delegate.rtcEngine?(engine.vendor, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        XCTAssertEqual(recorder.values, [Float(128) / 255])
-        XCTAssertEqual(recorder.configurations, ["200:global", "0:global", "200:room/1"])
-        platform.setMicrophoneLevelListener(nil)
-        XCTAssertEqual(recorder.configurations.last, "0:room/1")
-        room.destroy()
-    }
-
-    func testMicrophoneChannelCallbackReturnsDuringControlCallsAndRejectsClosedRoomEvents() async throws {
-        let (room, engine, platform, recorder) = try await joinedMeterRoom()
-        let delegate = try XCTUnwrap(engine.roomDelegate)
-        engine.onUpdate = {
-            engine.waitForCallback {
-                let local = AgoraRtcAudioVolumeInfo()
-                local.uid = 0
-                local.volume = 255
-                delegate.rtcEngine?(engine.vendor, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-            }
-        }
-        try room.publishLocalVideo(false)
-        XCTAssertEqual(engine.callbackReturned, true)
-        XCTAssertEqual(recorder.values, [1])
-        platform.setMicrophoneLevelListener(nil)
-        room.destroy()
-        platform.setMicrophoneLevelListener { recorder.append($0) }
-        let local = AgoraRtcAudioVolumeInfo()
-        local.uid = 0
-        local.volume = 128
-        delegate.rtcEngine?(engine.vendor, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 128)
-        XCTAssertEqual(recorder.values, [1], "A retired connection cannot feed a replacement input observer")
-        platform.setMicrophoneLevelListener(nil)
-    }
-
-    func testMicrophoneChannelFailureAndRecoveryShareInputValidity() async throws {
-        let (room, engine, platform, recorder) = try await joinedMeterRoom()
-        let delegate = try XCTUnwrap(engine.roomDelegate)
-        let local = AgoraRtcAudioVolumeInfo()
-        local.uid = 0
-        local.volume = 255
-        delegate.rtcEngine?(engine.vendor, localAudioStateChanged: .failed, reason: .recordFailure)
-        delegate.rtcEngine?(engine.vendor, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        XCTAssertEqual(recorder.values.count, 1)
-        XCTAssertNil(recorder.values[0])
-        delegate.rtcEngine?(engine.vendor, localAudioStateChanged: .recording, reason: .OK)
-        delegate.rtcEngine?(engine.vendor, reportAudioVolumeIndicationOfSpeakers: [local], totalVolume: 255)
-        XCTAssertEqual(recorder.values, [nil, 1])
-        platform.setMicrophoneLevelListener(nil)
-        room.destroy()
-    }
-
-    func testRejectedConnectionLevelObservationDoesNotFailTheRoomJoin() async throws {
-        let (room, _, platform, recorder) = try await joinedMeterRoom(rejectObservation: true)
-        XCTAssertTrue(room.isJoined)
-        XCTAssertEqual(recorder.values.count, 1)
-        XCTAssertNil(recorder.values[0])
-        platform.setMicrophoneLevelListener(nil)
-        room.destroy()
-    }
-
-    private func joinedMeterRoom(
-        rejectObservation: Bool = false
-    ) async throws -> (AgoraRtcRoom, CallbackWaitingAgoraEngine, AgoraRtcPlatform, RoomMicrophoneLevelRecorder) {
-        let engine = CallbackWaitingAgoraEngine()
-        let recorder = RoomMicrophoneLevelRecorder()
-        let platform = AgoraRtcPlatform(
-            engine: engine.vendor,
-            cameraEvents: RtcCameraEventSink(),
-            roomEngine: engine,
-            microphoneLevelIndication: { interval, smooth, vad, connection in
-                XCTAssertEqual(smooth, 3)
-                XCTAssertFalse(vad)
-                recorder.record(interval, connection: connection)
-                return interval > 0 && connection != nil && rejectObservation ? -1 : 0
-            }
-        )
-        platform.setMicrophoneLevelListener { recorder.append($0) }
-        let room = try XCTUnwrap(platform.createRoom(roomID: "room") as? AgoraRtcRoom)
-        let joined = expectation(description: "Joined room with microphone observation")
-        room.setEventListener { event in
-            if case .joined = event { joined.fulfill() }
-            if case .failure(let error) = event { XCTFail("Observation must not fail joining: \(error)") }
-        }
-        try room.join(configuration: RoomJoinConfiguration(roomID: "room", userID: "host", token: "test"))
-        await fulfillment(of: [joined], timeout: 2)
-        return (room, engine, platform, recorder)
-    }
-
     func testIncomingDataStreamResolvesSenderAccountAndIgnoresDestroyedRoom() async throws {
         let (room, engine) = try await joinedRoom()
         let delivered = expectation(description: "Room signaling delivered")
@@ -263,23 +170,39 @@ final class AgoraRtcRoomConcurrencyTests: XCTestCase, @unchecked Sendable {
         await fulfillment(of: [unexpected], timeout: 0.1)
     }
 
-    func testNativeCameraPublishesCameraTrackWithoutCustomVideo() async throws {
-        let (room, engine) = try await joinedRoom(usesCameraTrack: true)
-        defer { room.destroy() }
-        try room.publishLocalVideo(true)
-        XCTAssertEqual(engine.lastVideoPublication?.camera, true)
-        XCTAssertEqual(engine.lastVideoPublication?.custom, false)
-        try room.publishLocalVideo(false)
-        XCTAssertEqual(engine.lastVideoPublication?.camera, false)
-        XCTAssertEqual(engine.lastVideoPublication?.custom, false)
-    }
-
-    func testExternalSourceStillPublishesCustomVideoWithoutCameraTrack() async throws {
+    func testPublishesOnlyTheCustomVideoTrack() async throws {
         let (room, engine) = try await joinedRoom()
         defer { room.destroy() }
         try room.publishLocalVideo(true)
         XCTAssertEqual(engine.lastVideoPublication?.camera, false)
         XCTAssertEqual(engine.lastVideoPublication?.custom, true)
+        try room.publishLocalVideo(false)
+        XCTAssertEqual(engine.lastVideoPublication?.camera, false)
+        XCTAssertEqual(engine.lastVideoPublication?.custom, false)
+    }
+
+    func testPublishesOnlyTheCustomAudioTrack() async throws {
+        let (room, engine) = try await joinedRoom(audioTrackID: 7)
+        defer { room.destroy() }
+        try room.publishLocalAudio(true)
+        XCTAssertEqual(engine.lastAudioPublication?.microphone, false)
+        XCTAssertEqual(engine.lastAudioPublication?.custom, true)
+        XCTAssertEqual(engine.lastAudioPublication?.trackID, 7)
+        try room.publishLocalAudio(false)
+        XCTAssertEqual(engine.lastAudioPublication?.microphone, false)
+        XCTAssertEqual(engine.lastAudioPublication?.custom, false)
+    }
+
+    func testAudioPublicationRequiresACustomTrack() async throws {
+        let (room, engine) = try await joinedRoom()
+        defer { room.destroy() }
+        XCTAssertThrowsError(try room.publishLocalAudio(true)) { error in
+            XCTAssertEqual((error as? XmaxError)?.code, .rtcError)
+        }
+        XCTAssertNil(engine.lastAudioPublication)
+        try room.publishLocalAudio(false)
+        XCTAssertEqual(engine.lastAudioPublication?.microphone, false)
+        XCTAssertEqual(engine.lastAudioPublication?.custom, false)
     }
 
     func testUnpublishLetsInFlightAudioCallbackReturn() async throws {
@@ -326,9 +249,9 @@ final class AgoraRtcRoomConcurrencyTests: XCTestCase, @unchecked Sendable {
         await fulfillment(of: [unexpected], timeout: 0.1)
     }
 
-    private func joinedRoom(usesCameraTrack: Bool = false) async throws -> (AgoraRtcRoom, CallbackWaitingAgoraEngine) {
+    private func joinedRoom(audioTrackID: Int? = nil) async throws -> (AgoraRtcRoom, CallbackWaitingAgoraEngine) {
         let engine = CallbackWaitingAgoraEngine()
-        let platform = CallbackWaitingRoomPlatform(engine: engine, usesCameraTrack: usesCameraTrack)
+        let platform = CallbackWaitingRoomPlatform(engine: engine, audioTrackID: audioTrackID)
         let room = AgoraRtcRoom(platform: platform, roomID: "room")
         let joined = expectation(description: "Room joined")
         room.setEventListener { if case .joined = $0 { joined.fulfill() } }
@@ -359,6 +282,7 @@ private final class CallbackWaitingAgoraEngine: AgoraRtcRoomEngine, @unchecked S
     var callbackReturned: Bool?
     var leaveCount = 0
     var registrationCount = 0
+    var lastAudioPublication: (microphone: Bool, custom: Bool, trackID: Int)?
     var lastVideoPublication: (camera: Bool, custom: Bool)?
 
     func waitForCallback(_ callback: @escaping @Sendable () -> Void) {
@@ -408,6 +332,7 @@ private final class CallbackWaitingAgoraEngine: AgoraRtcRoomEngine, @unchecked S
 
     func updateChannelEx(with options: AgoraRtcChannelMediaOptions, connection: AgoraRtcConnection) -> Int32 {
         lastVideoPublication = (options.publishCameraTrack, options.publishCustomVideoTrack)
+        lastAudioPublication = (options.publishMicrophoneTrack, options.publishCustomAudioTrack, options.publishCustomAudioTrackId)
         onUpdate?()
         return 0
     }
@@ -423,26 +348,12 @@ private final class CallbackWaitingAgoraEngine: AgoraRtcRoomEngine, @unchecked S
 private final class CallbackWaitingRoomPlatform: AgoraRtcRoomPlatform, @unchecked Sendable {
     let roomEngine: any AgoraRtcRoomEngine
     let lock = NSRecursiveLock()
-    let audioTrackID: Int? = nil
-    let usesCameraTrack: Bool
-    init(engine: any AgoraRtcRoomEngine, usesCameraTrack: Bool = false) {
+    let audioTrackID: Int?
+    init(engine: any AgoraRtcRoomEngine, audioTrackID: Int?) {
         roomEngine = engine
-        self.usesCameraTrack = usesCameraTrack
+        self.audioTrackID = audioTrackID
     }
     func reapplyVideoConfiguration() throws {}
-}
-
-private final class RoomMicrophoneLevelRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var readings: [Float?] = []
-    private var calls: [String] = []
-    var values: [Float?] { lock.withLock { readings } }
-    var configurations: [String] { lock.withLock { calls } }
-    func append(_ value: Float?) { lock.withLock { readings.append(value) } }
-    func record(_ interval: Int, connection: AgoraRtcConnection?) {
-        let target = connection.map { ($0.channelId ?? "") + "/" + String($0.localUid) } ?? "global"
-        lock.withLock { calls.append(String(interval) + ":" + target) }
-    }
 }
 
 private extension CallbackWaitingAgoraEngine {

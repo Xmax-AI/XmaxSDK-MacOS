@@ -38,7 +38,7 @@ public final class XmaxRealtimeVideoView: NSView {
 
     /// The first frame's fade-in duration, in seconds. The default is 0.3.
     ///
-    /// The animation begins when a decoded frame is submitted or native preview is attached.
+    /// The animation begins when the first video frame is submitted.
     /// Zero, negative, or nonfinite values and Reduce Motion disable the animation.
     /// Changes apply to the next track binding; subsequent frames do not restart the fade-in.
     /// The animation affects view presentation only; frame callbacks retain the video pixels.
@@ -53,7 +53,6 @@ public final class XmaxRealtimeVideoView: NSView {
     public var isMirrored = false {
         didSet {
             applyPreviewMirroring()
-            nativePreviewUpdateHandler?()
             updateTrajectoryConfiguration()
         }
     }
@@ -75,17 +74,11 @@ public final class XmaxRealtimeVideoView: NSView {
     /// The track attached for rendering.
     private weak var attachedTrack: RealtimeVideoTrack?
 
-    /// Whether the current binding is waiting for its first submitted frame or native preview.
+    /// Whether the current binding is waiting for its first submitted frame.
     private var isWaitingForFirstFrame = true
 
     /// The internal handler after a valid frame is submitted.
     var frameDisplayHandler: (() -> Void)?
-
-    /// The callback reapplying native preview configuration after view changes.
-    var nativePreviewUpdateHandler: (() -> Void)?
-
-    /// The child canvas owned by the native camera renderer.
-    private var nativeVideoPreview: NSView?
 
     /// The decoded frame display layer.
     private var decodedVideoLayer: AVSampleBufferDisplayLayer?
@@ -173,7 +166,6 @@ public final class XmaxRealtimeVideoView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         decodedVideoLayer?.frame = bounds
-        nativeVideoPreview?.frame = bounds
         CATransaction.commit()
         trajectoryOverlay?.frame = bounds
     }
@@ -197,7 +189,7 @@ extension XmaxRealtimeVideoView {
     }
 
     /// Starts the binding's fade-in once and preserves the internal frame notification.
-    func notifyVideoFrameSubmitted() {
+    private func notifyVideoFrameSubmitted() {
         if isWaitingForFirstFrame {
             isWaitingForFirstFrame = false
             let duration = fadeInDuration
@@ -222,31 +214,6 @@ extension XmaxRealtimeVideoView {
     private func resetFadeIn() {
         layer?.removeAnimation(forKey: "videoFadeIn")
         isWaitingForFirstFrame = true
-    }
-
-    /// Agora owns rendering inside this child view; SDK sample-buffer rendering is bypassed.
-    func prepareNativeVideoPreview() -> NSView {
-        if let nativeVideoPreview { return nativeVideoPreview }
-        clearDecodedVideoPreview()
-        let view = NSView(frame: bounds)
-        view.autoresizingMask = [.width, .height]
-        view.wantsLayer = true
-        view.layer?.masksToBounds = true
-        addSubview(
-            view,
-            positioned: .below,
-            relativeTo: nil
-        )
-        nativeVideoPreview = view
-        return view
-    }
-
-    /// Removes the native canvas and its update callback.
-    func clearNativeVideoPreview() {
-        resetFadeIn()
-        nativePreviewUpdateHandler = nil
-        nativeVideoPreview?.removeFromSuperview()
-        nativeVideoPreview = nil
     }
 
     /// Applies effective mirroring to the decoded video layer.

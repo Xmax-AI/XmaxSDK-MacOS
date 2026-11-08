@@ -46,7 +46,6 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         try capture.emitVideo(video)
         try await waitUntil { components.rtc.calls.contains(.pushExternalVideoFrame) }
         XCTAssertTrue(components.rtc.calls.contains(.useExternalVideoSource))
-        XCTAssertFalse(components.rtc.calls.contains(.startAudioCapture))
         let remote = RemoteStream(roomID: "room", userID: "bot")
         components.rtc.emitRemoteVideoAvailable(stream: remote)
         try await waitUntil { components.rtc.calls.contains(.setRemoteVideoFrameListener(remote, enabled: true)) }
@@ -126,11 +125,12 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let rtc = RtcManagingStub()
         let permissions = PermissionManagingStub()
         let device = CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
+        let microphone = MicrophoneCaptureControllingStub()
         let camera = CameraController(
             rtcManager: rtc, permissionManager: permissions,
             mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)),
             cameraCapture: CameraCaptureControllingStub(devices: [device], automaticallyReady: true),
-            microphoneCapture: MicrophoneCaptureControllingStub()
+            microphoneCapture: microphone
         )
         let manager = makeComponents(rtc: rtc, camera: camera).manager
         let local = try await manager.createLocalCameraStream(videoFormat: .init(width: 4, height: 4, fps: 30))
@@ -142,9 +142,10 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let enabled = await manager.isMicrophoneEnabled
         XCTAssertTrue(enabled)
         XCTAssertEqual(permissions.microphoneRequestCount, 1)
-        XCTAssertFalse(rtc.calls.contains(.startAudioCapture))
+        XCTAssertFalse(microphone.calls.contains(.start))
         XCTAssertFalse(rtc.calls.contains(.publishLocalAudio))
         _ = try await manager.connect(localStream: local)
+        XCTAssertTrue(microphone.calls.contains(.start))
         XCTAssertTrue(rtc.calls.contains(.startExternalAudioSource))
         XCTAssertTrue(rtc.calls.contains(.publishLocalAudio))
         await manager.close()
@@ -182,7 +183,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
 
         try await manager.switchMicrophone(to: "usb-input")
         XCTAssertEqual(permissions.microphoneRequestCount, 0)
-        XCTAssertFalse(rtc.calls.contains(.startAudioCapture))
+        XCTAssertFalse(microphone.calls.contains(.start))
         try await manager.setMicrophoneEnabled(true)
         try await manager.switchMicrophone(to: nil)
         try await manager.setMicrophoneEnabled(false)
@@ -269,10 +270,11 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let capture = CameraCaptureControllingStub(devices: [
             CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)
         ])
+        let microphone = MicrophoneCaptureControllingStub()
         let camera = CameraController(
             rtcManager: rtc, permissionManager: permissions,
             mediaService: MediaServicingStub(resolvedSize: CGSize(width: 4, height: 4)), cameraCapture: capture,
-            microphoneCapture: MicrophoneCaptureControllingStub()
+            microphoneCapture: microphone
         )
         let manager = makeComponents(rtc: rtc, camera: camera).manager
         let local = try await manager.createLocalCameraStream(videoFormat: .init(width: 4, height: 4, fps: 30))
@@ -285,7 +287,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         do { try await enable.value; XCTFail("Expected cancellation") }
         catch { XCTAssertEqual((error as? XmaxError)?.code, .cancelled) }
         await close.value
-        XCTAssertFalse(rtc.calls.contains(.startAudioCapture))
+        XCTAssertFalse(microphone.calls.contains(.start))
         XCTAssertFalse(rtc.calls.contains(.publishLocalAudio))
     }
 
@@ -668,7 +670,6 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertFalse(components.rtc.calls.contains { if case .pushExternalAudioFrame = $0 { true } else { false } })
         _ = try await components.manager.connect(localStream: local)
         XCTAssertTrue(components.rtc.calls.contains(.publishLocalAudio))
-        XCTAssertFalse(components.rtc.calls.contains(.startAudioCapture))
         sink.pushAudio(try AudioSampleBufferFactory.make(timestamp: CMTime(value: 10, timescale: 1000)))
         XCTAssertTrue(components.rtc.calls.contains { if case .pushExternalAudioFrame = $0 { true } else { false } })
         await components.manager.disconnect()
@@ -809,7 +810,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             XCTAssertEqual(permissions.microphoneRequestCount, variant == 3 ? 0 : 1)
             let microphoneEnabled = await manager.isMicrophoneEnabled
             XCTAssertEqual(microphoneEnabled, variant != 3)
-            XCTAssertFalse(rtc.calls.contains(.startAudioCapture))
+            XCTAssertFalse(microphone.calls.contains(.start))
             XCTAssertFalse(rtc.calls.contains(.publishLocalAudio))
             await manager.close()
         }
@@ -845,7 +846,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertTrue(capture.calls.isEmpty)
         XCTAssertEqual(permissions.cameraRequestCount, 0)
         XCTAssertEqual(permissions.microphoneRequestCount, 0)
-        XCTAssertFalse(rtc.calls.contains(.startAudioCapture))
+        XCTAssertFalse(microphone.calls.contains(.start))
         XCTAssertEqual(rtc.calls.filter { $0 == .destroy }.count, 2)
         await manager.close()
     }
@@ -976,7 +977,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertEqual(first.videoTrack?.device, device)
         XCTAssertEqual(first.videoTrack?.videoFormat, format)
         XCTAssertTrue(camera.useMicrophone)
-        XCTAssertFalse(rtc.calls.contains(.startAudioCapture), "Microphone capture starts on connection")
+        XCTAssertFalse(microphone.calls.contains(.start), "Microphone capture starts on connection")
         var replacement: Task<RealtimeMediaStream, any Error>?
         await manager.setStateListener { state in
             if state.connectionState == .idle, replacement == nil {
