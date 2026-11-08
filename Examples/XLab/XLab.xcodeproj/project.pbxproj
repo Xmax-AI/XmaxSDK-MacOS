@@ -295,7 +295,7 @@
 				INFOPLIST_FILE = XmaxRealtimeBeautyWorker/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.xmax.macos.XLab.realtime-video-beauty;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -315,7 +315,7 @@
 				INFOPLIST_FILE = XmaxRealtimeBeautyWorker/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.xmax.macos.XLab.realtime-video-beauty;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -454,7 +454,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "X-Lab uses the microphone only when microphone input is enabled.";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.xmax.macos.XLab;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
@@ -477,7 +477,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "X-Lab uses the microphone only when microphone input is enabled.";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.xmax.macos.XLab;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
