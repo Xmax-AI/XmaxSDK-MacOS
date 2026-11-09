@@ -33,6 +33,12 @@ protocol MediaControlling: Actor, InteractionControlling {
     /// Lists microphone inputs without starting capture or initializing RTC.
     func listMicrophoneDevices() -> [MicrophoneDevice]
 
+    /// Observes selected tracks from the SDK-owned camera and microphone.
+    func setLocalMediaFrameListener(
+        tracks: Set<RealtimeMediaTrack>,
+        _ listener: RealtimeMediaFrameListener?
+    )
+
     /// Observes microphone input strength without changing local media ownership or capture intent.
     func setMicrophoneLevelListener(
         _ listener: RealtimeMicrophoneLevelListener?

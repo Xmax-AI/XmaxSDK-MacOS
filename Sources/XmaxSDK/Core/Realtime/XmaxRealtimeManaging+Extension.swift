@@ -13,6 +13,19 @@ import Foundation
 /// Provides common defaults for local stream creation and generation calls.
 public extension XmaxRealtimeManaging {
 
+    /// Provides empty observation for custom managers without a local capture implementation.
+    func setLocalMediaFrameListener(
+        tracks: Set<RealtimeMediaTrack>,
+        _ listener: RealtimeMediaFrameListener?
+    ) async {}
+
+    /// Observes both tracks of the local camera stream, or removes the listener when nil.
+    func setLocalMediaFrameListener(
+        _ listener: RealtimeMediaFrameListener?
+    ) async {
+        await setLocalMediaFrameListener(tracks: [.audio, .video], listener)
+    }
+
     /// Binds external video retaining the source's frame rate and encoding settings.
     ///
     /// - Parameter source: The caller-owned video source.

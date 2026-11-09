@@ -250,6 +250,14 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         timing.setListener(listener)
     }
 
+    /// Observes selected tracks captured by the local camera stream.
+    func setLocalMediaFrameListener(
+        tracks: Set<RealtimeMediaTrack>,
+        _ listener: RealtimeMediaFrameListener?
+    ) async {
+        await mediaController.setLocalMediaFrameListener(tracks: tracks, listener)
+    }
+
     /// Sets the listener for generated audio and video frames.
     func setRemoteMediaFrameListener(
         _ listener: RealtimeMediaFrameListener?
@@ -562,6 +570,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
 
     /// Closes the realtime session and releases its resources.
     func close() async {
+        await setLocalMediaFrameListener(nil)
         await lifecycleManager.terminate(
             .all
         )

@@ -127,6 +127,14 @@ actor MediaController: MediaControlling {
         microphoneDevices()
     }
 
+    /// Observes selected tracks of the local camera stream.
+    func setLocalMediaFrameListener(
+        tracks: Set<RealtimeMediaTrack>,
+        _ listener: RealtimeMediaFrameListener?
+    ) {
+        cameraController.setLocalMediaFrameListener(tracks: tracks, listener)
+    }
+
     /// Observes physical input strength without creating a local stream or acquiring the RTC engine.
     func setMicrophoneLevelListener(
         _ listener: RealtimeMicrophoneLevelListener?

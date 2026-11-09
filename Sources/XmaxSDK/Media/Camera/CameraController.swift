@@ -9,6 +9,7 @@
 //
 
 import CoreGraphics
+import CoreMedia
 import Foundation
 
 /// Coordinates SDK camera and microphone capture, preview, and RTC input.
@@ -37,6 +38,12 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     private let videoFrameListener: MediaVideoFrameListener
     private let audioFrameListener: MediaAudioFrameListener
 
+    /// Delivers captured frames without running application code on capture queues.
+    private let localFrameDispatcher = RealtimeMediaFrameDispatcher(
+        maximumPendingVideoFrames: 2,
+        deliveryQueue: DispatchQueue(label: "ai.xmax.sdk.local-media-frame", qos: .userInitiated)
+    )
+
     /// The internal preview readiness handler.
     private var previewReadyHandler: CameraPreviewReadyHandler?
 
@@ -51,6 +58,9 @@ final class CameraController: CameraControlling, @unchecked Sendable {
 
     /// The active camera track.
     private var activeTrack: RealtimeVideoTrack?
+
+    /// Identifies the active capture to both local frame producers.
+    private var captureStreamID: UUID?
 
     /// The camera preview resources.
     private var preview: DecodedVideoPreviewPresenter?
@@ -224,13 +234,15 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 mirrored: mirror
             )
             let dispatcher = DecodedVideoPreviewDispatcher(presenter: preview)
-            stateLock.withLock {
+            let captureStreamID = stateLock.withLock {
                 activeTrack = track
+                self.captureStreamID = localFrameDispatcher.setStream(active: true)
                 self.preview = preview
                 previewDispatcher = dispatcher
                 storedUseMicrophone = useMicrophone
                 isCaptureReady = false
                 isPreviewAttached = false
+                return self.captureStreamID
             }
             try await cameraCapture.start(
                 videoFormat: VideoFormat(
@@ -243,6 +255,15 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 frameListener: { [weak self] frame in
                     guard let self, currentTrack === track else { return }
                     dispatcher.enqueue(frame)
+                    if let captureStreamID, case .pixelBuffer(let buffer) = frame.storage {
+                        localFrameDispatcher.dispatchVideo(
+                            RealtimeVideoFrame(
+                                pixelBuffer: buffer,
+                                presentationTimeStamp: CMTime(value: frame.timestampUs, timescale: 1_000_000)
+                            ),
+                            streamID: captureStreamID
+                        )
+                    }
                     try videoFrameListener(frame)
                 },
                 previewReadyListener: { [weak self] in
@@ -278,8 +299,11 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             guard stateLock.withLock({ activeTrack != nil && !isMicrophoneCapturing }) else { return }
             // Agora requires the custom track to exist before joining, even for a microphone enabled later.
             try rtcManager.startExternalAudioSource()
-            guard stateLock.withLock({ storedUseMicrophone }) else { return }
-            try microphoneCapture.start(frameListener: audioFrameListener)
+            guard let streamID = stateLock.withLock({ storedUseMicrophone ? captureStreamID : nil }) else { return }
+            try microphoneCapture.start { [localFrameDispatcher, audioFrameListener] frame in
+                localFrameDispatcher.dispatchLocalAudio(frame, streamID: streamID)
+                try audioFrameListener(frame)
+            }
             stateLock.withLock { isMicrophoneCapturing = true }
         }
     }
@@ -289,14 +313,24 @@ final class CameraController: CameraControlling, @unchecked Sendable {
         audioOperationLock.withLock {
             guard stateLock.withLock({ isMicrophoneCapturing }) else { return }
             microphoneCapture.stop()
+            localFrameDispatcher.resetLocalAudio()
             stateLock.withLock { isMicrophoneCapturing = false }
         }
+    }
+
+    /// Observes selected tracks without changing capture or RTC publication.
+    func setLocalMediaFrameListener(
+        tracks: Set<RealtimeMediaTrack>,
+        _ listener: RealtimeMediaFrameListener?
+    ) {
+        localFrameDispatcher.setListener(listener, tracks: tracks)
     }
 
     /// Routes microphone selection to the system capture session.
     func switchMicrophone(to deviceID: String?) throws {
         try audioOperationLock.withLock {
             try microphoneCapture.selectDevice(deviceID)
+            localFrameDispatcher.resetLocalAudio()
         }
     }
 
@@ -344,7 +378,9 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             stopMicrophoneCapture()
             return stateLock.withLock {
                 let resources = (activeTrack, preview, previewDispatcher)
+                localFrameDispatcher.setStream(active: false)
                 activeTrack = nil
+                captureStreamID = nil
                 preview = nil
                 previewDispatcher = nil
                 previewReadyHandler = nil

@@ -11,7 +11,7 @@
 import CoreMedia
 import Foundation
 
-/// An owned packet of signed, little-endian, interleaved 16-bit remote PCM.
+/// An owned packet of signed, little-endian, interleaved 16-bit PCM.
 public struct RealtimeAudioFrame: Sendable {
 
     /// The copied PCM bytes, safe to retain after the callback returns.
@@ -26,10 +26,7 @@ public struct RealtimeAudioFrame: Sendable {
     /// The number of samples in each channel of this packet.
     public let samplesPerChannel: Int
 
-    /// The first sample's time on the same receiver rendering timeline as remote video.
-    ///
-    /// Within a continuous run, time advances by the exact number of samples, even when native
-    /// callbacks arrive in batches. This is a rendering timeline, not the source file's timecode.
+    /// The first sample's time on the same timeline as the corresponding video track.
     public let presentationTimeStamp: CMTime
 
     /// The exact packet duration, calculated from its sample count and sample rate.
@@ -56,7 +53,7 @@ public struct RealtimeAudioFrame: Sendable {
     }
 }
 
-/// One remote audio or processed video packet, with a shared stream identity and time basis.
+/// One audio or video packet, with a shared stream identity and time basis.
 ///
 /// Events are serialized in delivery order, not sorted by presentation time across tracks. Video
 /// processing can delay delivery relative to audio. Buffer and schedule both tracks by their PTS;
@@ -67,16 +64,16 @@ public struct RealtimeMediaFrame: Sendable {
     /// The media carried by an output event.
     public enum Content: Sendable {
 
-        /// PCM belonging to the result stream's remote user, before remote-user mixing.
+        /// Microphone PCM or result PCM before remote-user mixing.
         case audio(RealtimeAudioFrame)
 
-        /// A remote video frame after optional interpolation and result beauty, shared with preview.
+        /// A camera frame before RTC encoding or a result frame after SDK processing.
         case video(RealtimeVideoFrame)
     }
 
-    /// An opaque identity shared by both tracks for one result-stream binding.
+    /// An opaque identity shared by both tracks of a local camera stream or a result-stream binding.
     ///
-    /// A replacement stream or reconnection receives a new identity, even if RTC user IDs repeat.
+    /// A new camera stream or result binding receives a new identity.
     public let streamID: UUID
 
     /// Whether this track begins a run, changes format or clock, or follows discarded output.
@@ -85,7 +82,7 @@ public struct RealtimeMediaFrame: Sendable {
     /// the gap or start a new recording segment. Output-queue loss does not compress the timeline.
     public let isDiscontinuous: Bool
 
-    /// The audio packet or processed video frame.
+    /// The audio or video carried by the event.
     public let content: Content
 
     /// The packet's presentation time, which does not necessarily start at zero.
@@ -104,7 +101,7 @@ public struct RealtimeMediaFrame: Sendable {
         }
     }
 
-    /// Creates a remote output event.
+    /// Creates a media event.
     init(
         streamID: UUID,
         isDiscontinuous: Bool,
@@ -116,5 +113,15 @@ public struct RealtimeMediaFrame: Sendable {
     }
 }
 
-/// A serialized background handler for remote PCM and processed video output.
+/// A serialized background handler for PCM and video.
 public typealias RealtimeMediaFrameListener = @Sendable (RealtimeMediaFrame) -> Void
+
+/// The captured tracks requested by a local media frame listener.
+public enum RealtimeMediaTrack: Hashable, Sendable {
+
+    /// The microphone paired with the local camera stream.
+    case audio
+
+    /// Video captured by the local camera stream.
+    case video
+}

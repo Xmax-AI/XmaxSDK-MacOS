@@ -12,7 +12,7 @@ import CoreMedia
 import CoreVideo
 import Foundation
 
-/// Serializes bounded media delivery without blocking RTC audio or the render pipeline.
+/// Serializes bounded media delivery independently of capture, RTC audio, and rendering.
 final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
 
     /// Protects stream identity, timeline state, listener revisions, and queue admission.
@@ -27,8 +27,14 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
     /// The largest retained media size, including a callback currently running.
     private let maximumPendingBytes: Int
 
+    /// The video retention limit, independently of pending PCM.
+    private let maximumPendingVideoFrames: Int
+
     /// The current application callback.
     private var listener: RealtimeMediaFrameListener?
+
+    /// The tracks requested by the current listener.
+    private var tracks: Set<RealtimeMediaTrack> = [.audio, .video]
 
     /// The revision rejecting output queued for a removed or replaced listener.
     private var version: UInt64 = 0
@@ -38,6 +44,12 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
 
     /// The sample-based audio rendering timeline.
     private var audioTimeline = RemoteAudioTimeline()
+
+    /// The expected start of the next captured microphone packet, in microseconds.
+    private var nextLocalAudioTimestamp: Int64?
+
+    /// Rejects queued microphone packets after capture stops while video remains active.
+    private var audioVersion: UInt64 = 0
 
     /// The previous video PTS, used to expose backward clock changes.
     private var lastVideoPTS: CMTime?
@@ -57,7 +69,10 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
     /// The media retained by delivery operations across all revisions.
     private var pendingBytes = 0
 
-    /// Whether an application currently requests audio and video output.
+    /// The number of video buffers retained by queued or running callbacks.
+    private var pendingVideoFrames = 0
+
+    /// Whether an application currently requests media output.
     var hasListener: Bool {
         lock.withLock { listener != nil }
     }
@@ -66,6 +81,7 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
     init(
         maximumPendingFrames: Int = 256,
         maximumPendingBytes: Int = 32 * 1_024 * 1_024,
+        maximumPendingVideoFrames: Int = .max,
         deliveryQueue: DispatchQueue = DispatchQueue(
             label: "ai.xmax.sdk.remote-media-frame",
             qos: .userInitiated
@@ -73,25 +89,30 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
     ) {
         self.maximumPendingFrames = maximumPendingFrames
         self.maximumPendingBytes = maximumPendingBytes
+        self.maximumPendingVideoFrames = maximumPendingVideoFrames
         queue = deliveryQueue
     }
 
     /// Replaces the listener and rejects queued output from the previous listener.
     ///
-    /// - Parameter listener: The media callback, or `nil` to stop delivery.
+    /// - Parameters:
+    ///   - listener: The media callback, or `nil` to stop delivery.
+    ///   - tracks: The media to deliver to the callback.
     func setListener(
-        _ listener: RealtimeMediaFrameListener?
+        _ listener: RealtimeMediaFrameListener?,
+        tracks: Set<RealtimeMediaTrack> = [.audio, .video]
     ) {
         lock.withLock {
             version &+= 1
             self.listener = listener
+            self.tracks = tracks
             resetTimeline()
         }
     }
 
     /// Starts a new binding, invalidating packets from all previous producers.
     ///
-    /// - Parameter active: Whether a remote result stream is bound.
+    /// - Parameter active: Whether a media stream is bound.
     ///
     /// - Returns: The new stream identity, or `nil` after unbinding.
     @discardableResult
@@ -106,6 +127,41 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
         }
     }
 
+    /// Invalidates queued microphone packets while retaining the video binding.
+    func resetLocalAudio() {
+        lock.withLock {
+            audioVersion &+= 1
+            nextLocalAudioTimestamp = nil
+            audioDiscontinuous = true
+        }
+    }
+
+    /// Enqueues SDK-owned microphone PCM without changing its capture timestamp.
+    func dispatchLocalAudio(
+        _ frame: AudioFrame,
+        streamID: UUID
+    ) {
+        lock.withLock {
+            guard self.streamID == streamID, listener != nil, tracks.contains(.audio) else { return }
+            let gap = nextLocalAudioTimestamp.map { abs(frame.timestampUs - $0) > 1 } ?? true
+            let packetDuration = AudioFrame.samplesPerFrame * 1_000_000 / AudioFrame.sampleRate
+            nextLocalAudioTimestamp = frame.timestampUs + Int64(packetDuration)
+            let audio = RealtimeAudioFrame(
+                data: frame.data,
+                sampleRate: AudioFrame.sampleRate,
+                channels: AudioFrame.channelCount,
+                samplesPerChannel: AudioFrame.samplesPerFrame,
+                presentationTimeStamp: CMTime(value: frame.timestampUs, timescale: 1_000_000)
+            )
+            let output = RealtimeMediaFrame(
+                streamID: streamID,
+                isDiscontinuous: audioDiscontinuous || gap,
+                content: .audio(audio)
+            )
+            audioDiscontinuous = !enqueue(output, bytes: frame.data.count, track: .audio)
+        }
+    }
+
     /// Normalizes audio on the producer thread and enqueues only a current binding's packets.
     ///
     /// - Parameters:
@@ -116,7 +172,7 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
         streamID: UUID
     ) {
         lock.withLock {
-            guard self.streamID == streamID, listener != nil else {
+            guard self.streamID == streamID, listener != nil, tracks.contains(.audio) else {
                 return
             }
             guard let resolved = audioTimeline.resolve(frame) else {
@@ -131,22 +187,23 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
             )
             audioDiscontinuous = !enqueue(
                 output,
-                bytes: frame.data.count
+                bytes: frame.data.count,
+                track: .audio
             )
         }
     }
 
-    /// Enqueues final processed video while preserving its native or interpolated PTS.
+    /// Enqueues video while preserving its capture or rendering PTS.
     ///
     /// - Parameters:
-    ///   - frame: The processed video frame and presentation timestamp.
-    ///   - streamID: The token identifying the producer's result-stream binding.
+    ///   - frame: The video frame and presentation timestamp.
+    ///   - streamID: The token identifying the producer's stream binding.
     func dispatchVideo(
         _ frame: RealtimeVideoFrame,
         streamID: UUID
     ) {
         lock.withLock {
-            guard self.streamID == streamID, listener != nil else {
+            guard self.streamID == streamID, listener != nil, tracks.contains(.video) else {
                 return
             }
             guard frame.presentationTimeStamp.isNumeric else {
@@ -172,7 +229,8 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
 
             videoDiscontinuous = !enqueue(
                 output,
-                bytes: CVPixelBufferGetDataSize(frame.pixelBuffer)
+                bytes: CVPixelBufferGetDataSize(frame.pixelBuffer),
+                track: .video
             )
         }
     }
@@ -180,6 +238,7 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
     /// Resets both tracks without changing the binding identity. Requires `lock`.
     private func resetTimeline() {
         audioTimeline.reset()
+        nextLocalAudioTimestamp = nil
         lastVideoPTS = nil
         lastVideoFormat = nil
         audioDiscontinuous = true
@@ -191,19 +250,25 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
     /// - Parameters:
     ///   - frame: The audio or video packet to deliver.
     ///   - bytes: The number of media bytes retained by this packet.
+    ///   - track: The track whose retention and delivery revision apply.
     ///
     /// - Returns: Whether the packet was admitted within the frame and byte limits.
     private func enqueue(
         _ frame: RealtimeMediaFrame,
-        bytes: Int
+        bytes: Int,
+        track: RealtimeMediaTrack
     ) -> Bool {
-        guard pendingFrames < maximumPendingFrames, bytes <= maximumPendingBytes - pendingBytes else {
+        let isVideo = track == .video
+        guard pendingFrames < maximumPendingFrames, bytes <= maximumPendingBytes - pendingBytes,
+              !isVideo || pendingVideoFrames < maximumPendingVideoFrames else {
             return false
         }
 
         pendingFrames += 1
         pendingBytes += bytes
+        if isVideo { pendingVideoFrames += 1 }
         let revision = version
+        let audioRevision = audioVersion
 
         queue.async { [weak self] in
             guard let self else {
@@ -213,11 +278,14 @@ final class RealtimeMediaFrameDispatcher: @unchecked Sendable {
                 lock.withLock {
                     pendingFrames -= 1
                     pendingBytes -= bytes
+                    if isVideo { pendingVideoFrames -= 1 }
                 }
             }
 
-            let callback = lock.withLock {
-                version == revision && streamID == frame.streamID ? listener : nil
+            let callback: RealtimeMediaFrameListener? = lock.withLock {
+                guard version == revision, streamID == frame.streamID,
+                      isVideo || audioVersion == audioRevision else { return nil }
+                return listener
             }
             if let callback {
                 callback(frame)

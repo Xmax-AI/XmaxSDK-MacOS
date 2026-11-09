@@ -5,6 +5,7 @@
 //
 
 import CoreMedia
+import CoreVideo
 import XCTest
 @testable import XmaxSDK
 
@@ -17,7 +18,9 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         let microphone = MicrophoneCaptureControllingStub()
         let components = makeComponents(capture: (capture, microphone))
-        let manager = components.manager
+        let manager: any XmaxRealtimeManaging = components.manager
+        let localFrames = MediaOutputRecorder()
+        await manager.setLocalMediaFrameListener { localFrames.append($0) }
         var readings: [Float?] = []
         await manager.setMicrophoneLevelListener { readings.append($0) }
         let local = try await manager.createLocalCameraStream(
@@ -38,13 +41,25 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertTrue(components.rtc.calls.contains(.pushExternalAudioFrame(audio)))
         let generation = Task { try await manager.startGeneration(context: RealtimeContext(prompt: "test")) }
         try await waitUntil { !self.roomMessages(components.rtc, event: "start").isEmpty }
+        var buffer: CVPixelBuffer?
+        XCTAssertEqual(CVPixelBufferCreate(nil, 4, 4, kCVPixelFormatType_32BGRA, nil, &buffer), kCVReturnSuccess)
+        let pixels = try XCTUnwrap(buffer)
         let video = try VideoFrame(
             format: VideoFormat(width: 4, height: 4, pixelFormat: .bgra),
             timestampUs: 1_000_000,
-            planes: [VideoFramePlane(data: Data(count: 64), stride: 16)]
+            pixelBuffer: pixels
         )
         try capture.emitVideo(video)
         try await waitUntil { components.rtc.calls.contains(.pushExternalVideoFrame) }
+        try await waitUntil { localFrames.frames.count == 2 }
+        let frames = localFrames.frames
+        XCTAssertEqual(frames[0].streamID, frames[1].streamID)
+        XCTAssertEqual(frames.map(\.presentationTimeStamp), [CMTime(value: 1, timescale: 1), CMTime(value: 1, timescale: 1)])
+        guard case .audio(let pcm) = frames[0].content, case .video(let camera) = frames[1].content else {
+            return XCTFail("Expected local microphone and camera frames")
+        }
+        XCTAssertEqual(pcm.data, audio.data)
+        XCTAssertTrue(camera.pixelBuffer === pixels)
         XCTAssertTrue(components.rtc.calls.contains(.useExternalVideoSource))
         let remote = RemoteStream(roomID: "room", userID: "bot")
         components.rtc.emitRemoteVideoAvailable(stream: remote)

@@ -30,6 +30,12 @@ protocol CameraControlling: Sendable {
     /// - Returns: The currently selectable system video devices.
     func listCameraDevices() -> [CameraDevice]
 
+    /// Observes selected tracks of the current capture.
+    func setLocalMediaFrameListener(
+        tracks: Set<RealtimeMediaTrack>,
+        _ listener: RealtimeMediaFrameListener?
+    )
+
     /// Reports the first valid capture frame and a bound preview, including hidden views.
     ///
     /// - Parameter handler: The readiness callback; an empty value clears it.

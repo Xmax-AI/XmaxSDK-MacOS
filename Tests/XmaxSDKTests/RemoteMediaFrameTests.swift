@@ -95,6 +95,31 @@ final class RemoteMediaFrameTests: XCTestCase {
         XCTAssertEqual(recorder.frames.map(\.isDiscontinuous), [true, true])
     }
 
+    func testLocalAudioOnlyKeepsCaptureTimeAndDiscardsPacketsFromStoppedInput() throws {
+        let queue = DispatchQueue(label: "test.media.local-audio")
+        let output = RealtimeMediaFrameDispatcher(deliveryQueue: queue)
+        let recorder = MediaOutputRecorder()
+        output.setListener({ recorder.append($0) }, tracks: [.audio])
+        let id = try XCTUnwrap(output.setStream(active: true))
+        let video = try videoPacket(1_000)
+        let data = Data(repeating: 0x35, count: 960)
+
+        queue.suspend()
+        output.dispatchLocalAudio(AudioFrame(data: data, timestampUs: 1_000_000), streamID: id)
+        output.resetLocalAudio()
+        output.dispatchVideo(video, streamID: id)
+        for time in [1_030_000, 1_040_000, 1_060_000] {
+            output.dispatchLocalAudio(AudioFrame(data: data, timestampUs: Int64(time)), streamID: id)
+        }
+        queue.resume()
+        queue.sync {}
+
+        let frames = recorder.frames
+        XCTAssertEqual(frames.map(\.presentationTimeStamp.value), [1_030_000, 1_040_000, 1_060_000])
+        XCTAssertEqual(frames.map(\.isDiscontinuous), [true, false, true])
+        XCTAssertFalse(recorder.ranOnMainThread)
+    }
+
     func testStreamReplacementRejectsQueuedAndLateOldPackets() throws {
         let queue = DispatchQueue(label: "test.media.replacement")
         let output = RealtimeMediaFrameDispatcher(deliveryQueue: queue)

@@ -164,6 +164,24 @@ public protocol XmaxRealtimeManaging: Sendable {
         _ listener: RealtimeLaunchTimingListener?
     ) async
 
+    /// Observes selected tracks of the SDK-owned local camera stream.
+    ///
+    /// Camera frames are sized for the local stream, before RTC encoding and view mirroring.
+    /// Microphone PCM arrives while the configured input is capturing during connection.
+    /// Both tracks share the host capture clock. Registering does not start capture.
+    ///
+    /// Callbacks run on a dedicated serial background queue in delivery order. The queue
+    /// is bounded and marks dropped packets as discontinuities. Keep the callback short.
+    /// A callback already running may finish after removal. `close()` clears the listener.
+    ///
+    /// - Parameters:
+    ///   - tracks: The tracks to deliver from the local camera stream.
+    ///   - listener: The callback, or `nil` to remove it and invalidate queued delivery.
+    func setLocalMediaFrameListener(
+        tracks: Set<RealtimeMediaTrack>,
+        _ listener: RealtimeMediaFrameListener?
+    ) async
+
     /// Sets one listener for the result user's PCM and processed remote video.
     ///
     /// Audio is copied before remote-user mixing; video includes optional interpolation and beauty. Both use
