@@ -61,8 +61,11 @@ enum BeautyFrameInput: Sendable {
     }
 }
 
-/// Identifies a temporary output-capacity limit without invalidating the beauty graph.
+/// Identifies frame failures that the result pipeline can recover from.
 enum BeautyProcessingError: Error {
     /// Downstream consumers still hold every buffer in the bounded output pool.
     case outputBackpressure
+
+    /// The frame missed native delivery and its processor must be replaced.
+    case frameUnavailable(XmaxError)
 }

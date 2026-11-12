@@ -62,8 +62,32 @@ enum XmaxRealtimeFactory {
         let rtcManager = rtcManager ?? RtcManager()
         let mediaService = MediaService(model: options.model)
         let timing = RealtimeTiming()
-        let eventRelayService = RealtimeEventRelayService(apiService: apiService)
         let connectionReference = ConnectionReference()
+        // The backend supports redundant control signaling for X2.1.
+        let usesRedundantSignaling = options.model == .x2_1
+        let relayMessage: (@Sendable (String) async throws -> Void)?
+        if usesRedundantSignaling {
+            let eventRelayService = RealtimeEventRelayService(apiService: apiService)
+            relayMessage = { message in
+                try Task.checkCancellation()
+                let session = await connectionReference.currentSession
+                try Task.checkCancellation()
+                guard let session, let modelID = session.modelID else {
+                    XmaxLogger.room.warn(
+                        message: "HTTP 信令转发已跳过 (HTTP Signaling Relay Skipped)\n"
+                            + "└─ Session does not contain a model instance ID"
+                    )
+                    return
+                }
+                try await eventRelayService.relay(
+                    sessionID: session.id,
+                    modelID: modelID,
+                    message: message
+                )
+            }
+        } else {
+            relayMessage = nil
+        }
 
         let renderController = RenderController(
             rtcManager: rtcManager,
@@ -84,23 +108,8 @@ enum XmaxRealtimeFactory {
             roomController: RoomController(
                 rtcManager: rtcManager,
                 timing: timing,
-                relayMessage: { message in
-                    try Task.checkCancellation()
-                    let session = await connectionReference.currentSession
-                    try Task.checkCancellation()
-                    guard let session, let modelID = session.modelID else {
-                        XmaxLogger.room.warn(
-                            message: "HTTP 信令转发已跳过 (HTTP Signaling Relay Skipped)\n"
-                                + "└─ Session does not contain a model instance ID"
-                        )
-                        return
-                    }
-                    try await eventRelayService.relay(
-                        sessionID: session.id,
-                        modelID: modelID,
-                        message: message
-                    )
-                }
+                relayMessage: relayMessage,
+                retryCommands: usesRedundantSignaling
             ),
             encodingController: EncodingController(rtcManager: rtcManager),
             qualityController: QualityController(rtcManager: rtcManager),

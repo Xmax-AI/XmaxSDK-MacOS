@@ -27,6 +27,117 @@ final class RemoteBeautyTests: XCTestCase, @unchecked Sendable {
         await pipeline.closeBeauty()
     }
 
+    func testMissedFramePassesThroughAndRetriesBeautyOnce() async throws {
+        let failure = XmaxError(code: .mediaError, message: "ClearVision did not return a frame")
+        let missedFrame = BeautyProcessingError.frameUnavailable(failure)
+        for recoveryFails in [false, true] {
+            let first = try frame()
+            let second = try frame(timestamp: 2)
+            let replacement = try frame()
+            let initialProcessor = BeautyStub(failure: missedFrame)
+            let nextProcessor = BeautyStub(
+                replacement: replacement.pixelBuffer,
+                failure: recoveryFails ? missedFrame : nil
+            )
+            let firstOutput = expectation(description: "Missed frame bypasses beauty")
+            let secondOutput = expectation(description: "Next frame resumes beauty or falls back")
+            let disabled = recoveryFails ? expectation(description: "Repeated failure disables beauty") : nil
+            let pipeline = makePipeline(factory: { _ in
+                await initialProcessor.calls == 0 ? initialProcessor : nextProcessor
+            }, output: { frame, _ in
+                if frame.presentationTimeStamp == first.presentationTimeStamp {
+                    XCTAssertTrue(frame.pixelBuffer === first.pixelBuffer)
+                    firstOutput.fulfill()
+                } else {
+                    XCTAssertEqual(frame.presentationTimeStamp, second.presentationTimeStamp)
+                    XCTAssertTrue(frame.pixelBuffer === (recoveryFails ? second.pixelBuffer : replacement.pixelBuffer))
+                    secondOutput.fulfill()
+                }
+            })
+            await pipeline.setRemoteVideoBeautyErrorListener { error in
+                if let disabled {
+                    XCTAssertEqual(error, failure)
+                    disabled.fulfill()
+                } else {
+                    XCTFail("A single missed frame must not disable beauty")
+                }
+            }
+            try await pipeline.setRemoteVideoBeauty(RealtimeVideoBeautyOptions(smoothness: 0.5))
+            await pipeline.enqueue(first, outputToken: 0)
+            await fulfillment(of: [firstOutput], timeout: 2)
+            await pipeline.enqueue(second, outputToken: 0)
+            await fulfillment(of: [secondOutput] + (disabled.map { [$0] } ?? []), timeout: 2)
+            let initialCalls = await initialProcessor.calls
+            let recoveryCalls = await nextProcessor.calls
+            XCTAssertEqual(initialCalls, 1)
+            XCTAssertEqual(recoveryCalls, 1)
+            await pipeline.closeBeauty()
+        }
+    }
+
+    func testSettingsUpdateOwnsRebuildAfterMissedFrame() async throws {
+        let oldOptions = RealtimeVideoBeautyOptions(smoothness: 0.5)
+        let newOptions = RealtimeVideoBeautyOptions(smoothness: 0.8)
+        let missed = try frame()
+        let duringUpdate = try frame(timestamp: 2)
+        let afterUpdate = try frame(timestamp: 3)
+        let staleOutput = try frame()
+        let updatedOutput = try frame()
+        let initial = BeautyStub(failure: BeautyProcessingError.frameUnavailable(
+            XmaxError(code: .mediaError, message: "ClearVision did not return a frame")
+        ))
+        let stale = BeautyStub(replacement: staleOutput.pixelBuffer)
+        let updated = BeautyStub(replacement: updatedOutput.pixelBuffer)
+        let missedDelivered = expectation(description: "Missed frame bypasses beauty")
+        let configurationStarted = expectation(description: "New settings start creating a processor")
+        let duringUpdateDelivered = expectation(description: "Preview continues during configuration")
+        let updatedDelivered = expectation(description: "Next frame uses new settings")
+        let (configurationGate, resumeConfiguration) = AsyncStream<Void>.makeStream()
+        defer { resumeConfiguration.finish() }
+
+        let pipeline = makePipeline(factory: { options in
+            if options == oldOptions {
+                return await initial.calls == 0 ? initial : stale
+            }
+            XCTAssertEqual(options, newOptions)
+            configurationStarted.fulfill()
+            var gate = configurationGate.makeAsyncIterator()
+            _ = await gate.next()
+            return updated
+        }, output: { frame, _ in
+            switch frame.presentationTimeStamp.value {
+            case 1:
+                XCTAssertTrue(frame.pixelBuffer === missed.pixelBuffer)
+                missedDelivered.fulfill()
+            case 2:
+                XCTAssertTrue(frame.pixelBuffer === duringUpdate.pixelBuffer)
+                duringUpdateDelivered.fulfill()
+            case 3:
+                XCTAssertTrue(frame.pixelBuffer === updatedOutput.pixelBuffer)
+                updatedDelivered.fulfill()
+            default:
+                XCTFail("Unexpected output frame")
+            }
+        })
+
+        try await pipeline.setRemoteVideoBeauty(oldOptions)
+        await pipeline.enqueue(missed, outputToken: 0)
+        await fulfillment(of: [missedDelivered], timeout: 2)
+
+        let configuration = Task { try await pipeline.setRemoteVideoBeauty(newOptions) }
+        await fulfillment(of: [configurationStarted], timeout: 2)
+        await pipeline.enqueue(duringUpdate, outputToken: 0)
+        await fulfillment(of: [duringUpdateDelivered], timeout: 2)
+        resumeConfiguration.finish()
+        try await configuration.value
+
+        await pipeline.enqueue(afterUpdate, outputToken: 0)
+        await fulfillment(of: [updatedDelivered], timeout: 2)
+        let staleCalls = await stale.calls
+        XCTAssertEqual(staleCalls, 0)
+        await pipeline.closeBeauty()
+    }
+
     func testRejectsInvalidStrengthsBeforeCreatingProcessor() async throws {
         for value: Float in [-0.1, 1.1, .nan, .infinity, -.infinity] {
             let pipeline = makePipeline(factory: { _ in
@@ -117,7 +228,7 @@ final class RemoteBeautyTests: XCTestCase, @unchecked Sendable {
     }
 
     func testFailureFallsBackOnceAndDoesNotReachTerminalErrorListener() async throws {
-        let processor = BeautyStub(fails: true)
+        let processor = BeautyStub(failure: XmaxError(code: .mediaError, message: "Synthetic beauty failure"))
         let recorder = BeautyRecorder()
         let failed = expectation(description: "Recoverable beauty failure")
         failed.assertForOverFulfill = true
@@ -182,8 +293,7 @@ final class RemoteBeautyTests: XCTestCase, @unchecked Sendable {
 
     private func frame(timestamp: Int64 = 1) throws -> RealtimeVideoFrame {
         var buffer: CVPixelBuffer?
-        XCTAssertEqual(CVPixelBufferCreate(nil, 320, 240, kCVPixelFormatType_32BGRA,
-                                         [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &buffer), kCVReturnSuccess)
+        XCTAssertEqual(CVPixelBufferCreate(nil, 320, 240, kCVPixelFormatType_32BGRA, nil, &buffer), kCVReturnSuccess)
         let pixels = try XCTUnwrap(buffer)
         CVPixelBufferLockBaseAddress(pixels, [])
         let base = CVPixelBufferGetBaseAddress(pixels)!.assumingMemoryBound(to: UInt8.self)
@@ -217,16 +327,21 @@ private actor BeautyRecorder {
 private actor BeautyStub: BeautyProcessing {
     private let converter = BeautyColorConverter()
     private let replacement: CVPixelBuffer?
-    private let fails: Bool
+    private let failure: (any Error)?
     private let pressureObserved: XCTestExpectation?
     private let entered: XCTestExpectation?
     private var waiting: CheckedContinuation<Void, Never>?
     private var closed = false
     private(set) var calls = 0
 
-    init(replacement: CVPixelBuffer? = nil, fails: Bool = false, entered: XCTestExpectation? = nil, pressureObserved: XCTestExpectation? = nil) {
+    init(
+        replacement: CVPixelBuffer? = nil,
+        failure: (any Error)? = nil,
+        entered: XCTestExpectation? = nil,
+        pressureObserved: XCTestExpectation? = nil
+    ) {
         self.replacement = replacement
-        self.fails = fails
+        self.failure = failure
         self.entered = entered
         self.pressureObserved = pressureObserved
     }
@@ -244,7 +359,7 @@ private actor BeautyStub: BeautyProcessing {
                 entered.fulfill()
             }
         }
-        if fails { throw XmaxError(code: .mediaError, message: "Synthetic beauty failure") }
+        if let failure { throw failure }
         return RealtimeVideoFrame(pixelBuffer: replacement ?? frame.pixelBuffer,
                                   presentationTimeStamp: frame.presentationTimeStamp, duration: frame.duration)
     }

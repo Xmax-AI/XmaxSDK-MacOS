@@ -18,6 +18,8 @@ namespace {
 constexpr auto provider = "agora_video_filters_clear_vision";
 constexpr auto extensionName = "clear_vision";
 constexpr auto trackName = "xmax-result-beauty";
+// Matches the private BeautyWorkerFrameStatus.unavailable wire value.
+constexpr NSInteger frameUnavailable = -10001;
 
 /// Copies native callback pixels before Agora recycles its frame storage.
 class BeautySink : public rtc::IVideoFilter {
@@ -234,9 +236,15 @@ bool fail(NSError **error, NSString *message, NSInteger code = -1) {
     }
     int result = context->sender->sendVideoFrame(frame);
     std::unique_lock<std::mutex> guard(sink->mutex);
-    if (result != 0 || !sink->ready.wait_for(guard, std::chrono::milliseconds(150), [&] { return sink->completed; })) {
+    if (result != 0) {
         sink->waiting = false;
-        fail(error, @"Beauty processing failed or timed out", result == 0 ? -2 : result);
+        fail(error, [NSString stringWithFormat:@"ClearVision rejected the beauty frame (%d)", result],
+             frameUnavailable);
+        return nullptr;
+    }
+    if (!sink->ready.wait_for(guard, std::chrono::milliseconds(150), [&] { return sink->completed; })) {
+        sink->waiting = false;
+        fail(error, @"ClearVision did not return a beauty frame within 150 ms", frameUnavailable);
         return nullptr;
     }
     CVPixelBufferRef output = sink->output;

@@ -40,29 +40,60 @@ private final class BeautyWorkerServer: NSObject, NSXPCListenerDelegate, @unchec
 }
 
 /// One connection's configuration and output leases, confined to the engine worker queue.
-private final class BeautyWorkerContext: @unchecked Sendable {
+final class BeautyWorkerContext: @unchecked Sendable {
     var options: [String: NSNumber]?
     var appID: String?
     var leases: [UInt64: CVPixelBuffer] = [:]
     var nextLease: UInt64 = 0
     var closed = false
+
+    /// Identifies the pool this connection last used without keeping a retired graph alive.
+    weak var processor: BeautyProcessor?
 }
 
 /// Serializes all vendor calls; separate clients never initialize a second Agora service in this process.
-private final class BeautyWorkerEngine: @unchecked Sendable {
+final class BeautyWorkerEngine: @unchecked Sendable {
     let worker = DispatchQueue(label: "ai.xmax.beauty-worker", qos: .userInitiated)
-    var processor: BeautyProcessor?
-    var currentOptions: [String: NSNumber]?
+    private var processor: BeautyProcessor?
+    private var currentOptions: [String: NSNumber]?
 
-    func prepare(appID: String, options: [String: NSNumber]) throws -> BeautyProcessor {
+    func prepare(appID: String, options: [String: NSNumber], for context: BeautyWorkerContext) throws -> BeautyProcessor {
         if let processor {
             if currentOptions != options { try processor.updateOptions(options) }
         } else {
             processor = try BeautyProcessor(appID: appID, options: options)
         }
-        currentOptions = options
         guard let processor else { throw WorkerError("Unable to create beauty processor") }
+        currentOptions = options
+        context.processor = processor
         return processor
+    }
+
+    func frameFailureCode(_ error: any Error, for context: BeautyWorkerContext) -> Int {
+        let failure = error as NSError
+        guard failure.domain == "ai.xmax.video-beauty" else { return -1 }
+        if failure.code == BeautyWorkerFrameStatus.unavailable.rawValue {
+            // Retire the failed graph on the worker queue before replying to the reconnecting client.
+            retireProcessor(for: context)
+            context.closed = true
+        }
+        return failure.code
+    }
+
+    func close(_ context: BeautyWorkerContext) {
+        context.closed = true
+        // Destroy the connection's pool before releasing leases for surfaces the host may still retain.
+        retireProcessor(for: context)
+        context.leases.removeAll()
+        context.options = nil
+    }
+
+    private func retireProcessor(for context: BeautyWorkerContext) {
+        guard let processor, processor === context.processor else { return }
+        processor.close()
+        self.processor = nil
+        currentOptions = nil
+        context.processor = nil
     }
 }
 
@@ -77,7 +108,7 @@ private final class BeautyWorkerService: NSObject, BeautyWorkerProtocol, @unchec
         engine.worker.async { [self] in
             do {
                 guard !context.closed else { throw WorkerError("Beauty connection is closed") }
-                _ = try engine.prepare(appID: appID, options: options)
+                _ = try engine.prepare(appID: appID, options: options, for: context)
                 context.appID = appID
                 context.options = options
                 reply(nil)
@@ -92,7 +123,7 @@ private final class BeautyWorkerService: NSObject, BeautyWorkerProtocol, @unchec
                 guard !context.closed, let options = context.options, let appID = context.appID else {
                     throw WorkerError("Beauty worker is not configured")
                 }
-                let processor = try engine.prepare(appID: appID, options: options)
+                let processor = try engine.prepare(appID: appID, options: options, for: context)
                 var inputReference: Unmanaged<CVPixelBuffer>?
                 guard CVPixelBufferCreateWithIOSurface(nil, surface.value, nil, &inputReference) == kCVReturnSuccess,
                     let input = inputReference?.takeRetainedValue() else {
@@ -106,8 +137,7 @@ private final class BeautyWorkerService: NSObject, BeautyWorkerProtocol, @unchec
                 context.leases[context.nextLease] = output
                 reply(result, context.nextLease, 0, nil)
             } catch {
-                let failure = error as NSError
-                let code = failure.domain == "ai.xmax.video-beauty" ? failure.code : -1
+                let code = engine.frameFailureCode(error, for: context)
                 reply(nil, 0, code, error.localizedDescription)
             }
         }
@@ -118,15 +148,7 @@ private final class BeautyWorkerService: NSObject, BeautyWorkerProtocol, @unchec
     }
 
     func close() {
-        engine.worker.async { [self] in
-            context.closed = true
-            // Destroy the pool before releasing leases: surfaces still retained by the host must not be recycled.
-            engine.processor?.close()
-            engine.processor = nil
-            engine.currentOptions = nil
-            context.leases.removeAll()
-            context.options = nil
-        }
+        engine.worker.async { [self] in engine.close(context) }
     }
 }
 

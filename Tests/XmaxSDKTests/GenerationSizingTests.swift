@@ -41,6 +41,25 @@ final class GenerationSizingTests: XCTestCase {
         XCTAssertThrowsError(try service.resolveGenerationSize(.zero))
     }
 
+    func testFlashUsesItsCameraBucketsForGenerationAndCapsOtherInputs() throws {
+        let service = MediaService(model: .x2_1_flash)
+        for format in service.model.supportedVideoFormats {
+            let size = format.size
+            XCTAssertEqual(try service.resolveMediaSize(size, source: .camera), size)
+            let largeInput = CGSize(width: size.width * 2, height: size.height * 2)
+            for source in [RealtimeMediaSource.image, .video, .external] {
+                let input = try service.resolveMediaSize(largeInput, source: source)
+                XCTAssertLessThanOrEqual(input.width * input.height, 921600)
+                XCTAssertEqual(try service.resolveGenerationSize(input), size)
+            }
+        }
+        XCTAssertThrowsError(
+            try service.resolveMediaSize(CGSize(width: 1920, height: 1080), source: .camera)
+        ) { error in
+            XCTAssertEqual((error as? XmaxError)?.code, .invalidConfiguration)
+        }
+    }
+
     func testInterpolationAndNetworkLimitsAreCombinedNotMultiplied() throws {
         let baseline = RealtimeVideoFormat(width: 1024, height: 1920, fps: 30)
         let limit = try targetFormat(baseline, level: .l1, interpolation: true).size

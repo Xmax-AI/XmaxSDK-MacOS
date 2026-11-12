@@ -166,6 +166,9 @@ final class OfflineBeautyProcessor: BeautyProcessing, @unchecked Sendable {
                     if code == Int(kCVReturnWouldExceedAllocationThreshold) {
                         throw BeautyProcessingError.outputBackpressure
                     }
+                    if code == BeautyWorkerFrameStatus.unavailable.rawValue, let error {
+                        throw BeautyProcessingError.frameUnavailable(Self.error(error))
+                    }
                     if let error { throw Self.error(error) }
                     guard let result, lease != 0 else { throw Self.error("The beauty helper returned no frame") }
                     var outputReference: Unmanaged<CVPixelBuffer>?

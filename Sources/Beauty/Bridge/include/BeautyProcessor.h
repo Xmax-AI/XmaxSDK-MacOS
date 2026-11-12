@@ -20,7 +20,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)updateOptions:(NSDictionary<NSString *, NSNumber *> *)options error:(NSError **)error;
 
 /// Copies the processed pixels into a bounded NV12 pool; input ownership stays with the caller.
-/// A timeout invalidates this processor; the caller must close it before further processing.
+/// A rejected or timed-out frame invalidates this processor; close it before further processing.
 /// Pool exhaustion returns kCVReturnWouldExceedAllocationThreshold and permits retry after held outputs are released.
 - (nullable CVPixelBufferRef)processPixelBuffer:(CVPixelBufferRef)input
                                         error:(NSError **)error CF_RETURNS_RETAINED;
