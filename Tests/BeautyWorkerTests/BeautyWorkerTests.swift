@@ -2,9 +2,33 @@ import CoreVideo
 import Foundation
 import XCTest
 import BeautyBridge
+import BeautyIPC
+@testable import XmaxRealtimeBeautyWorkerSupport
 
 /// Tests the worker's vendor graph directly, without running a host app, an XPC service, or RTC.
 final class BeautyWorkerTests: XCTestCase {
+    func testMissedFrameRetiresGraphBeforeReconnectAndIgnoresLateClose() throws {
+        let engine = BeautyWorkerEngine()
+        let disconnected = BeautyWorkerContext()
+        let reconnected = BeautyWorkerContext()
+        let options = options(lightening: 0.5)
+        let appID = "5588dfe2e7874bd08ea28f4968ec2d40"
+        try engine.worker.sync {
+            defer { engine.close(reconnected) }
+            let original = try engine.prepare(appID: appID, options: options, for: disconnected)
+            let failure = NSError(domain: "ai.xmax.video-beauty", code: BeautyWorkerFrameStatus.unavailable.rawValue)
+            XCTAssertEqual(engine.frameFailureCode(failure, for: disconnected), failure.code)
+            XCTAssertTrue(disconnected.closed)
+            XCTAssertThrowsError(try original.updateOptions(options))
+
+            let replacement = try engine.prepare(appID: appID, options: options, for: reconnected)
+            XCTAssertFalse(original === replacement)
+            engine.close(disconnected)
+            XCTAssertTrue(replacement === (try engine.prepare(appID: appID, options: options, for: reconnected)))
+            try replacement.updateOptions(options)
+        }
+    }
+
     func testBufferPoolPressureRecoversAfterConsumersReleaseFrames() throws {
         let processor = try BeautyProcessor(appID: "5588dfe2e7874bd08ea28f4968ec2d40", options: options(lightening: 0.5))
         defer { processor.close() }

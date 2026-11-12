@@ -81,7 +81,7 @@ let package = Package(
         ),
         .testTarget(
             name: "BeautyWorkerTests",
-            dependencies: ["BeautyBridge"],
+            dependencies: ["BeautyBridge", "BeautyIPC", "XmaxRealtimeBeautyWorkerSupport"],
             path: "Tests/BeautyWorkerTests",
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../.."])]
         ),

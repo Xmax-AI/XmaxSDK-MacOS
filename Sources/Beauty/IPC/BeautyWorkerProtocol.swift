@@ -3,6 +3,12 @@
 import Foundation
 import IOSurface
 
+/// Private frame statuses transmitted by the worker.
+public enum BeautyWorkerFrameStatus: Int {
+    /// The native graph could not deliver this frame and must be recreated before reuse.
+    case unavailable = -10001
+}
+
 /// The private, parent-only XPC contract for an unpublished offline processing service.
 @objc public protocol BeautyWorkerProtocol {
 
@@ -15,7 +21,7 @@ import IOSurface
 
     /// Processes an IOSurface without serializing its pixel bytes through XPC.
     /// The returned lease keeps the native pool buffer alive until explicitly released.
-    /// Native error codes distinguish temporary pool pressure from processing failures.
+    /// Error codes distinguish output pool pressure and missed frames from other failures.
     func process(
         _ surface: IOSurface,
         reply: @escaping @Sendable (IOSurface?, UInt64, Int, String?) -> Void
