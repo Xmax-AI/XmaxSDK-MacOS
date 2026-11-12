@@ -95,6 +95,9 @@ actor RoomCommandController {
     /// Sleeps relative to the first attempt; injectable for deterministic retry tests.
     private let sleep: @Sendable (UInt64) async throws -> Void
 
+    /// Whether the model supports background RTC retries.
+    private let retryCommands: Bool
+
     /// Commands with pending RTC or HTTP work, indexed by their shared identifier.
     private var pending: [String: Command] = [:]
 
@@ -110,11 +113,13 @@ actor RoomCommandController {
         sleep: @escaping @Sendable (UInt64) async throws -> Void = {
             try await Task.sleep(nanoseconds: $0)
         },
-        relayMessage: (@Sendable (String) async throws -> Void)? = nil
+        relayMessage: (@Sendable (String) async throws -> Void)? = nil,
+        retryCommands: Bool = true
     ) {
         self.sendMessage = sendMessage
         self.sleep = sleep
         self.relayMessage = relayMessage
+        self.retryCommands = retryCommands
     }
 
     /// Freezes a new command, cancels superseded work, and returns its first successful send.
@@ -206,11 +211,21 @@ actor RoomCommandController {
         if let command = pending[xid] { cancelCommand(command) }
     }
 
-    /// Starts the two background rounds at 0/300/1000 and 3000/3300/4000 ms.
+    /// Starts the original send and any redundant attempts enabled for this model.
     private func begin(
         _ command: Command
     ) {
         guard !command.cancelled else { return }
+        command.retrying = retryCommands
+        if retryCommands { scheduleRetries(command) }
+        beginRelay(command)
+        attempt(command, initial: true)
+    }
+
+    /// Schedules background sends and stops waiting for an ACK after six seconds.
+    private func scheduleRetries(
+        _ command: Command
+    ) {
         for delay: UInt64 in [300, 1000, 3000, 3300, 4000, 6000] {
             command.scheduled.append(
                 Task {
@@ -229,8 +244,6 @@ actor RoomCommandController {
                 }
             )
         }
-        beginRelay(command)
-        attempt(command, initial: true)
     }
 
     /// Starts one HTTP submission whose lifetime is independent of RTC receipts and retries.
@@ -268,7 +281,7 @@ actor RoomCommandController {
         _ command: Command,
         initial: Bool
     ) {
-        guard command.retrying, !command.cancelled else { return }
+        guard !command.cancelled, initial || command.retrying else { return }
         do {
             try command.ensureCurrent()
         } catch {

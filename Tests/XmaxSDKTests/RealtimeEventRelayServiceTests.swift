@@ -125,8 +125,9 @@ final class RealtimeEventRelayServiceTests: XCTestCase {
         XCTAssertEqual(api.requests.count, 1)
     }
 
-    func testFactoryRelaysAllControlsAndSupportsSessionsWithoutModelInstance() async throws {
-        for modelID in [nil, "instance"] as [String?] {
+    func testFactoryUsesRedundantSignalingOnlyForX21() async throws {
+        let cases: [(RealtimeModel, String?)] = [(.x2_1, nil), (.x2_1, "instance"), (.x2_1_flash, "instance")]
+        for (model, modelID) in cases {
             var payload: [String: Any] = [
                 "sessionUid": "session", "status": "ACTIVE",
                 "modelExtra": [
@@ -151,7 +152,7 @@ final class RealtimeEventRelayServiceTests: XCTestCase {
             }
             let rtc = RtcManagingStub()
             let options = RealtimeConfiguration(
-                model: .x2_1,
+                model: model,
                 isFrameInterpolationEnabled: false,
                 isAdaptiveQualityEnabled: false
             )
@@ -182,9 +183,13 @@ final class RealtimeEventRelayServiceTests: XCTestCase {
             }
             try rtc.emitRemoteVideoFrame()
             _ = try await starting.value
+            let request = try XCTUnwrap(api.requests.first { $0.path == "/session" })
+            let requestBody = try JSONSerialization.jsonObject(with: XCTUnwrap(request.body)) as? [String: String]
+            XCTAssertEqual(requestBody, ["model": model.rawValue])
             try await manager.startGeneration(context: RealtimeContext(prompt: "second"))
             try await manager.setDownlinkQualityLevel(.l3)
-            if modelID != nil {
+            let expectsRelay = model == .x2_1 && modelID != nil
+            if expectsRelay {
                 await eventually {
                     api.requests.filter { $0.path == "/client-event/relay" }.count == 3
                 }
@@ -207,8 +212,17 @@ final class RealtimeEventRelayServiceTests: XCTestCase {
                     XCTAssertEqual(data, original as NSDictionary?)
                 }
             }
+            if model == .x2_1_flash {
+                // Leave the first retry deadline behind while the room is still connected.
+                try await Task.sleep(for: .milliseconds(400))
+                let controls = try messages(rtc).compactMap { message -> String? in
+                    let object = try JSONSerialization.jsonObject(with: Data(message.utf8)) as? [String: Any]
+                    return object?["event"] as? String
+                }.filter { ["start", "change_condition", "change_target_size"].contains($0) }
+                XCTAssertEqual(controls, ["start", "change_condition", "change_target_size"])
+            }
             await manager.close()
-            if modelID == nil {
+            if !expectsRelay {
                 XCTAssertFalse(api.requests.contains { $0.path == "/client-event/relay" })
             }
         }

@@ -37,6 +37,9 @@ actor RoomController: RoomControlling {
     /// The HTTP submission retained when a joined room gets a fresh command scheduler.
     private let relayMessage: (@Sendable (String) async throws -> Void)?
 
+    /// Whether each joined room schedules background RTC retries.
+    private let retryCommands: Bool
+
     /// Decodes receipts and provider fragments on the room actor.
     private var decoder = RoomMessageDecoder()
 
@@ -53,21 +56,25 @@ actor RoomController: RoomControlling {
     ///   - timing: The shared realtime startup timing recorder.
     ///   - commandSleep: The background retry sleeper, with delays in nanoseconds.
     ///   - relayMessage: The optional HTTP submission for complete generation controls.
+    ///   - retryCommands: Whether the model supports background RTC retries.
     init(
         rtcManager: any RtcManaging,
         timing: RealtimeTiming = RealtimeTiming(),
         commandSleep: @escaping @Sendable (UInt64) async throws -> Void = {
             try await Task.sleep(nanoseconds: $0)
         },
-        relayMessage: (@Sendable (String) async throws -> Void)? = nil
+        relayMessage: (@Sendable (String) async throws -> Void)? = nil,
+        retryCommands: Bool = true
     ) {
         self.rtcManager = rtcManager
         self.commandSleep = commandSleep
         self.relayMessage = relayMessage
+        self.retryCommands = retryCommands
         commands = Self.makeCommands(
             rtcManager: rtcManager,
             sleep: commandSleep,
-            relayMessage: relayMessage
+            relayMessage: relayMessage,
+            retryCommands: retryCommands
         )
         heartbeat = RoomHeartbeat(rtcManager: rtcManager)
         self.timing = timing
@@ -100,7 +107,8 @@ actor RoomController: RoomControlling {
         commands = Self.makeCommands(
             rtcManager: rtcManager,
             sleep: commandSleep,
-            relayMessage: relayMessage
+            relayMessage: relayMessage,
+            retryCommands: retryCommands
         )
         state = .joining(id: operationID)
         heartbeat.stop()
@@ -390,7 +398,8 @@ private extension RoomController {
     static func makeCommands(
         rtcManager: any RtcManaging,
         sleep: @escaping @Sendable (UInt64) async throws -> Void,
-        relayMessage: (@Sendable (String) async throws -> Void)?
+        relayMessage: (@Sendable (String) async throws -> Void)?,
+        retryCommands: Bool
     ) -> RoomCommandController {
         RoomCommandController(
             sendMessage: { message in
@@ -403,7 +412,8 @@ private extension RoomController {
                 )
             },
             sleep: sleep,
-            relayMessage: relayMessage
+            relayMessage: relayMessage,
+            retryCommands: retryCommands
         )
     }
 

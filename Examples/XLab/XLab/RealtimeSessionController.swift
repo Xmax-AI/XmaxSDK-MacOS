@@ -186,7 +186,6 @@ final class RealtimeSessionController: ObservableObject {
             await applyPendingBeauty()
             guard lifecycleID == operation else { await manager.close(); return }
             let stream = try await manager.createLocalCameraStream(
-                preset: .resolution1920x1080,
                 microphone: microphone,
                 mirror: true
             )
