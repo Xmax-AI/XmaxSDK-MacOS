@@ -5,7 +5,7 @@ PODS:
   - QCloudCore/WithoutMTA (6.5.7)
   - QCloudCOSXML/Transfer (6.5.7):
     - QCloudCore/WithoutMTA (= 6.5.7)
-  - XmaxSDK (1.1.3):
+  - XmaxSDK (1.1.4):
     - AgoraRtcEngine_macOS/RtcBasic (= 4.6.2)
     - QCloudCOSXML/Transfer (= 6.5.7)
 
@@ -28,7 +28,7 @@ SPEC CHECKSUMS:
   AgoraRtcEngine_macOS: f359d9976cc1d940fc39e4e25bf7a2e04fa28c36
   QCloudCore: ff21b867b51f1d7e043c5013a3f876cd29bdca63
   QCloudCOSXML: 35ef870a55a58d193eeb62c37c8904630740480e
-  XmaxSDK: d345ed8f755a3dfe1df6d31288e8744cc82efbd8
+  XmaxSDK: a890c37fef3f81107509f8ea845d1e7b5b0b6a03
 
 PODFILE CHECKSUM: 34bdafd52e068a99c8870c91eef7f9665f5ec2ce
 
