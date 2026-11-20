@@ -92,11 +92,6 @@ final class RtcManagingStub: RtcManaging, @unchecked Sendable {
     var discardedKeys: [String?] { lock.withLock { storedDiscardedKeys } }
 
     private var storedCalls: [RtcManagingCall] = []
-    private var storedCameraMirrors: [Bool] = []
-    var cameraMirrors: [Bool] { lock.withLock { storedCameraMirrors } }
-    func configureLocalVideoMirror(_ mirror: Bool) throws {
-        lock.withLock { storedCameraMirrors.append(mirror) }
-    }
     private weak var storedEventListener: (any RtcEventListener)?
 
     private var roomMessageListener: (@Sendable (String, Data) -> Void)?

@@ -28,6 +28,10 @@ final class CameraCaptureControllingStub: CameraCaptureControlling, @unchecked S
     /// Call records
     private let lock = NSLock()
     private var recordedCalls: [Call] = []
+    private(set) var outputFormat: VideoFormat?
+    private(set) var captureFormat: CameraCaptureFormat?
+    private(set) var rotation: CameraRotation?
+    private(set) var mirrors: [Bool] = []
     private var previewReadyListener: (@Sendable () -> Void)?
     private var videoFrameListener: MediaVideoFrameListener?
 
@@ -56,13 +60,20 @@ final class CameraCaptureControllingStub: CameraCaptureControlling, @unchecked S
     func start(
         videoFormat: VideoFormat,
         frameRate: Int,
+        captureFormat: CameraCaptureFormat?,
         deviceID: String,
+        rotation: CameraRotation,
+        mirror: Bool,
         frameListener: @escaping MediaVideoFrameListener,
         previewReadyListener: @escaping @Sendable () -> Void,
         errorListener: @escaping XmaxErrorListener
     ) async throws {
         lock.withLock {
             recordedCalls.append(.start(deviceID))
+            outputFormat = videoFormat
+            self.captureFormat = captureFormat
+            self.rotation = rotation
+            mirrors.append(mirror)
             self.previewReadyListener = previewReadyListener
             videoFrameListener = frameListener
         }
@@ -71,9 +82,10 @@ final class CameraCaptureControllingStub: CameraCaptureControlling, @unchecked S
         if automaticallyReady { previewReadyListener() }
     }
 
-    func switchCamera(to deviceID: String) async throws {
+    func switchCamera(to deviceID: String, mirror: Bool) async throws {
         lock.withLock { recordedCalls.append(.switchCamera(deviceID)) }
         if let switchError { throw switchError }
+        lock.withLock { mirrors.append(mirror) }
     }
 
     func updateFormat(_ videoFormat: VideoFormat, frameRate: Int) async throws {

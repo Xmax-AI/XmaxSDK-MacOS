@@ -22,8 +22,11 @@ protocol CameraCaptureControlling: Sendable {
     ///
     /// - Parameters:
     ///   - videoFormat: The output pixel format and dimensions.
-    ///   - frameRate: The target capture frame rate.
+    ///   - frameRate: The target output frame rate.
+    ///   - captureFormat: Preferred native input dimensions and frame rate before processing.
     ///   - deviceID: The capture device identifier.
+    ///   - rotation: Clockwise rotation applied before mirroring.
+    ///   - mirror: Whether to reflect the shared output pixels horizontally.
     ///   - frameListener: Receives processed frames on the serial capture queue.
     ///   - previewReadyListener: Reports the first successfully processed frame.
     ///   - errorListener: Receives capture runtime errors.
@@ -32,7 +35,10 @@ protocol CameraCaptureControlling: Sendable {
     func start(
         videoFormat: VideoFormat,
         frameRate: Int,
+        captureFormat: CameraCaptureFormat?,
         deviceID: String,
+        rotation: CameraRotation,
+        mirror: Bool,
         frameListener: @escaping MediaVideoFrameListener,
         previewReadyListener: @escaping @Sendable () -> Void,
         errorListener: @escaping XmaxErrorListener
@@ -40,11 +46,14 @@ protocol CameraCaptureControlling: Sendable {
 
     /// Switches cameras while retaining output dimensions and frame rate.
     ///
-    /// - Parameter deviceID: The target device identifier.
+    /// - Parameters:
+    ///   - deviceID: The target device identifier.
+    ///   - mirror: The mirror policy resolved for the replacement camera.
     ///
     /// - Throws: An error if the device is unavailable or switching fails.
     func switchCamera(
-        to deviceID: String
+        to deviceID: String,
+        mirror: Bool
     ) async throws
 
     /// Updates output dimensions and frame rate while retaining the camera device and callbacks.

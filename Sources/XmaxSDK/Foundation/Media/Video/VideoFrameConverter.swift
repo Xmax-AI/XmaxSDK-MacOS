@@ -23,6 +23,8 @@ enum VideoFrameConverter {
     ///   - outputHeight: The positive, even output height, in pixels.
     ///   - timestampUs: The output timestamp, in microseconds.
     ///   - outputPixelBuffer: An exclusive destination buffer, or nil for owned byte planes.
+    ///   - rotation: Clockwise rotation applied after cropping to the pre-rotation target.
+    ///   - mirror: Whether to reflect the final pixels horizontally after rotation.
     ///
     /// - Returns: An independently owned frame retaining the input pixel format.
     ///
@@ -32,10 +34,50 @@ enum VideoFrameConverter {
         outputWidth: Int,
         outputHeight: Int,
         timestampUs: Int64,
-        outputPixelBuffer: CVPixelBuffer? = nil
+        outputPixelBuffer: CVPixelBuffer? = nil,
+        rotation: CameraRotation = .degrees0,
+        mirror: Bool = false
     ) throws -> VideoFrame {
         guard outputPixelBuffer !== pixelBuffer else {
             throw mediaError("Video source and destination buffers must be distinct")
+        }
+        if rotation != .degrees0 || mirror {
+            let source = try convert(
+                pixelBuffer: pixelBuffer,
+                outputWidth: rotation.swapsDimensions ? outputHeight : outputWidth,
+                outputHeight: rotation.swapsDimensions ? outputWidth : outputHeight,
+                timestampUs: timestampUs
+            )
+            guard case .planes(let planes) = source.storage else {
+                throw mediaError("Camera transformation requires owned pixel planes")
+            }
+            let format = try VideoFormat(
+                width: outputWidth,
+                height: outputHeight,
+                pixelFormat: source.format.pixelFormat
+            )
+            return try renderFrame(
+                format: format,
+                timestampUs: timestampUs,
+                outputPixelBuffer: outputPixelBuffer
+            ) { first, second in
+                try transform(
+                    planes[0],
+                    destination: first,
+                    bytesPerPixel: format.pixelFormat == .nv12 ? 1 : 4,
+                    rotation: rotation,
+                    mirror: mirror
+                )
+                if let second {
+                    try transform(
+                        planes[1],
+                        destination: second,
+                        bytesPerPixel: 2,
+                        rotation: rotation,
+                        mirror: mirror
+                    )
+                }
+            }
         }
         switch CVPixelBufferGetPixelFormatType(pixelBuffer) {
         case kCVPixelFormatType_32BGRA:
@@ -57,6 +99,106 @@ enum VideoFrameConverter {
         default:
             throw mediaError("External video requires NV12 video-range (420v) or BGRA pixels")
         }
+    }
+
+    /// Rotates and reflects a plane, preserving each interleaved chroma or BGRA pixel as one unit.
+    private static func transform(
+        _ plane: VideoFramePlane,
+        destination: vImage_Buffer,
+        bytesPerPixel: Int,
+        rotation: CameraRotation,
+        mirror: Bool
+    ) throws {
+        try plane.data.withUnsafeBytes { bytes in
+            guard let base = bytes.baseAddress else { throw mediaError("Camera pixel plane is empty") }
+            let source = vImage_Buffer(
+                data: UnsafeMutableRawPointer(mutating: base.advanced(by: plane.byteOffset)),
+                height: rotation.swapsDimensions ? destination.width : destination.height,
+                width: rotation.swapsDimensions ? destination.height : destination.width,
+                rowBytes: plane.stride
+            )
+            if !mirror {
+                try rotate(
+                    source: source,
+                    destination: destination,
+                    bytesPerPixel: bytesPerPixel,
+                    rotation: rotation
+                )
+            } else if rotation == .degrees0 {
+                try reflect(
+                    source: source,
+                    destination: destination,
+                    bytesPerPixel: bytesPerPixel
+                )
+            } else {
+                // vImage reflection requires distinct source and destination storage.
+                var scratch = Data(count: destination.rowBytes * Int(destination.height))
+                try scratch.withUnsafeMutableBytes { bytes in
+                    let rotated = vImage_Buffer(
+                        data: bytes.baseAddress,
+                        height: destination.height,
+                        width: destination.width,
+                        rowBytes: destination.rowBytes
+                    )
+                    try rotate(
+                        source: source,
+                        destination: rotated,
+                        bytesPerPixel: bytesPerPixel,
+                        rotation: rotation
+                    )
+                    try reflect(
+                        source: rotated,
+                        destination: destination,
+                        bytesPerPixel: bytesPerPixel
+                    )
+                }
+            }
+        }
+    }
+
+    /// Rotates each pixel without splitting interleaved channels.
+    private static func rotate(
+        source: vImage_Buffer,
+        destination: vImage_Buffer,
+        bytesPerPixel: Int,
+        rotation: CameraRotation
+    ) throws {
+        var source = source
+        var destination = destination
+        let flags = vImage_Flags(kvImageNoFlags)
+        // vImage counts counterclockwise quarter turns.
+        let turns = UInt8((4 - rotation.rawValue / 90) % 4)
+        let status: vImage_Error
+        switch bytesPerPixel {
+        case 1:
+            status = vImageRotate90_Planar8(&source, &destination, turns, 0, flags)
+        case 2:
+            status = vImageRotate90_Planar16U(&source, &destination, turns, 0, flags)
+        default:
+            status = vImageRotate90_ARGB8888(&source, &destination, turns, [0, 0, 0, 0], flags)
+        }
+        guard status == kvImageNoError else { throw mediaError("Failed to rotate camera pixels") }
+    }
+
+    /// Reflects each final pixel horizontally into distinct storage.
+    private static func reflect(
+        source: vImage_Buffer,
+        destination: vImage_Buffer,
+        bytesPerPixel: Int
+    ) throws {
+        var source = source
+        var destination = destination
+        let flags = vImage_Flags(kvImageNoFlags)
+        let status: vImage_Error
+        switch bytesPerPixel {
+        case 1:
+            status = vImageHorizontalReflect_Planar8(&source, &destination, flags)
+        case 2:
+            status = vImageHorizontalReflect_Planar16U(&source, &destination, flags)
+        default:
+            status = vImageHorizontalReflect_ARGB8888(&source, &destination, flags)
+        }
+        guard status == kvImageNoError else { throw mediaError("Failed to mirror camera pixels") }
     }
 
     /// Creates a cropped and scaled frame from video-range NV12.

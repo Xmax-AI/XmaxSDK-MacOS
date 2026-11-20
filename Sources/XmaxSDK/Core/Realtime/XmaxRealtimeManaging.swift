@@ -257,27 +257,31 @@ public protocol XmaxRealtimeManaging: Sendable {
 
     /// Creates a local camera stream and starts preview.
     ///
-    /// Bind the returned track to a preview view; media becomes `ready` after native capture starts and the view is
-    /// bound.
+    /// Bind the returned track to a preview view. Media becomes ready after the first processed frame
+    /// arrives and the view is bound. Preview, frame observation, and RTC share the processed pixels.
     ///
     /// - Parameters:
-    ///   - videoFormat: The camera capture video format.
-    ///   - camera: The initial camera selection.
-    ///   - microphone: The initial microphone selection. Enabled inputs request permission at creation,
-    ///     start capture on connection, and stop on disconnect. Use `switchMicrophone(to:)`
-    ///     and `setMicrophoneEnabled(_:)` for runtime changes.
-    ///   - mirror: Whether to mirror both native local preview and the encoded camera stream.
-    ///     Generated output and frame callbacks retain the direction returned by the server.
+    ///   - videoFormat: The target dimensions after rotation, frame rate, and encoding settings.
+    ///   - captureFormat: Preferred camera input dimensions before rotation; nil uses the target dimensions
+    ///     with width and height exchanged for quarter turns. An omitted capture fps uses the target fps.
+    ///   - camera: The camera selection; a missing facing preference falls back to the system default.
+    ///   - microphone: The microphone used during connection. Enabled inputs request permission at creation,
+    ///     start capture on connection, and stop on disconnect.
+    ///   - rotation: Clockwise rotation applied before horizontal mirroring.
+    ///   - mirror: Whether to mirror shared pixels; nil mirrors front cameras and unknown-facing default cameras.
+    ///   - warmupMs: Additional warmup before publication, in milliseconds; finite and nonnegative.
     ///
-    /// - Returns: The media stream containing the local camera video track.
+    /// - Returns: The stream containing the local camera video track.
     ///
-    /// - Throws: An error on invalid configuration, denied permissions, conflicting operations, input selection,
-    ///   or capture startup failure.
+    /// - Throws: An error on invalid configuration, denied permission, conflicting operations, or capture failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
+        captureFormat: CameraCaptureFormat?,
         camera: RealtimeCamera,
         microphone: RealtimeMicrophone,
-        mirror: Bool
+        rotation: CameraRotation,
+        mirror: Bool?,
+        warmupMs: Double
     ) async throws -> RealtimeMediaStream
 
     /// Stops the local camera stream and updates media readiness.

@@ -148,17 +148,6 @@ final class RtcManager: RtcManaging, @unchecked Sendable {
         try withEngine { try $0.configureVideoEncoding(configuration) }
     }
 
-    /// Sets camera upstream mirroring, retaining the setting across encoder reconfiguration.
-    ///
-    /// - Parameter mirror: Whether to mirror the encoded camera stream.
-    ///
-    /// - Throws: An error if the engine is unavailable or rejects the setting.
-    func configureLocalVideoMirror(
-        _ mirror: Bool
-    ) throws {
-        try withEngine { try $0.configureLocalVideoMirror(mirror) }
-    }
-
     /// Enables external video input.
     ///
     /// - Throws: An error if video source configuration fails.

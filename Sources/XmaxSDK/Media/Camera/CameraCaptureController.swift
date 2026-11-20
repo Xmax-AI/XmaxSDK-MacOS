@@ -25,6 +25,18 @@ final class CameraCaptureController: NSObject, CameraCaptureControlling, @unchec
     private var input: AVCaptureDeviceInput?
     private var videoFormat: VideoFormat?
     private var frameRate = 0
+
+    /// Preferred native camera dimensions and frame rate before software processing.
+    private var captureFormat: CameraCaptureFormat?
+
+    /// Clockwise rotation applied to upright camera pixels before mirroring.
+    private var rotation = CameraRotation.degrees0
+
+    /// Whether to reflect the final output pixels horizontally.
+    private var mirror = false
+
+    /// The earliest timestamp for the next output frame, in microseconds.
+    private var nextFrameTimestampUs: Double?
     private var captureID: UUID?
     private var rotationObserver: NSKeyValueObservation?
     private var rotationCoordinator: AnyObject?
@@ -44,36 +56,41 @@ final class CameraCaptureController: NSObject, CameraCaptureControlling, @unchec
         CameraDeviceDiscovery.availableCameraDevices()
     }
 
-    /// Matches the requested frame rate while accepting small device timing round-off.
-    ///
-    /// - Parameters:
-    ///   - frameRate: The requested nominal frame rate.
-    ///   - minimum: The device's shortest supported frame duration.
-    ///   - maximum: The device's longest supported frame duration.
-    /// - Returns: A supported duration, or nil when the nominal rate is unavailable.
-    static func captureFrameDuration(frameRate: Int, minimum: CMTime, maximum: CMTime) -> CMTime? {
-        guard frameRate > 0, frameRate <= Int(Int32.max),
-              minimum.isNumeric, maximum.isNumeric,
-              minimum > .zero, maximum >= minimum else { return nil }
-        let requested = CMTime(value: 1, timescale: Int32(frameRate))
-        let supported = min(max(requested, minimum), maximum)
-        guard abs(1 / supported.seconds - Double(frameRate)) <= 0.1 else { return nil }
-        return supported
+    /// Resolves a preferred frame rate within the device's supported duration range.
+    static func captureFrameDuration(
+        frameRate: Double,
+        minimum: CMTime,
+        maximum: CMTime
+    ) -> CMTime? {
+        guard frameRate.isFinite, frameRate > 0,
+            minimum.isNumeric, maximum.isNumeric,
+            minimum > .zero, maximum >= minimum
+        else { return nil }
+        let seconds = min(max(1 / frameRate, minimum.seconds), maximum.seconds)
+        let requested = CMTime(seconds: seconds, preferredTimescale: 1_000_000_000)
+        return min(max(requested, minimum), maximum)
     }
 
     /// Starts camera capture and outputs upright NV12 frames at the target dimensions.
     ///
     /// - Parameters:
     ///   - videoFormat: The output pixel format and dimensions.
-    ///   - frameRate: The capture frame rate.
+    ///   - frameRate: The target output frame rate.
+    ///   - captureFormat: Preferred native input dimensions and frame rate before processing.
     ///   - deviceID: The target camera device identifier.
+    ///   - rotation: Clockwise rotation applied after normalizing the camera orientation.
+    ///   - mirror: Whether to reflect the output horizontally after rotation.
     ///   - frameListener: Receives video frames on the serial capture queue.
+    ///   - previewReadyListener: Called after the first processed frame is delivered.
     ///   - errorListener: Receives capture runtime errors.
     /// - Throws: An error on invalid devices or formats, or capture startup failure.
     func start(
         videoFormat: VideoFormat,
         frameRate: Int,
+        captureFormat: CameraCaptureFormat? = nil,
         deviceID: String,
+        rotation: CameraRotation = .degrees0,
+        mirror: Bool = false,
         frameListener: @escaping MediaVideoFrameListener,
         previewReadyListener: @escaping @Sendable () -> Void,
         errorListener: @escaping XmaxErrorListener
@@ -96,7 +113,11 @@ final class CameraCaptureController: NSObject, CameraCaptureControlling, @unchec
                     self.videoFormat = videoFormat
                     let captureID = UUID()
                     self.captureID = captureID
+                    try captureFormat?.validate()
                     self.frameRate = frameRate
+                    self.captureFormat = captureFormat
+                    self.rotation = rotation
+                    self.mirror = mirror
                     self.frameListener = frameListener
                     self.previewReadyListener = previewReadyListener
                     self.errorListener = errorListener
@@ -151,9 +172,14 @@ final class CameraCaptureController: NSObject, CameraCaptureControlling, @unchec
 
     /// Switches cameras while retaining output dimensions and frame rate.
     ///
-    /// - Parameter deviceID: The target camera device identifier.
+    /// - Parameters:
+    ///   - deviceID: The target camera device identifier.
+    ///   - mirror: The mirror policy resolved for the replacement camera.
     /// - Throws: An error if the device is unavailable or switching fails.
-    func switchCamera(to deviceID: String) async throws {
+    func switchCamera(
+        to deviceID: String,
+        mirror: Bool
+    ) async throws {
         try Task.checkCancellation()
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
@@ -189,6 +215,7 @@ final class CameraCaptureController: NSObject, CameraCaptureControlling, @unchec
                         throw error
                     }
 
+                    self.mirror = mirror
                     continuation.resume()
                 } catch {
                     continuation.resume(
@@ -220,9 +247,10 @@ final class CameraCaptureController: NSObject, CameraCaptureControlling, @unchec
                 }
                 let previousRate = self.frameRate
                 self.frameRate = frameRate
+                self.videoFormat = videoFormat
                 do {
                     try configureFormat(on: device)
-                    self.videoFormat = videoFormat
+                    nextFrameTimestampUs = nil
                     continuation.resume()
                 } catch {
                     self.videoFormat = previousFormat
@@ -263,6 +291,9 @@ extension CameraCaptureController: AVCaptureVideoDataOutputSampleBufferDelegate 
             return
         }
         lastTimestampUs = timestampUs
+        if let nextFrameTimestampUs, Double(timestampUs) < nextFrameTimestampUs { return }
+        let interval = 1_000_000 / Double(frameRate)
+        nextFrameTimestampUs = max(nextFrameTimestampUs ?? Double(timestampUs), Double(timestampUs) - interval / 2) + interval
 
         do {
             guard let destination = try makeOutputBuffer(
@@ -275,7 +306,9 @@ extension CameraCaptureController: AVCaptureVideoDataOutputSampleBufferDelegate 
                 outputWidth: videoFormat.width,
                 outputHeight: videoFormat.height,
                 timestampUs: timestampUs,
-                outputPixelBuffer: destination
+                outputPixelBuffer: destination,
+                rotation: rotation,
+                mirror: mirror
             )
             try frameListener(frame)
             previewReadyListener?()
@@ -353,55 +386,47 @@ private extension CameraCaptureController {
         try configureFormat(on: device)
     }
 
-    /// Selects a supported device format and applies pacing after validating all inputs.
+    /// Selects camera input nearest to the requested dimensions and frame rate.
     func configureFormat(on device: AVCaptureDevice) throws {
-        // Prefer 16:9 formats up to 1080p, while accepting other device aspect ratios for cropping.
+        guard let videoFormat else { throw Self.cameraError("Camera output format is unavailable") }
+        let width = captureFormat?.width ?? (rotation.swapsDimensions ? videoFormat.height : videoFormat.width)
+        let height = captureFormat?.height ?? (rotation.swapsDimensions ? videoFormat.width : videoFormat.height)
+        let fps = captureFormat?.fps ?? Double(frameRate)
         let selected = device.formats.compactMap { format -> (
-            format: AVCaptureDevice.Format, area: Int64, isWide: Bool, duration: CMTime
+            format: AVCaptureDevice.Format, distance: Double, duration: CMTime, rateDistance: Double
         )? in
-            guard let duration = format.videoSupportedFrameRateRanges.lazy.compactMap({
-                Self.captureFrameDuration(frameRate: self.frameRate, minimum: $0.minFrameDuration, maximum: $0.maxFrameDuration)
-            }).first else {
-                return nil
-            }
-
+            let duration = format.videoSupportedFrameRateRanges.compactMap {
+                Self.captureFrameDuration(
+                    frameRate: fps,
+                    minimum: $0.minFrameDuration,
+                    maximum: $0.maxFrameDuration
+                )
+            }.min { abs(1 / $0.seconds - fps) < abs(1 / $1.seconds - fps) }
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-            let longSide = Int64(max(dimensions.width, dimensions.height))
-            let shortSide = Int64(min(dimensions.width, dimensions.height))
-            let isWide = longSide * 9 == shortSide * 16
-            guard longSide > 0, shortSide > 0,
-                  longSide <= 1920, shortSide <= 1440 else {
-                return nil
-            }
-
-            return (format, longSide * shortSide, isWide, duration)
-        }.max { lhs, rhs in
-            if lhs.isWide != rhs.isWide {
-                return !lhs.isWide
-            }
-
-            return lhs.area < rhs.area
+            guard let duration, dimensions.width > 0, dimensions.height > 0 else { return nil }
+            let distance = abs(log(Double(dimensions.width) / Double(width)))
+                + abs(log(Double(dimensions.height) / Double(height)))
+            // Treat nominal frame-rate round-off as equivalent when choosing input dimensions.
+            let rateDistance = max(abs(1 / duration.seconds - fps) - 0.1, 0)
+            return (format, distance, duration, rateDistance)
+        }.min { lhs, rhs in
+            if lhs.rateDistance != rhs.rateDistance { return lhs.rateDistance < rhs.rateDistance }
+            return lhs.distance < rhs.distance
         }
 
         guard let selected else {
-            throw Self.cameraError(
-                "The camera does not support a compatible format at the requested frame rate"
-            )
+            throw Self.cameraError("The camera does not support a compatible format at the requested frame rate")
         }
-
         try device.lockForConfiguration()
         defer {
             device.unlockForConfiguration()
         }
-
         device.activeFormat = selected.format
         device.activeVideoMinFrameDuration = selected.duration
         device.activeVideoMaxFrameDuration = selected.duration
-
         if device.isFocusModeSupported(.continuousAutoFocus) {
             device.focusMode = .continuousAutoFocus
         }
-
         if device.isExposureModeSupported(.continuousAutoExposure) {
             device.exposureMode = .continuousAutoExposure
         }
@@ -513,6 +538,10 @@ private extension CameraCaptureController {
         input = nil
         frameRate = 0
         lastTimestampUs = nil
+        nextFrameTimestampUs = nil
+        captureFormat = nil
+        rotation = .degrees0
+        mirror = false
         hasReportedFrameError = false
     }
 

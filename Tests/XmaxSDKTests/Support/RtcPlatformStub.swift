@@ -23,7 +23,6 @@ final class RtcPlatformStub: RtcPlatform, @unchecked Sendable {
     }
 
     func configureVideoEncoding(_ configuration: VideoEncodingConfiguration) throws {}
-    func configureLocalVideoMirror(_ mirror: Bool) throws {}
     func useExternalVideoSource(useTexture: Bool) throws {}
     func startExternalAudioSource() throws {}
     func stopExternalAudioSource() throws {}

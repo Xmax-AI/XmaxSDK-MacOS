@@ -13,6 +13,35 @@ import XCTest
 @testable import XmaxSDK
 
 final class GenerationSizingTests: XCTestCase {
+    func testInterpolationPixelLimitIncludes900000AndScalesLargerFrames() throws {
+        XCTAssertTrue(MediaService.supportsFrameInterpolationSize(CGSize(width: 1000, height: 899)))
+        XCTAssertTrue(MediaService.supportsFrameInterpolationSize(CGSize(width: 1000, height: 900)))
+        XCTAssertFalse(MediaService.supportsFrameInterpolationSize(CGSize(width: 1000, height: 901)))
+
+        let service = MediaService()
+        let withinLimit = CGSize(width: 1000, height: 896)
+        XCTAssertEqual(try service.resolveTargetSize(
+            withinLimit,
+            maximumSize: withinLimit,
+            frameInterpolationEnabled: true
+        ), withinLimit)
+
+        let source = CGSize(width: 1000, height: 904)
+        let target = try service.resolveTargetSize(
+            source,
+            maximumSize: source,
+            frameInterpolationEnabled: true
+        )
+        XCTAssertLessThanOrEqual(target.width * target.height, 900000)
+        XCTAssertTrue(Int(target.width).isMultiple(of: 4))
+        XCTAssertTrue(Int(target.height).isMultiple(of: 4))
+        XCTAssertEqual(try service.resolveTargetSize(
+            source,
+            maximumSize: source,
+            frameInterpolationEnabled: false
+        ), source)
+    }
+
     func testCappedMediaSizeBecomesUplinkBaselineWithoutChangingGenerationBucket() throws {
         let service = MediaService()
         let mediaSize = try service.resolveMediaSize(CGSize(width: 3840, height: 2160), source: .video)

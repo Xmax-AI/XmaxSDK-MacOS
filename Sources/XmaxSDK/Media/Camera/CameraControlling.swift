@@ -43,25 +43,21 @@ protocol CameraControlling: Sendable {
         _ handler: CameraPreviewReadyHandler?
     )
 
-    /// Creates and starts a local camera stream.
+    /// Creates camera capture with independent input preferences and shared output processing.
     ///
-    /// - Parameters:
-    ///   - videoFormat: The requested dimensions, frame rate, and encoding configuration; dimensions follow model
-    ///     rules.
-    ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
-    ///   - mirror: Whether to mirror camera preview and upstream encoding.
-    ///   - useMicrophone: Whether to request microphone permission and allow capture when realtime connects.
-    ///
-    /// - Returns: The media stream containing the local camera video track.
-    ///
-    /// - Throws: An error on an existing camera stream, invalid format, insufficient permissions, or capture startup
-    ///   failure.
+    /// - Throws: An error on invalid options, denied permission, conflicting media, or capture failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
-        deviceID: String?,
-        mirror: Bool,
-        useMicrophone: Bool
+        captureFormat: CameraCaptureFormat?,
+        camera: RealtimeCamera,
+        useMicrophone: Bool,
+        rotation: CameraRotation,
+        mirror: Bool?,
+        warmupMs: Double
     ) async throws -> RealtimeMediaStream
+
+    /// Waits for the configured camera warmup before publishing, rejecting cancellation or replaced capture.
+    func waitForCameraWarmup() async throws
 
     /// Prepares RTC audio input and starts physical capture if the microphone is enabled.
     ///

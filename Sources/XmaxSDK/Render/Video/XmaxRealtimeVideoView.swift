@@ -92,9 +92,6 @@ public final class XmaxRealtimeVideoView: NSView {
     /// The reusable local preview pixel pool.
     private var localPreviewPixelBufferPool: CVPixelBufferPool?
 
-    /// Whether the camera stream requests mirrored presentation independently of the view.
-    private var mirrorsDecodedSource = false
-
     /// The current local preview frame format.
     private var localPreviewFormat: VideoFormat?
 
@@ -220,7 +217,7 @@ extension XmaxRealtimeVideoView {
     private func applyPreviewMirroring() {
         decodedVideoLayer?.setAffineTransform(
             CGAffineTransform(
-                scaleX: isMirrored || mirrorsDecodedSource ? -1 : 1,
+                scaleX: isMirrored ? -1 : 1,
                 y: 1
             )
         )
@@ -262,10 +259,8 @@ extension XmaxRealtimeVideoView {
     ///
     /// - Parameter contentMode: The video scaling and cropping mode.
     func prepareDecodedVideoPreview(
-        contentMode: VideoContentMode,
-        sourceMirrored: Bool = false
+        contentMode: VideoContentMode
     ) {
-        mirrorsDecodedSource = sourceMirrored
         let decodedVideoLayer: AVSampleBufferDisplayLayer
         if let currentLayer = self.decodedVideoLayer {
             decodedVideoLayer = currentLayer
@@ -461,7 +456,6 @@ extension XmaxRealtimeVideoView {
 
     /// Removes video layers and releases display clock and preview buffers.
     func clearDecodedVideoPreview() {
-        mirrorsDecodedSource = false
         resetFadeIn()
         decodedVideoLayer?.flushAndRemoveImage()
         decodedVideoLayer?.controlTimebase = nil

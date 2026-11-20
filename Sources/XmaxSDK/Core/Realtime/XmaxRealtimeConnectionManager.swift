@@ -124,6 +124,7 @@ actor XmaxRealtimeConnectionManager {
     ///   - videoFormat: The generation video format used to initialize remote tracks.
     ///   - targetSize: The return video dimensions; `nil` uses generation dimensions.
     ///   - includeLocalAudio: Whether to publish local audio.
+    ///   - beforePublish: An optional readiness barrier before publishing local media.
     ///   - isCurrent: The callback checking connection operation validity.
     ///   - onHeartbeatFailure: The callback receiving heartbeat errors for the current session.
     ///
@@ -136,6 +137,7 @@ actor XmaxRealtimeConnectionManager {
         videoFormat: RealtimeVideoFormat,
         targetSize: CGSize? = nil,
         includeLocalAudio: Bool,
+        beforePublish: (@Sendable () async throws -> Void)? = nil,
         isCurrent: @escaping RealtimeConnectionValidity,
         onHeartbeatFailure: @escaping RealtimeConnectionHeartbeatFailureHandler
     ) async throws -> RealtimeMediaStream {
@@ -161,6 +163,7 @@ actor XmaxRealtimeConnectionManager {
             try await streamController.connect(
                 connection: connection,
                 includeLocalAudio: includeLocalAudio,
+                beforePublish: beforePublish,
                 ensureActive: {
                     try Self.ensureCurrent(isCurrent)
                 }

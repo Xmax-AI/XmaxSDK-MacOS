@@ -4,41 +4,17 @@ import XCTest
 
 /// Verifies encoder configuration through the RTC manager and Agora platform.
 final class RtcVideoEncoderTests: XCTestCase, @unchecked Sendable {
-    func testAgoraEncoderRetainsExplicitMirrorAcrossQualityUpdatesAndReconnection() async throws {
+    func testProcessedVideoKeepsPortraitDimensionsWithoutEncoderMirroring() async throws {
         let engine = RecordingAgoraVideoEncoder()
         let manager = makeManager(engine)
         try await manager.initialize()
-        try manager.configureLocalVideoMirror(true)
-        try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 4, height: 4, frameRate: 30))
-        XCTAssertEqual(engine.encodedMirrors, [.enabled])
-        try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 8, height: 4, frameRate: 24))
-        XCTAssertEqual(engine.encodedMirrors.last, .enabled)
-        let configuration = RoomJoinConfiguration(roomID: "room", userID: "host", token: "test")
-        try await manager.joinRoom(configuration: configuration)
-        XCTAssertEqual(engine.encodedMirrors.last, .enabled)
-        await manager.leaveRoom()
-        try await manager.joinRoom(configuration: configuration)
-        XCTAssertEqual(engine.encodedMirrors.last, .enabled)
-        try manager.configureLocalVideoMirror(false)
-        XCTAssertEqual(engine.encodedMirrors.last, .disabled)
-        try manager.configureLocalVideoMirror(true)
-        try manager.useExternalVideoSource()
-        XCTAssertEqual(engine.encodedMirrors.last, .disabled, "External input must not inherit the camera mirror")
         try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 720, height: 1280, frameRate: 30))
-        XCTAssertEqual(engine.encodedMirrors.last, .disabled)
-        XCTAssertEqual(engine.encodedDimensions.last, CGSize(width: 720, height: 1280))
-        XCTAssertEqual(engine.encodedOrientations.last, .adaptative)
-        await manager.destroy()
-    }
-
-    func testFailedAgoraMirrorUpdateRestoresPreviousSettingForSubsequentEncoding() async throws {
-        let engine = RecordingAgoraVideoEncoder(failingEncoderCalls: [2])
-        let manager = makeManager(engine)
-        try await manager.initialize()
-        try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 4, height: 4, frameRate: 30))
-        XCTAssertThrowsError(try manager.configureLocalVideoMirror(true))
-        try manager.configureVideoEncoding(VideoEncodingConfiguration(width: 8, height: 4, frameRate: 30))
-        XCTAssertEqual(engine.encodedMirrors, [.disabled, .enabled, .disabled])
+        try manager.useExternalVideoSource()
+        try await manager.joinRoom(configuration: RoomJoinConfiguration(roomID: "room", userID: "user", token: "token"))
+        try manager.publishLocalVideo()
+        XCTAssertTrue(engine.encodedMirrors.allSatisfy { $0 == .disabled })
+        XCTAssertTrue(engine.encodedDimensions.allSatisfy { $0 == CGSize(width: 720, height: 1280) })
+        XCTAssertTrue(engine.encodedOrientations.allSatisfy { $0 == .adaptative })
         await manager.destroy()
     }
 

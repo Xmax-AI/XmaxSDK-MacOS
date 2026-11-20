@@ -327,16 +327,22 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     /// Creates a local camera stream and starts preview.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
+        captureFormat: CameraCaptureFormat?,
         camera: RealtimeCamera,
-        microphone: RealtimeMicrophone = .disabled,
-        mirror: Bool = false
+        microphone: RealtimeMicrophone,
+        rotation: CameraRotation,
+        mirror: Bool?,
+        warmupMs: Double
     ) async throws -> RealtimeMediaStream {
-        return try await createLocalMediaStream(source: .camera) { [self] token in
+        try await createLocalMediaStream(source: .camera) { [self] token in
             let stream = try await mediaController.createLocalCameraStream(
                 videoFormat: videoFormat,
-                deviceID: camera.deviceID,
+                captureFormat: captureFormat,
+                camera: camera,
+                microphone: microphone,
+                rotation: rotation,
                 mirror: mirror,
-                microphone: microphone
+                warmupMs: warmupMs
             )
             try token.ensureCurrent()
             return stream
@@ -853,11 +859,20 @@ private extension XmaxRealtimeManager {
         try token.ensureCurrent()
         try await mediaController.startMicrophoneCapture()
         try token.ensureCurrent()
+        let cameraWarmup = Task { try await mediaController.waitForCameraWarmup() }
+        defer { cameraWarmup.cancel() }
         let remoteStream = try await connectionManager.connect(
             model: configuration.model,
             videoFormat: videoFormat,
             targetSize: targetSize,
             includeLocalAudio: await mediaController.hasAudio,
+            beforePublish: {
+                try await withTaskCancellationHandler {
+                    try await cameraWarmup.value
+                } onCancel: {
+                    cameraWarmup.cancel()
+                }
+            },
             isCurrent: { token.isCurrent },
             onHeartbeatFailure: { [weak self] sessionID, error in
                 await self?.handleHeartbeatFailure(

@@ -59,6 +59,12 @@ final class CameraController: CameraControlling, @unchecked Sendable {
     /// The active camera track.
     private var activeTrack: RealtimeVideoTrack?
 
+    /// The requested mirror policy, recalculated when switching cameras if nil.
+    private var mirror: Bool?
+
+    /// Additional warmup before publication, in milliseconds.
+    private var warmupMs: Double = 0
+
     /// Identifies the active capture to both local frame producers.
     private var captureStreamID: UUID?
 
@@ -150,22 +156,20 @@ final class CameraController: CameraControlling, @unchecked Sendable {
         cameraCapture.listCameraDevices()
     }
 
-    /// Resolves an explicit device or system default without silently replacing an unavailable explicit selection.
-    ///
-    /// - Parameter deviceID: The specified device identifier; an empty value uses the default device.
-    ///
-    /// - Returns: The available target device.
-    ///
-    /// - Throws: A media error if the specified device is unavailable or no camera exists.
+    /// Resolves camera preferences without replacing an unavailable explicit device selection.
     private func resolveDevice(
-        _ deviceID: String?
+        _ camera: RealtimeCamera
     ) throws -> CameraDevice {
         let devices = cameraCapture.listCameraDevices()
+        let defaultDevice = devices.first { $0.isDefault } ?? devices.first
         let device: CameraDevice?
-        if let deviceID {
-            device = devices.first { $0.id == deviceID }
-        } else {
-            device = devices.first { $0.isDefault } ?? devices.first
+        switch camera {
+        case .position(let position):
+            device = devices.first { $0.position == position } ?? defaultDevice
+        case .systemDefault:
+            device = defaultDevice
+        case .device(let id):
+            device = devices.first { $0.id == id }
         }
         guard let device else {
             throw XmaxError(
@@ -174,6 +178,19 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             )
         }
         return device
+    }
+
+    /// Resolves automatic mirroring from the camera's facing direction and default status.
+    private func isMirrored(
+        _ device: CameraDevice,
+        camera: RealtimeCamera,
+        mirror: Bool?
+    ) -> Bool {
+        if let mirror { return mirror }
+        if device.position == .unspecified, case .position(let position) = camera {
+            return position == .front
+        }
+        return device.position == .front || (device.position == .unspecified && device.isDefault)
     }
 
     /// Reports ready capture and a bound preview without requiring hidden native views to render.
@@ -189,24 +206,17 @@ final class CameraController: CameraControlling, @unchecked Sendable {
         if let track { notifyPreviewReady(for: track) }
     }
 
-    /// Creates and starts a local camera stream.
+    /// Creates camera capture and shares the processed pixels with preview, observation, and RTC.
     ///
-    /// - Parameters:
-    ///   - videoFormat: The requested dimensions, frame rate, and encoding configuration; dimensions follow model
-    ///     rules.
-    ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
-    ///   - mirror: Whether to mirror camera preview and upstream encoding; disabled by default.
-    ///   - useMicrophone: Whether to request microphone permission and allow capture when realtime connects.
-    ///
-    /// - Returns: The media stream containing the local camera video track.
-    ///
-    /// - Throws: An error on an existing camera stream, invalid format, insufficient permissions, or capture startup
-    ///   failure.
+    /// - Throws: An error on invalid options, existing media, denied permission, or capture failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
-        deviceID: String?,
-        mirror: Bool = false,
-        useMicrophone: Bool = false
+        captureFormat: CameraCaptureFormat? = nil,
+        camera: RealtimeCamera = .position(.front),
+        useMicrophone: Bool = false,
+        rotation: CameraRotation = .degrees0,
+        mirror: Bool? = nil,
+        warmupMs: Double = 0
     ) async throws -> RealtimeMediaStream {
         guard currentTrack == nil else {
             throw XmaxError(
@@ -214,9 +224,22 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 message: "Stop the current local camera stream before creating another one"
             )
         }
+        try captureFormat?.validate()
+        if case .position(.unspecified) = camera {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Select a front or rear camera"
+            )
+        }
+        guard warmupMs.isFinite, warmupMs >= 0 else {
+            throw XmaxError(
+                code: .invalidConfiguration,
+                message: "Camera warmup must be a finite, non-negative number of milliseconds"
+            )
+        }
         let resolvedFormat = try resolveVideoFormat(videoFormat)
         try await permissionManager.ensureCameraPermission()
-        let device = try resolveDevice(deviceID)
+        let device = try resolveDevice(camera)
         let track = RealtimeVideoTrack(
             id: Self.localVideoTrackID,
             videoFormat: resolvedFormat,
@@ -228,14 +251,12 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             }
             try Task.checkCancellation()
             try rtcManager.useExternalVideoSource(useTexture: true)
-            try rtcManager.configureLocalVideoMirror(mirror)
-            let preview = await makePreview(
-                for: track,
-                mirrored: mirror
-            )
+            let preview = await makePreview(for: track)
             let dispatcher = DecodedVideoPreviewDispatcher(presenter: preview)
             let captureStreamID = stateLock.withLock {
                 activeTrack = track
+                self.mirror = mirror
+                self.warmupMs = warmupMs
                 self.captureStreamID = localFrameDispatcher.setStream(active: true)
                 self.preview = preview
                 previewDispatcher = dispatcher
@@ -251,7 +272,14 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                     pixelFormat: .nv12
                 ),
                 frameRate: resolvedFormat.fps,
+                captureFormat: captureFormat,
                 deviceID: device.id,
+                rotation: rotation,
+                mirror: isMirrored(
+                    device,
+                    camera: camera,
+                    mirror: mirror
+                ),
                 frameListener: { [weak self] frame in
                     guard let self, currentTrack === track else { return }
                     dispatcher.enqueue(frame)
@@ -289,6 +317,27 @@ final class CameraController: CameraControlling, @unchecked Sendable {
             await stopLocalCameraStream()
             throw XmaxError.from(error)
         }
+    }
+
+    /// Waits before publication, preserving cancellation and capture identity across suspension.
+    func waitForCameraWarmup() async throws {
+        guard let (track, milliseconds) = stateLock.withLock({
+            activeTrack.map { ($0, warmupMs) }
+        }) else {
+            throw XmaxError(
+                code: .mediaError,
+                message: "Camera capture is not running"
+            )
+        }
+        var remaining = milliseconds
+        while remaining > 0 {
+            let interval = min(remaining, 60_000)
+            try await Task.sleep(for: .milliseconds(interval))
+            guard currentTrack === track else { throw CancellationError() }
+            remaining -= interval
+        }
+        try Task.checkCancellation()
+        guard currentTrack === track else { throw CancellationError() }
     }
 
     /// Prepares the RTC audio track before joining and starts capture when the microphone is enabled.
@@ -385,6 +434,8 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 previewDispatcher = nil
                 previewReadyHandler = nil
                 storedUseMicrophone = false
+                mirror = nil
+                warmupMs = 0
                 isCaptureReady = false
                 isPreviewAttached = false
                 return resources
@@ -455,8 +506,16 @@ final class CameraController: CameraControlling, @unchecked Sendable {
                 message: "Local camera preview is not started"
             )
         }
-        let device = try resolveDevice(deviceID)
-        try await cameraCapture.switchCamera(to: device.id)
+        let device = try resolveDevice(.device(id: deviceID))
+        let mirror = stateLock.withLock { self.mirror }
+        try await cameraCapture.switchCamera(
+            to: device.id,
+            mirror: isMirrored(
+                device,
+                camera: .device(id: device.id),
+                mirror: mirror
+            )
+        )
         track.updateDevice(device)
         return RealtimeMediaStream(
             id: StreamID.local.rawValue,
@@ -470,15 +529,12 @@ private extension CameraController {
 
     /// Creates and registers a preview binding for the camera track.
     ///
-    /// - Parameters:
-    ///   - track: The local camera track to preview.
-    ///   - mirrored: Whether the camera stream requests mirrored presentation.
+    /// - Parameter track: The local camera track to preview.
     ///
     /// - Returns: The decoded preview presenter.
     @MainActor
     func makePreview(
-        for track: RealtimeVideoTrack,
-        mirrored: Bool
+        for track: RealtimeVideoTrack
     ) -> DecodedVideoPreviewPresenter {
         let preview = DecodedVideoPreviewPresenter()
         VideoRenderRegistry.register(
@@ -493,8 +549,7 @@ private extension CameraController {
                     }
                     preview.attach(
                         to: videoView,
-                        contentMode: contentMode,
-                        sourceMirrored: mirrored
+                        contentMode: contentMode
                     )
                     self?.stateLock.withLock { self?.isPreviewAttached = true }
                     self?.notifyPreviewReady(for: track)

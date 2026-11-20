@@ -237,7 +237,10 @@ let videoView = XmaxRealtimeDualVideoView(frame: view.bounds)
 view.addSubview(videoView)
 
 // Create a camera stream and bind the preview
-let localStream = try await realtime.createLocalCameraStream()
+let localStream = try await realtime.createLocalCameraStream(
+    videoFormat: .resolution1920x1080,
+    camera: .position(.front)
+)
 videoView.localTrack = localStream.videoTrack
 
 // Once the preview is ready, start generation and display the result
@@ -253,6 +256,13 @@ videoView.remoteTrack = remoteStream.videoTrack
 // Run the following when generation is no longer needed
 await realtime.close()
 ```
+
+Camera options follow the order `videoFormat`, `captureFormat`, `camera`, `microphone`,
+`rotation`, `mirror`, and `warmupMs`. Omit `videoFormat` to use the model's default target.
+`captureFormat` controls the preferred camera input before rotation, independently of the target.
+The SDK rotates and then mirrors the pixels shared by preview, frame observation, and RTC.
+Mirroring defaults to automatic, microphone input is disabled, and additional warmup defaults to zero.
+An explicit `warmupMs` overlaps connection setup and completes before local media publication.
 
 <br>
 

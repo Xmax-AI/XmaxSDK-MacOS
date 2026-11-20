@@ -32,9 +32,6 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
     /// The most recently applied encoder configuration.
     private var videoConfiguration: VideoEncodingConfiguration?
 
-    /// The upstream mirror mode retained across encoder reconfiguration.
-    private var videoMirrorMode = AgoraVideoMirrorMode.disabled
-
     /// The observer forwarding remote pixels to the active room sink.
     private let videoObserver = RtcVideoFrameObserver()
 
@@ -105,25 +102,6 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
         }
     }
 
-    /// Sets upstream mirroring through Agora's video encoder.
-    ///
-    /// - Parameter mirror: Whether to mirror the encoded camera stream.
-    ///
-    /// - Throws: An error if Agora rejects the encoder configuration.
-    func configureLocalVideoMirror(
-        _ mirror: Bool
-    ) throws {
-        try lock.withLock {
-            let previous = videoMirrorMode
-            videoMirrorMode = mirror ? .enabled : .disabled
-            do { try reapplyVideoConfiguration() }
-            catch {
-                videoMirrorMode = previous
-                throw error
-            }
-        }
-    }
-
     /// Enables external video input without applying camera mirroring to caller-owned pixels.
     ///
     /// - Throws: An error if video source configuration fails.
@@ -136,7 +114,6 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
                 useTexture: useTexture,
                 sourceType: .videoFrame
             )
-            videoMirrorMode = .disabled
             try reapplyVideoConfiguration()
         }
     }
@@ -305,7 +282,7 @@ final class AgoraRtcPlatform: RtcPlatform, AgoraRtcRoomPlatform, @unchecked Send
         _ configuration: VideoEncodingConfiguration
     ) throws {
         let rtcConfiguration = RtcVideoConverter.makeEncoderConfiguration(configuration)
-        rtcConfiguration.mirrorMode = videoMirrorMode
+        rtcConfiguration.mirrorMode = .disabled
         let result: Int32
         if let room, room.isJoined, !room.isClosed {
             result = videoEncoder.setVideoEncoderConfigurationEx(

@@ -127,6 +127,7 @@ protocol StreamControlling: Sendable {
     /// - Parameters:
     ///   - connection: The RTC room, user, token, and target bot information.
     ///   - includeLocalAudio: Whether to publish local audio alongside video.
+    ///   - beforePublish: An optional readiness barrier after joining and before publishing local tracks.
     ///   - ensureActive: The callback validating connection operation identity across asynchronous boundaries;
     ///     Should throw cancellation if invalid.
     ///
@@ -135,6 +136,7 @@ protocol StreamControlling: Sendable {
     func connect(
         connection: RealtimeSessionConnection,
         includeLocalAudio: Bool,
+        beforePublish: (@Sendable () async throws -> Void)?,
         ensureActive: @escaping @Sendable () throws -> Void
     ) async throws
 

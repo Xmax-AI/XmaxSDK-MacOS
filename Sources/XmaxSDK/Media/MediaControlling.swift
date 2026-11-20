@@ -51,24 +51,21 @@ protocol MediaControlling: Actor, InteractionControlling {
         _ handler: CameraPreviewReadyHandler?
     )
 
-    /// Creates and retains a local camera stream, starting capture and local preview.
+    /// Creates camera capture with independent input preferences and shared output processing.
     ///
-    /// - Parameters:
-    ///   - videoFormat: The target camera capture video format.
-    ///   - deviceID: The initial device identifier; an empty value uses the system default camera.
-    ///   - mirror: Whether to mirror camera preview and upstream encoding.
-    ///   - microphone: The initial input selection; enabled inputs capture audio only while connected.
-    ///
-    /// - Returns: The media stream containing the local camera video track.
-    ///
-    /// - Throws: An error on camera permission, RTC initialization, or capture startup failure;
-    ///   also fails if a media source is already active.
+    /// - Throws: An error on invalid options, denied permission, conflicting media, or capture failure.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
-        deviceID: String?,
-        mirror: Bool,
-        microphone: RealtimeMicrophone
+        captureFormat: CameraCaptureFormat?,
+        camera: RealtimeCamera,
+        microphone: RealtimeMicrophone,
+        rotation: CameraRotation,
+        mirror: Bool?,
+        warmupMs: Double
     ) async throws -> RealtimeMediaStream
+
+    /// Waits for the configured camera warmup before publishing, rejecting cancellation or replaced capture.
+    func waitForCameraWarmup() async throws
 
     /// Binds caller-owned video input without acquiring camera permissions or capture resources.
     func createExternalVideoStream(

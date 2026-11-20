@@ -18,15 +18,6 @@ protocol RtcManaging: Sendable {
         _ listener: (@Sendable (String, Data) -> Void)?
     )
 
-    /// Sets camera upstream mirroring, retaining the setting across encoder reconfiguration.
-    ///
-    /// - Parameter mirror: Whether to mirror the encoded camera stream.
-    ///
-    /// - Throws: An error if the engine is unavailable or rejects the setting.
-    func configureLocalVideoMirror(
-        _ mirror: Bool
-    ) throws
-
     /// Acquires an exclusive RTC engine lease and completes initialization.
     ///
     /// - Throws: An error if lease waiting is cancelled or engine initialization fails.

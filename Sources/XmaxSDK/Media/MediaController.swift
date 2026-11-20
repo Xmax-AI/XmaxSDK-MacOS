@@ -180,26 +180,34 @@ actor MediaController: MediaControlling {
         await interactionController.submitInteraction(frame)
     }
 
-    /// Creates and retains a local camera stream, starting capture and local preview.
-    ///
-    /// Selects the microphone input before camera capture starts, without starting audio capture.
-    ///
-    /// - Throws: An error if a source is already active, camera preparation fails, or audio input selection fails.
+    /// Creates camera capture after selecting the microphone without starting audio capture.
     func createLocalCameraStream(
         videoFormat: RealtimeVideoFormat,
-        deviceID: String?,
-        mirror: Bool = false,
-        microphone: RealtimeMicrophone = .disabled
+        captureFormat: CameraCaptureFormat? = nil,
+        camera: RealtimeCamera = .position(.front),
+        microphone: RealtimeMicrophone = .disabled,
+        rotation: CameraRotation = .degrees0,
+        mirror: Bool? = nil,
+        warmupMs: Double = 0
     ) async throws -> RealtimeMediaStream {
         try await createSource(kind: .camera) {
             try self.cameraController.switchMicrophone(to: microphone.deviceID)
             return try await self.cameraController.createLocalCameraStream(
                 videoFormat: videoFormat,
-                deviceID: deviceID,
+                captureFormat: captureFormat,
+                camera: camera,
+                useMicrophone: microphone.isEnabled,
+                rotation: rotation,
                 mirror: mirror,
-                useMicrophone: microphone.isEnabled
+                warmupMs: warmupMs
             )
         }
+    }
+
+    /// Waits for additional camera warmup while leaving external sources unaffected.
+    func waitForCameraWarmup() async throws {
+        guard activeSource?.kind == .camera else { return }
+        try await cameraController.waitForCameraWarmup()
     }
 
     /// Binds caller-owned video input through the same ownership and RTC lifecycle as camera input.

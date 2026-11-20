@@ -42,181 +42,68 @@ public extension XmaxRealtimeManaging {
         )
     }
 
-    /// Creates a camera stream using a preset and the model's recommended frame rate.
+    /// Creates a camera stream using the model's default format when omitted.
     ///
     /// - Parameters:
-    ///   - preset: The camera resolution, which must be supported by the model.
-    ///   - camera: The camera selection, which defaults to the system camera.
-    ///   - microphone: The initial microphone selection, disabled by default.
-    ///   - mirror: Whether to mirror local preview and upstream camera video; disabled by default.
+    ///   - videoFormat: The target format after rotation, including frame rate and encoding settings.
+    ///   - captureFormat: Preferred input dimensions before rotation; nil derives them from the target.
+    ///   - camera: The camera selection; defaults to a front-facing preference.
+    ///   - microphone: The microphone used while connected; disabled by default.
+    ///   - rotation: Clockwise rotation before mirroring; zero by default.
+    ///   - mirror: Whether to mirror the shared pixels; nil mirrors front cameras and unknown-facing default cameras.
+    ///   - warmupMs: Additional warmup before publication, in milliseconds; finite, nonnegative, and zero by default.
     ///
-    /// - Returns: A media stream containing the local camera track.
+    /// - Returns: The local stream shared by preview, frame observation, and RTC.
     ///
-    /// - Throws: An error if the preset is unsupported, permission is denied, an operation
-    ///   conflicts, or capture cannot start.
+    /// - Throws: An error on invalid configuration, denied permission, conflicting operations, or capture failure.
     func createLocalCameraStream(
-        preset: RealtimeCameraPreset,
-        camera: RealtimeCamera = .systemDefault,
+        videoFormat: RealtimeVideoFormat? = nil,
+        captureFormat: CameraCaptureFormat? = nil,
+        camera: RealtimeCamera = .position(.front),
         microphone: RealtimeMicrophone = .disabled,
-        mirror: Bool = false
+        rotation: CameraRotation = .degrees0,
+        mirror: Bool? = nil,
+        warmupMs: Double = 0
     ) async throws -> RealtimeMediaStream {
-        guard
-            let format = configuration.model.supportedVideoFormats.first(
-                where: {
-                    $0.size == preset.size
-                }
-            )
-        else {
+        try await createLocalCameraStream(
+            videoFormat: videoFormat ?? configuration.model.defaultCameraVideoFormat,
+            captureFormat: captureFormat,
+            camera: camera,
+            microphone: microphone,
+            rotation: rotation,
+            mirror: mirror,
+            warmupMs: warmupMs
+        )
+    }
+
+    /// Creates a camera stream with a predefined target and the model's recommended frame rate.
+    ///
+    /// Other options have the same behavior as the custom-video-format overload.
+    ///
+    /// - Throws: An error if the model does not support the predefined format or capture cannot start.
+    func createLocalCameraStream(
+        videoFormat: RealtimeCameraPreset,
+        captureFormat: CameraCaptureFormat? = nil,
+        camera: RealtimeCamera = .position(.front),
+        microphone: RealtimeMicrophone = .disabled,
+        rotation: CameraRotation = .degrees0,
+        mirror: Bool? = nil,
+        warmupMs: Double = 0
+    ) async throws -> RealtimeMediaStream {
+        guard let format = configuration.model.supportedVideoFormats.first(where: { $0.size == videoFormat.size }) else {
             throw XmaxError(
                 code: .invalidConfiguration,
-                message: "Model does not support the requested camera preset"
+                message: "Model does not support the requested camera format"
             )
         }
-
         return try await createLocalCameraStream(
             videoFormat: format,
+            captureFormat: captureFormat,
             camera: camera,
             microphone: microphone,
-            mirror: mirror
-        )
-    }
-
-    /// Creates a default-camera stream and starts its preview.
-    ///
-    /// - Parameters:
-    ///   - videoFormat: The camera capture and encoding format.
-    ///   - microphone: The initial microphone selection, disabled by default.
-    ///   - mirror: Whether to mirror local preview and upstream camera video; disabled by default.
-    ///
-    /// - Returns: A media stream containing the local camera video track.
-    ///
-    /// - Throws: An error if configuration is invalid, permission is denied, an operation
-    ///   conflicts, or capture cannot start.
-    func createLocalCameraStream(
-        videoFormat: RealtimeVideoFormat,
-        microphone: RealtimeMicrophone = .disabled,
-        mirror: Bool = false
-    ) async throws -> RealtimeMediaStream {
-        try await createLocalCameraStream(
-            videoFormat: videoFormat,
-            camera: .systemDefault,
-            microphone: microphone,
-            mirror: mirror
-        )
-    }
-
-    /// Creates a camera stream with the specified format and microphone disabled.
-    ///
-    /// - Parameters:
-    ///   - videoFormat: A camera output format supported by the model.
-    ///   - camera: The camera selection.
-    ///   - mirror: Whether to mirror local preview and upstream camera video; disabled by default.
-    ///
-    /// - Returns: A media stream containing the local camera track.
-    ///
-    /// - Throws: An error on permission, device configuration, or capture startup failure.
-    func createLocalCameraStream(
-        videoFormat: RealtimeVideoFormat,
-        camera: RealtimeCamera,
-        mirror: Bool = false
-    ) async throws -> RealtimeMediaStream {
-        try await createLocalCameraStream(
-            videoFormat: videoFormat,
-            camera: camera,
-            microphone: .disabled,
-            mirror: mirror
-        )
-    }
-
-    /// Creates an unmirrored camera stream with explicit device and microphone selections.
-    ///
-    /// - Parameters:
-    ///   - videoFormat: The camera capture and encoding format.
-    ///   - camera: The camera selection.
-    ///   - microphone: The initial microphone selection.
-    ///
-    /// - Returns: A media stream containing the local camera track.
-    ///
-    /// - Throws: An error on permission, device configuration, or capture startup failure.
-    func createLocalCameraStream(
-        videoFormat: RealtimeVideoFormat,
-        camera: RealtimeCamera,
-        microphone: RealtimeMicrophone
-    ) async throws -> RealtimeMediaStream {
-        try await createLocalCameraStream(
-            videoFormat: videoFormat,
-            camera: camera,
-            microphone: microphone,
-            mirror: false
-        )
-    }
-
-    /// Creates a local camera stream using the current model's default landscape format.
-    ///
-    /// - Parameters:
-    ///   - camera: The camera selection.
-    ///   - microphone: The initial microphone selection, disabled by default.
-    ///   - mirror: Whether to mirror local preview and upstream camera video; disabled by default.
-    ///
-    /// - Returns: A media stream containing the local camera track.
-    ///
-    /// - Throws: An error on permission, device configuration, or capture startup failure.
-    func createLocalCameraStream(
-        camera: RealtimeCamera = .systemDefault,
-        microphone: RealtimeMicrophone = .disabled,
-        mirror: Bool = false
-    ) async throws -> RealtimeMediaStream {
-        try await createLocalCameraStream(
-            videoFormat: configuration.model.defaultCameraVideoFormat,
-            camera: camera,
-            microphone: microphone,
-            mirror: mirror
-        )
-    }
-
-    /// Creates a camera stream using the legacy camera identifier label.
-    @available(*, deprecated, message: "Use .systemDefault or .device(id:) for camera and place mirror after microphone.")
-    func createLocalCameraStream(
-        videoFormat: RealtimeVideoFormat,
-        deviceID: String?,
-        mirror: Bool = false,
-        microphone: RealtimeMicrophone = .disabled
-    ) async throws -> RealtimeMediaStream {
-        try await createLocalCameraStream(
-            videoFormat: videoFormat,
-            camera: RealtimeCamera(deviceID: deviceID),
-            microphone: microphone,
-            mirror: mirror
-        )
-    }
-
-    /// Creates a preset camera stream using the legacy camera identifier label.
-    @available(*, deprecated, message: "Use .systemDefault or .device(id:) for camera and place mirror after microphone.")
-    func createLocalCameraStream(
-        preset: RealtimeCameraPreset,
-        deviceID: String?,
-        mirror: Bool = false,
-        microphone: RealtimeMicrophone = .disabled
-    ) async throws -> RealtimeMediaStream {
-        try await createLocalCameraStream(
-            preset: preset,
-            camera: RealtimeCamera(deviceID: deviceID),
-            microphone: microphone,
-            mirror: mirror
-        )
-    }
-
-    /// Creates a default-format camera stream using the legacy camera identifier label.
-    @available(*, deprecated, message: "Use .systemDefault or .device(id:) for camera and place mirror after microphone.")
-    func createLocalCameraStream(
-        deviceID: String?,
-        mirror: Bool = false,
-        microphone: RealtimeMicrophone = .disabled
-    ) async throws -> RealtimeMediaStream {
-        try await createLocalCameraStream(
-            camera: RealtimeCamera(deviceID: deviceID),
-            microphone: microphone,
-            mirror: mirror
+            rotation: rotation,
+            mirror: mirror,
+            warmupMs: warmupMs
         )
     }
 

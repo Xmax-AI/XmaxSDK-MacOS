@@ -13,6 +13,55 @@ import XCTest
 @testable import XmaxSDK
 
 final class StreamControllerTests: XCTestCase {
+    func testWarmupRunsAfterJoinAndBeforeEitherLocalTrackIsPublished() async throws {
+        let rtc = RtcManagingStub()
+        let controller = StreamController(rtcManager: rtc)
+        let entered = expectation(description: "Publication barrier entered")
+        let gate = AsyncStream<Void>.makeStream()
+        let connection = Task {
+            try await controller.connect(
+                connection: RealtimeSessionConnection(roomID: "room", userID: "user", token: "token", botName: "bot"),
+                includeLocalAudio: true,
+                beforePublish: {
+                    entered.fulfill()
+                    for await _ in gate.stream {}
+                },
+                ensureActive: { try Task.checkCancellation() }
+            )
+        }
+        await fulfillment(of: [entered], timeout: 2)
+        XCTAssertTrue(rtc.calls.contains {
+            if case .joinRoom = $0 { return true }
+            return false
+        })
+        XCTAssertFalse(rtc.calls.contains(.publishLocalVideo))
+        XCTAssertFalse(rtc.calls.contains(.publishLocalAudio))
+        gate.continuation.finish()
+        try await connection.value
+        XCTAssertTrue(rtc.calls.contains(.publishLocalVideo))
+        XCTAssertTrue(rtc.calls.contains(.publishLocalAudio))
+        await controller.disconnect()
+    }
+
+    func testWarmupFailurePreventsBothLocalPublications() async throws {
+        let rtc = RtcManagingStub()
+        let controller = StreamController(rtcManager: rtc)
+        do {
+            try await controller.connect(
+                connection: RealtimeSessionConnection(roomID: "room", userID: "user", token: "token", botName: "bot"),
+                includeLocalAudio: true,
+                beforePublish: { throw CancellationError() },
+                ensureActive: {}
+            )
+            XCTFail("Expected warmup cancellation")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertFalse(rtc.calls.contains(.publishLocalVideo))
+        XCTAssertFalse(rtc.calls.contains(.publishLocalAudio))
+        await controller.disconnect()
+    }
+
     @MainActor
     func testStatisticsFollowPublicationResultStreamAndDisconnect() async throws {
         let rtcManager = RtcManagingStub()
