@@ -257,13 +257,6 @@ videoView.remoteTrack = remoteStream.videoTrack
 await realtime.close()
 ```
 
-Camera options follow the order `videoFormat`, `captureFormat`, `camera`, `microphone`,
-`rotation`, `mirror`, and `warmupMs`. Omit `videoFormat` to use the model's default target.
-`captureFormat` controls the preferred camera input before rotation, independently of the target.
-The SDK rotates and then mirrors the pixels shared by preview, frame observation, and RTC.
-Mirroring defaults to automatic, microphone input is disabled, and additional warmup defaults to zero.
-An explicit `warmupMs` overlaps connection setup and completes before local media publication.
-
 <br>
 
 ## Dependencies
