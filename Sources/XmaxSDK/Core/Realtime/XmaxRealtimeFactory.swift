@@ -56,7 +56,8 @@ enum XmaxRealtimeFactory {
     static func make(
         options: RealtimeConfiguration,
         apiService: any ApiServicing,
-        rtcManager: (any RtcManaging)? = nil
+        rtcManager: (any RtcManaging)? = nil,
+        microphoneAudioProcessor: RealtimeMicrophoneAudioProcessor? = nil
     ) -> XmaxRealtimeComponents {
         let errorManager = XmaxRealtimeErrorManager()
         let rtcManager = rtcManager ?? RtcManager()
@@ -138,6 +139,7 @@ enum XmaxRealtimeFactory {
                 try streamController.pushLocalVideoFrame(frame)
             },
             audioFrameListener: { try streamController.pushLocalAudioFrame($0) },
+            microphoneAudioProcessor: microphoneAudioProcessor,
             errorListener: mediaErrorListener,
             interactionListener: { taskID, points in
                 try await streamController.sendTracks(

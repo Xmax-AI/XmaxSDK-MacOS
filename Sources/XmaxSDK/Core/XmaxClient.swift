@@ -63,12 +63,26 @@ public final class XmaxClient: Sendable {
     public func createRealtimeManager(
         options: RealtimeConfiguration
     ) -> any XmaxRealtimeManaging {
+        createRealtimeManager(
+            options: options,
+            microphoneAudioProcessor: nil
+        )
+    }
+
+    /// Creates a realtime manager with an optional SDK-captured microphone uplink processor.
+    /// External media sources remain under their caller's audio processing control.
+    @MainActor
+    public func createRealtimeManager(
+        options: RealtimeConfiguration,
+        microphoneAudioProcessor: RealtimeMicrophoneAudioProcessor?
+    ) -> any XmaxRealtimeManaging {
         XmaxRealtimeManager(
             options: options,
             apiService: ApiService(
                 apiKey: configuration.apiKey,
                 baseURL: configuration.environment.realtimeApiBaseURL
-            )
+            ),
+            microphoneAudioProcessor: microphoneAudioProcessor
         )
     }
 

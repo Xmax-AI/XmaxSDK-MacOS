@@ -127,13 +127,15 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
     @MainActor
     init(
         options: RealtimeConfiguration,
-        apiService: any ApiServicing
+        apiService: any ApiServicing,
+        microphoneAudioProcessor: RealtimeMicrophoneAudioProcessor? = nil
     ) {
         self.init(
             options: options,
             components: XmaxRealtimeFactory.make(
                 options: options,
-                apiService: apiService
+                apiService: apiService,
+                microphoneAudioProcessor: microphoneAudioProcessor
             )
         )
     }

@@ -116,6 +116,12 @@ public struct RealtimeMediaFrame: Sendable {
 /// A serialized background handler for PCM and video.
 public typealias RealtimeMediaFrameListener = @Sendable (RealtimeMediaFrame) -> Void
 
+/// Transforms one SDK-captured microphone packet before RTC publication.
+/// Runs synchronously on the microphone capture queue. Avoid blocking and retain the packet's
+/// 48 kHz mono PCM16 format and exact byte count. Return nil to publish the original packet.
+/// The local media listener and microphone level continue to observe the original capture.
+public typealias RealtimeMicrophoneAudioProcessor = @Sendable (RealtimeAudioFrame) -> Data?
+
 /// The captured tracks requested by a local media frame listener.
 public enum RealtimeMediaTrack: Hashable, Sendable {
 

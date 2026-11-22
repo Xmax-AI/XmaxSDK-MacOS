@@ -90,6 +90,7 @@ actor MediaController: MediaControlling {
         cameraVideoFrameListener: @escaping MediaVideoFrameListener,
         externalVideoFrameListener: @escaping MediaVideoFrameListener,
         audioFrameListener: @escaping MediaAudioFrameListener = { _ in },
+        microphoneAudioProcessor: RealtimeMicrophoneAudioProcessor? = nil,
         errorListener: @escaping XmaxErrorListener,
         microphoneDevices: @escaping @Sendable () -> [MicrophoneDevice] = { MicrophoneDeviceDiscovery.list() },
         interactionListener: @escaping InteractionListener
@@ -100,7 +101,9 @@ actor MediaController: MediaControlling {
             rtcManager: rtcManager,
             mediaService: mediaService,
             videoFrameListener: cameraVideoFrameListener,
-            audioFrameListener: audioFrameListener,
+            audioFrameListener: { frame in
+                try audioFrameListener(frame.processed(by: microphoneAudioProcessor))
+            },
             errorListener: errorListener
         )
         externalController = ExternalVideoController(
