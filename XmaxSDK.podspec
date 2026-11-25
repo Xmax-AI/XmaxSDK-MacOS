@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
   spec.name = 'XmaxSDK'
-  spec.version = '1.1.5'
+  spec.version = '1.1.6'
   spec.summary = 'Xmax realtime generation SDK for macOS.'
   spec.description = <<-DESC
     XmaxSDK provides native macOS APIs for camera-based realtime generation.
