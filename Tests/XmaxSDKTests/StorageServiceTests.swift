@@ -335,7 +335,8 @@ private final class StorageApiServiceStub: ApiServicing, @unchecked Sendable {
         _ method: ApiMethod,
         path: String,
         body: Data?,
-        as responseType: Response.Type
+        as responseType: Response.Type,
+        onSend: (@Sendable () -> Void)?
     ) async throws -> Response {
         let result: Result<Data, XmaxError> = try lock.withLock {
             storedRequests.append(

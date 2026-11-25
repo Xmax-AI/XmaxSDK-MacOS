@@ -11,6 +11,39 @@ import XCTest
 
 @MainActor
 final class ExternalVideoIntegrationTests: XCTestCase {
+    func testPublicHeartbeatListenerSurvivesDisconnectAndIsRemovedByNilOrClose() async throws {
+        let service = RealtimeSessionServicingStub(session: RealtimeSession(
+            id: "session", userID: "user", status: "ACTIVE",
+            connection: RealtimeSessionConnection(roomID: "room", userID: "user", token: "token", botName: "bot"),
+            closeReason: nil
+        ))
+        let components = makeComponents(sessionService: service)
+        let manager: any XmaxRealtimeManaging = components.manager
+        let sent = expectation(description: "Public heartbeat observer")
+        sent.assertForOverFulfill = true
+        await manager.setHeartbeatListener { sessionID in
+            XCTAssertEqual(sessionID, "session")
+            sent.fulfill()
+        }
+        XCTAssertTrue(service.calls.isEmpty)
+        XCTAssertTrue(service.hasHeartbeatListener)
+
+        let local = try await manager.createExternalVideoStream(source: ExternalSourceStub())
+        _ = try await manager.connect(localStream: local)
+        service.emitHeartbeat(sessionID: "session")
+        await fulfillment(of: [sent], timeout: 1)
+        await manager.disconnect()
+        XCTAssertTrue(service.hasHeartbeatListener)
+
+        await manager.setHeartbeatListener(nil)
+        XCTAssertFalse(service.hasHeartbeatListener)
+        service.emitHeartbeat(sessionID: "session")
+        await manager.setHeartbeatListener { _ in XCTFail("Closed observers must be removed") }
+        await manager.close()
+        XCTAssertFalse(service.hasHeartbeatListener)
+        service.emitHeartbeat(sessionID: "session")
+    }
+
     func testSDKCameraAndMicrophoneUseCustomRTCTracks() async throws {
         let capture = CameraCaptureControllingStub(
             devices: [CameraDevice(id: "camera", name: "Camera", isDefault: true, position: .front)],
@@ -1115,6 +1148,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         camera: (any CameraControlling)? = nil,
         capture: (camera: CameraCaptureControllingStub, microphone: MicrophoneCaptureControllingStub)? = nil,
         mediaService: (any MediaServicing)? = nil,
+        sessionService: (any RealtimeSessionServicing)? = nil,
         microphoneDevices: @escaping @Sendable () -> [MicrophoneDevice] = { [] },
         options: RealtimeConfiguration = RealtimeConfiguration(model: .x2_1)
     ) -> (manager: XmaxRealtimeManager, media: MediaController, rtc: RtcManagingStub) {
@@ -1154,7 +1188,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             closeReason: nil
         )
         let connection = XmaxRealtimeConnectionManager(
-            sessionService: RealtimeSessionServicingStub(session: session),
+            sessionService: sessionService ?? RealtimeSessionServicingStub(session: session),
             interactionController: media, renderController: render, streamController: stream, timing: timing, mediaService: service, errorManager: errors
         )
         let generation = XmaxRealtimeGenerationManager(interactionController: media, streamController: stream, renderController: render, timing: timing)

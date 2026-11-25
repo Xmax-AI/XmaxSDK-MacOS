@@ -53,7 +53,8 @@ private final class MicrophoneLevelAPIStub: ApiServicing, @unchecked Sendable {
         _ method: ApiMethod,
         path: String,
         body: Data?,
-        as responseType: Response.Type
+        as responseType: Response.Type,
+        onSend: (@Sendable () -> Void)?
     ) async throws -> Response {
         lock.withLock { count += 1 }
         throw XmaxError(code: .apiError, message: "Input observation must not make network requests")

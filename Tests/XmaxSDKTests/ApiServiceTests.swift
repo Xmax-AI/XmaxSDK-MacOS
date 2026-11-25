@@ -328,6 +328,70 @@ final class ApiServiceTests: XCTestCase {
         )
     }
 
+    func testSendObserverRunsBeforeTransportForSuccessfulAndFailedRequests() async throws {
+        for fails in [false, true] {
+            ApiURLProtocolStub.reset()
+            if fails {
+                ApiURLProtocolStub.setError(URLError(.notConnectedToInternet))
+            } else {
+                ApiURLProtocolStub.setResponse(
+                    statusCode: 200,
+                    data: Data(#"{"success":true,"data":{"identifier":"heartbeat"}}"#.utf8)
+                )
+            }
+            let sent = expectation(description: "HTTP send observer")
+            sent.assertForOverFulfill = true
+            let service = makeService()
+            do {
+                let value = try await service.request(
+                    .put,
+                    path: "/session/id/heartbeat",
+                    body: nil,
+                    as: ApiTestResponse.self,
+                    onSend: {
+                        XCTAssertNil(ApiURLProtocolStub.request)
+                        sent.fulfill()
+                    }
+                )
+                XCTAssertFalse(fails)
+                XCTAssertEqual(value.identifier, "heartbeat")
+            } catch {
+                XCTAssertTrue(fails)
+                XCTAssertEqual((error as? XmaxError)?.code, .networkError)
+            }
+            await fulfillment(of: [sent], timeout: 1)
+            XCTAssertNotNil(ApiURLProtocolStub.request)
+        }
+    }
+
+    func testSendObserverDoesNotRunForInvalidCredentialsOrPreCancelledRequests() async {
+        for cancel in [false, true] {
+            let service = makeService(apiKey: cancel ? "key" : "")
+            let sent = expectation(description: "Request is never sent")
+            sent.isInverted = true
+            let request = Task {
+                if cancel {
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+                return try await service.request(
+                    .put,
+                    path: "/session/id/heartbeat",
+                    body: nil,
+                    as: ApiTestResponse.self,
+                    onSend: { sent.fulfill() }
+                )
+            }
+            do {
+                _ = try await request.value
+                XCTFail("Expected the request to fail before sending")
+            } catch {
+                XCTAssertEqual((error as? XmaxError)?.code, cancel ? .cancelled : .invalidAPIKey)
+            }
+            await fulfillment(of: [sent], timeout: 0.01)
+            XCTAssertNil(ApiURLProtocolStub.request)
+        }
+    }
+
     private func makeService(
         apiKey: String = "test-api-key"
     ) -> ApiService {

@@ -14,6 +14,96 @@ import XCTest
 @testable import XmaxSDK
 
 final class RealtimeSessionServiceTests: XCTestCase {
+    func testHeartbeatObserverReceivesFirstAndPeriodicSendsAndSupportsReplacementAndRemoval() async throws {
+        let payload = Data(#"{"sessionUid":"session","status":"ACTIVE"}"#.utf8)
+        let pending = PendingRealtimeApiResponse()
+        let api = RealtimeApiServiceStub(responses: [.pending(pending), .success(payload), .success(payload)])
+        let sleeper = ManualRealtimeHeartbeatSleeper()
+        let service = RealtimeSessionService(apiService: api, heartbeatSleeper: sleeper.sleeper)
+        defer { service.stopHeartbeat() }
+        let first = HeartbeatRecorder()
+        service.setHeartbeatListener { first.append($0) }
+        XCTAssertTrue(first.sessionIDs.isEmpty)
+        service.startHeartbeat(sessionID: "session", firstHeartbeatGraceSeconds: 7) { _, _ in
+            XCTFail("Valid heartbeats must keep running")
+        }
+        await waitForRequest(api)
+        XCTAssertEqual(first.sessionIDs, ["session"], "The HTTP response is still pending")
+        let initial = try JSONSerialization.jsonObject(with: XCTUnwrap(api.requests.first?.body)) as? [String: Int]
+        XCTAssertEqual(initial, ["firstHeartbeatGraceSeconds": 7])
+
+        let replacement = HeartbeatRecorder()
+        service.setHeartbeatListener { replacement.append($0) }
+        XCTAssertTrue(replacement.sessionIDs.isEmpty)
+        pending.resolve(.success(payload))
+        sleeper.resume()
+        await waitForRequest(api, count: 2)
+        XCTAssertEqual(first.sessionIDs, ["session"])
+        XCTAssertEqual(replacement.sessionIDs, ["session"])
+        XCTAssertNil(api.requests[1].body)
+
+        service.setHeartbeatListener(nil)
+        sleeper.resume()
+        await waitForRequest(api, count: 3)
+        XCTAssertEqual(replacement.sessionIDs, ["session"])
+    }
+
+    func testHeartbeatObserverRunsBeforeARequestEventuallyFails() async {
+        let pending = PendingRealtimeApiResponse()
+        let api = RealtimeApiServiceStub(responses: [.pending(pending)])
+        let service = RealtimeSessionService(apiService: api)
+        defer { service.stopHeartbeat() }
+        let sends = HeartbeatRecorder()
+        let failed = expectation(description: "Heartbeat failure")
+        service.setHeartbeatListener { sends.append($0) }
+        service.startHeartbeat(sessionID: "failed-session", firstHeartbeatGraceSeconds: 0) { sessionID, error in
+            XCTAssertEqual(sessionID, "failed-session")
+            XCTAssertEqual(error.code, .networkError)
+            failed.fulfill()
+        }
+        await waitForRequest(api)
+        XCTAssertEqual(sends.sessionIDs, ["failed-session"])
+        pending.resolve(.failure(XmaxError(code: .networkError, message: "Send failed")))
+        await fulfillment(of: [failed], timeout: 1)
+        XCTAssertEqual(sends.sessionIDs, ["failed-session"])
+    }
+
+    func testHeartbeatObserverCanStopTheHeartbeatWithoutDeadlocking() async {
+        let api = RealtimeApiServiceStub(responses: [
+            .success(Data(#"{"sessionUid":"session","status":"ACTIVE"}"#.utf8))
+        ])
+        let service = RealtimeSessionService(apiService: api)
+        defer { service.setHeartbeatListener(nil) }
+        let stopped = expectation(description: "Heartbeat stopped from observer")
+        service.setHeartbeatListener { _ in
+            service.stopHeartbeat()
+            stopped.fulfill()
+        }
+        service.startHeartbeat(sessionID: "session", firstHeartbeatGraceSeconds: 0) { _, _ in
+            XCTFail("Cancelled heartbeats must not report failures")
+        }
+        await fulfillment(of: [stopped], timeout: 1)
+    }
+
+    func testHeartbeatObserverRemainsRegisteredForANewSessionAfterStopping() async {
+        let api = RealtimeApiServiceStub(responses: [
+            .success(Data(#"{"sessionUid":"first","status":"ACTIVE"}"#.utf8)),
+            .success(Data(#"{"sessionUid":"second","status":"ACTIVE"}"#.utf8))
+        ])
+        let service = RealtimeSessionService(apiService: api)
+        defer { service.stopHeartbeat() }
+        let sends = HeartbeatRecorder()
+        service.setHeartbeatListener { sends.append($0) }
+        for (index, sessionID) in ["first", "second"].enumerated() {
+            service.startHeartbeat(sessionID: sessionID, firstHeartbeatGraceSeconds: 0) { _, _ in
+                XCTFail("Valid heartbeats must not fail")
+            }
+            await waitForRequest(api, count: index + 1)
+            service.stopHeartbeat()
+        }
+        XCTAssertEqual(sends.sessionIDs, ["first", "second"])
+    }
+
     func testInvalidAgoraAppIDClosesCreatedSessionAndPreservesOriginalError() async throws {
         let payload = Data(#"{"sessionUid":"invalid-app","userUid":"user","modelExtra":{"room_id":"room","room_token":"token","rtc_user_id":"account","rtc_bot_id":"bot","rtc_app_id":"other-app"}}"#.utf8)
         let api = RealtimeApiServiceStub(responses: [.success(payload), .success(Data("{}".utf8))])
@@ -294,10 +384,22 @@ final class RealtimeSessionServiceTests: XCTestCase {
 
 private extension RealtimeSessionServiceTests {
     func waitForRequest(_ apiService: RealtimeApiServiceStub, count: Int = 1) async {
-        for _ in 0..<1_000 where apiService.requests.count < count {
-            await Task.yield()
+        let deadline = ContinuousClock.now + .seconds(2)
+        while apiService.requests.count < count, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(1))
         }
         XCTAssertGreaterThanOrEqual(apiService.requests.count, count)
+    }
+}
+
+private final class HeartbeatRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedSessionIDs: [String] = []
+
+    var sessionIDs: [String] { lock.withLock { storedSessionIDs } }
+
+    func append(_ sessionID: String) {
+        lock.withLock { storedSessionIDs.append(sessionID) }
     }
 }
 
@@ -326,8 +428,11 @@ private final class RealtimeApiServiceStub: ApiServicing, @unchecked Sendable {
         _ method: ApiMethod,
         path: String,
         body: Data?,
-        as responseType: Response.Type
+        as responseType: Response.Type,
+        onSend: (@Sendable () -> Void)?
     ) async throws -> Response {
+        try Task.checkCancellation()
+        onSend?()
         let behavior: RealtimeApiResponse = try lock.withLock {
             storedRequests.append(
                 RealtimeApiRequest(method: method, path: path, body: body)

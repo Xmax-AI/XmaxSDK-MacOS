@@ -157,6 +157,17 @@ public protocol XmaxRealtimeManaging: Sendable {
         _ listener: RealtimeStateListener?
     ) async
 
+    /// Observes HTTP session heartbeat send attempts, including the first.
+    ///
+    /// Receives the session identifier on the sending task immediately before the HTTP request starts,
+    /// regardless of its eventual outcome. Registration observes future sends without replaying prior attempts.
+    /// An in-flight callback may finish after removal. `close()` clears the listener.
+    ///
+    /// - Parameter listener: The callback, or nil to remove it.
+    func setHeartbeatListener(
+        _ listener: RealtimeHeartbeatListener?
+    ) async
+
     /// Sets the startup timing listener for the four generation stages and total timing.
     ///
     /// - Parameter listener: The main-thread snapshot callback; `nil` clears the listener.

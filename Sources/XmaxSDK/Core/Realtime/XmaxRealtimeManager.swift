@@ -245,6 +245,13 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         await lifecycleManager.setStateListener(listener)
     }
 
+    /// Sets or removes the session heartbeat send listener.
+    func setHeartbeatListener(
+        _ listener: RealtimeHeartbeatListener?
+    ) async {
+        await connectionManager.setHeartbeatListener(listener)
+    }
+
     /// Sets the startup timing listener.
     func setLaunchTimingListener(
         _ listener: RealtimeLaunchTimingListener?
@@ -578,6 +585,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
 
     /// Closes the realtime session and releases its resources.
     func close() async {
+        await setHeartbeatListener(nil)
         await setLocalMediaFrameListener(nil)
         await lifecycleManager.terminate(
             .all

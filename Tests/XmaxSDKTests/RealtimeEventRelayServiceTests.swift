@@ -343,7 +343,8 @@ private final class RelayTestApiService: ApiServicing, @unchecked Sendable {
         _ method: ApiMethod,
         path: String,
         body: Data?,
-        as responseType: Response.Type
+        as responseType: Response.Type,
+        onSend: (@Sendable () -> Void)?
     ) async throws -> Response {
         let request = RelayTestRequest(method: method, path: path, body: body)
         lock.withLock { storedRequests.append(request) }

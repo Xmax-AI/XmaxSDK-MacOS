@@ -34,6 +34,7 @@ final class RealtimeSessionServicingStub: RealtimeSessionServicing,
     private var storedCalls: [RealtimeSessionServicingCall] = []
     private var heartbeatFailureHandler:
         RealtimeSessionHeartbeatFailureHandler?
+    private var heartbeatListener: RealtimeHeartbeatListener?
 
     init(
         session: RealtimeSession,
@@ -51,6 +52,19 @@ final class RealtimeSessionServicingStub: RealtimeSessionServicing,
 
     var calls: [RealtimeSessionServicingCall] {
         lock.withLock { storedCalls }
+    }
+
+    var hasHeartbeatListener: Bool {
+        lock.withLock { heartbeatListener != nil }
+    }
+
+    func setHeartbeatListener(_ listener: RealtimeHeartbeatListener?) {
+        lock.withLock { heartbeatListener = listener }
+    }
+
+    func emitHeartbeat(sessionID: String) {
+        let listener = lock.withLock { heartbeatListener }
+        listener?(sessionID)
     }
 
     func createSession(model: RealtimeModel) async throws -> RealtimeSession {

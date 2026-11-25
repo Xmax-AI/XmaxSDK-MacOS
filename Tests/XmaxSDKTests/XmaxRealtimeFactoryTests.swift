@@ -78,7 +78,8 @@ private final class FactoryAPIRecorder: ApiServicing, @unchecked Sendable {
         _ method: ApiMethod,
         path: String,
         body: Data?,
-        as responseType: Response.Type
+        as responseType: Response.Type,
+        onSend: (@Sendable () -> Void)?
     ) async throws -> Response {
         lock.withLock { count += 1 }
         throw XmaxError(code: .apiError, message: "Factory construction must not make network requests")

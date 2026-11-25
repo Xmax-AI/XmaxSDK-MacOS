@@ -36,6 +36,7 @@ protocol ApiServicing: Sendable {
     ///   - path: The request path relative to the API base URL.
     ///   - body: The encoded request body; `nil` omits the body.
     ///   - responseType: The response data decoding type.
+    ///   - onSend: An optional observer invoked immediately before the HTTP request starts.
     ///
     /// - Returns: The business data parsed from the API response.
     ///
@@ -44,7 +45,8 @@ protocol ApiServicing: Sendable {
         _ method: ApiMethod,
         path: String,
         body: Data?,
-        as responseType: Response.Type
+        as responseType: Response.Type,
+        onSend: (@Sendable () -> Void)?
     ) async throws -> Response
 }
 
@@ -67,7 +69,8 @@ extension ApiServicing {
             .get,
             path: path,
             body: nil,
-            as: responseType
+            as: responseType,
+            onSend: nil
         )
     }
 
@@ -90,7 +93,8 @@ extension ApiServicing {
             .post,
             path: path,
             body: try encode(body),
-            as: responseType
+            as: responseType,
+            onSend: nil
         )
     }
 
@@ -99,19 +103,22 @@ extension ApiServicing {
     /// - Parameters:
     ///   - path: The request path relative to the API base URL.
     ///   - responseType: The response data decoding type.
+    ///   - onSend: An optional observer invoked immediately before the HTTP request starts.
     ///
     /// - Returns: The business data parsed from the API response.
     ///
     /// - Throws: An error on request failure, server error, or response parsing failure.
     func put<Response: Decodable & Sendable>(
         _ path: String,
-        as responseType: Response.Type
+        as responseType: Response.Type,
+        onSend: (@Sendable () -> Void)? = nil
     ) async throws -> Response {
         try await request(
             .put,
             path: path,
             body: nil,
-            as: responseType
+            as: responseType,
+            onSend: onSend
         )
     }
 
@@ -121,6 +128,7 @@ extension ApiServicing {
     ///   - path: The request path relative to the API base URL.
     ///   - body: The request data to encode as JSON.
     ///   - responseType: The response data decoding type.
+    ///   - onSend: An optional observer invoked immediately before the HTTP request starts.
     ///
     /// - Returns: The business data parsed from the API response.
     ///
@@ -128,13 +136,15 @@ extension ApiServicing {
     func put<Body: Encodable & Sendable, Response: Decodable & Sendable>(
         _ path: String,
         body: Body,
-        as responseType: Response.Type
+        as responseType: Response.Type,
+        onSend: (@Sendable () -> Void)? = nil
     ) async throws -> Response {
         try await request(
             .put,
             path: path,
             body: try encode(body),
-            as: responseType
+            as: responseType,
+            onSend: onSend
         )
     }
 
@@ -155,7 +165,8 @@ extension ApiServicing {
             .delete,
             path: path,
             body: nil,
-            as: responseType
+            as: responseType,
+            onSend: nil
         )
     }
 

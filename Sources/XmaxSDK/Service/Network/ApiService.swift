@@ -54,6 +54,7 @@ final class ApiService: ApiServicing, Sendable {
     ///   - path: The request path relative to the API base URL.
     ///   - body: The encoded request body; `nil` omits the body.
     ///   - responseType: The response data decoding type.
+    ///   - onSend: An optional observer invoked immediately before the HTTP request starts.
     ///
     /// - Returns: The business data parsed from the API response.
     ///
@@ -62,7 +63,8 @@ final class ApiService: ApiServicing, Sendable {
         _ method: ApiMethod,
         path: String,
         body: Data?,
-        as responseType: Response.Type
+        as responseType: Response.Type,
+        onSend: (@Sendable () -> Void)? = nil
     ) async throws -> Response {
         try validateConfiguration()
         let request = try makeRequest(
@@ -75,6 +77,8 @@ final class ApiService: ApiServicing, Sendable {
         let data: Data
         let response: URLResponse
         do {
+            try Task.checkCancellation()
+            onSend?()
             (data, response) = try await session.data(for: request)
             try Task.checkCancellation()
         } catch {

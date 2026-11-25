@@ -61,7 +61,8 @@ final class RealtimeEventRelayService: Sendable {
             .post,
             path: "/client-event/relay",
             body: body,
-            as: Receipt.self
+            as: Receipt.self,
+            onSend: nil
         )
         try Task.checkCancellation()
         guard receipt.xid == xid, let accepted = receipt.accepted else {

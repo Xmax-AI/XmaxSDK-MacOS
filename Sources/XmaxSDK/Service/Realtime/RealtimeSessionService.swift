@@ -19,7 +19,7 @@ final class RealtimeSessionService: RealtimeSessionServicing, @unchecked Sendabl
     /// The heartbeat interval provider.
     private let heartbeatSleeper: HeartbeatSleeper
 
-    /// The lock protecting heartbeat startup and cancellation.
+    /// The lock protecting heartbeat startup, cancellation, and listener replacement.
     private let heartbeatLock = NSLock()
 
     /// The revision rejecting stale heartbeat results.
@@ -27,6 +27,9 @@ final class RealtimeSessionService: RealtimeSessionServicing, @unchecked Sendabl
 
     /// The current session heartbeat task.
     private var heartbeatTask: Task<Void, Never>?
+
+    /// The send observer retained across heartbeat cycles and disconnections.
+    private var heartbeatListener: RealtimeHeartbeatListener?
 
     /// Creates a realtime session service with a periodic heartbeat wait strategy.
     init(
@@ -99,12 +102,37 @@ final class RealtimeSessionService: RealtimeSessionServicing, @unchecked Sendabl
                 version: version,
                 sessionID: sessionID,
                 firstHeartbeatGraceSeconds: firstHeartbeatGraceSeconds,
-                onFailure: onFailure
+                onFailure: onFailure,
+                onSend: { [weak self] in
+                    self?.notifyHeartbeat(
+                        sessionID: sessionID,
+                        version: version
+                    )
+                }
             )
             heartbeatTask = Task {
                 await Self.runHeartbeat(context)
             }
         }
+    }
+
+    /// Replaces the observer for future heartbeat sends without replaying prior attempts.
+    func setHeartbeatListener(
+        _ listener: RealtimeHeartbeatListener?
+    ) {
+        heartbeatLock.withLock { heartbeatListener = listener }
+    }
+
+    /// Notifies the current listener outside the heartbeat lock for a still-active loop.
+    private func notifyHeartbeat(
+        sessionID: String,
+        version: UInt64
+    ) {
+        let listener: RealtimeHeartbeatListener? = heartbeatLock.withLock {
+            guard heartbeatVersion.isCurrent(version) else { return nil }
+            return heartbeatListener
+        }
+        listener?(sessionID)
     }
 
     /// Stops the heartbeat and invalidates pending failure notifications.
@@ -177,6 +205,9 @@ private extension RealtimeSessionService {
 
         /// The session heartbeat failure handler.
         let onFailure: RealtimeSessionHeartbeatFailureHandler
+
+        /// Observes dispatch of a request from this heartbeat loop.
+        let onSend: @Sendable () -> Void
     }
 
     /// Receives server session fields for business-layer validation.
@@ -354,7 +385,8 @@ private extension RealtimeSessionService {
                 let session = try await heartbeatSession(
                     sessionID: context.sessionID,
                     firstHeartbeatGraceSeconds: firstHeartbeatGraceSeconds,
-                    apiService: context.apiService
+                    apiService: context.apiService,
+                    onSend: context.onSend
                 )
                 firstHeartbeatGraceSeconds = nil
                 guard context.versionState.isCurrent(context.version) else {
@@ -380,6 +412,7 @@ private extension RealtimeSessionService {
     ///   - sessionID: The session identifier to keep alive.
     ///   - firstHeartbeatGraceSeconds: The first request's startup duration; nil omits its body.
     ///   - apiService: The API service sending heartbeat requests.
+    ///   - onSend: The observer invoked immediately before starting the HTTP request.
     ///
     /// - Returns: The latest session state from the server.
     ///
@@ -387,19 +420,22 @@ private extension RealtimeSessionService {
     static func heartbeatSession(
         sessionID: String,
         firstHeartbeatGraceSeconds: Int?,
-        apiService: any ApiServicing
+        apiService: any ApiServicing,
+        onSend: @escaping @Sendable () -> Void
     ) async throws -> RealtimeSession {
         let payload: SessionPayload
         if let firstHeartbeatGraceSeconds {
             payload = try await apiService.put(
                 "/session/\(sessionID)/heartbeat",
                 body: HeartbeatRequest(firstHeartbeatGraceSeconds: firstHeartbeatGraceSeconds),
-                as: SessionPayload.self
+                as: SessionPayload.self,
+                onSend: onSend
             )
         } else {
             payload = try await apiService.put(
                 "/session/\(sessionID)/heartbeat",
-                as: SessionPayload.self
+                as: SessionPayload.self,
+                onSend: onSend
             )
         }
         return try makeSession(

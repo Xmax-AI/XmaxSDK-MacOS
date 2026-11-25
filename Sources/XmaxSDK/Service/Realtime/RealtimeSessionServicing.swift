@@ -34,6 +34,11 @@ protocol RealtimeSessionServicing: Sendable {
         onFailure: @escaping RealtimeSessionHeartbeatFailureHandler
     )
 
+    /// Sets or removes the observer invoked before each HTTP session heartbeat send attempt.
+    func setHeartbeatListener(
+        _ listener: RealtimeHeartbeatListener?
+    )
+
     /// Stops the heartbeat and invalidates pending failure notifications.
     func stopHeartbeat()
 

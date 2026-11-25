@@ -207,6 +207,13 @@ actor XmaxRealtimeConnectionManager {
         }
     }
 
+    /// Sets or removes the observer for future HTTP session heartbeat sends.
+    func setHeartbeatListener(
+        _ listener: RealtimeHeartbeatListener?
+    ) {
+        sessionService.setHeartbeatListener(listener)
+    }
+
     /// Starts HTTP heartbeats once after generating is committed for the current session.
     func startHeartbeat(
         sessionID: String
