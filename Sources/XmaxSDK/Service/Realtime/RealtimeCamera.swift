@@ -14,9 +14,6 @@ public enum RealtimeCamera: Equatable, Sendable {
     /// Prefers a front or rear camera, falling back to the system default when unavailable.
     case position(CameraPosition)
 
-    /// Uses the system default camera when the stream is created.
-    case systemDefault
-
     /// Uses the camera identifier returned by `listCameraDevices()`.
     case device(id: String)
 }

@@ -90,14 +90,14 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
         }
     }
 
-    /// The preset matching current camera dimensions, independent of frame rate or encoding level.
-    var currentCameraPreset: RealtimeCameraPreset? {
+    /// The predefined format matching camera dimensions, independent of frame rate or encoding level.
+    var currentCameraFormat: RealtimeCameraFormat? {
         get async {
             guard let format = await currentCameraVideoFormat else {
                 return nil
             }
 
-            return RealtimeCameraPreset.allCases.first {
+            return RealtimeCameraFormat.allCases.first {
                 $0.size == format.size
             }
         }
@@ -369,7 +369,7 @@ actor XmaxRealtimeManager: XmaxRealtimeManaging {
 
     /// Updates camera dimensions while preserving frame rate and encoding settings.
     func updateCameraFormat(
-        _ preset: RealtimeCameraPreset
+        _ preset: RealtimeCameraFormat
     ) async throws {
         try await updateCameraFormat { current in
             current.resized(

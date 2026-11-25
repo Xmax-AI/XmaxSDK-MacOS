@@ -166,8 +166,6 @@ final class CameraController: CameraControlling, @unchecked Sendable {
         switch camera {
         case .position(let position):
             device = devices.first { $0.position == position } ?? defaultDevice
-        case .systemDefault:
-            device = defaultDevice
         case .device(let id):
             device = devices.first { $0.id == id }
         }

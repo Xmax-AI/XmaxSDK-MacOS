@@ -82,7 +82,7 @@ public extension XmaxRealtimeManaging {
     ///
     /// - Throws: An error if the model does not support the predefined format or capture cannot start.
     func createLocalCameraStream(
-        videoFormat: RealtimeCameraPreset,
+        videoFormat: RealtimeCameraFormat,
         captureFormat: CameraCaptureFormat? = nil,
         camera: RealtimeCamera = .position(.front),
         microphone: RealtimeMicrophone = .disabled,

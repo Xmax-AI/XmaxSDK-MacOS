@@ -353,7 +353,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         let local = try await components.manager.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), camera: .systemDefault, microphone: .systemDefault
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), microphone: .systemDefault
         )
         _ = try await components.manager.connect(localStream: local)
         let close = Task { await components.manager.close() }
@@ -381,7 +381,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let components = makeComponents(rtc: rtc, camera: camera)
         let start = Task {
             try await components.manager.createLocalCameraStream(
-                videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), camera: .systemDefault
+                videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30)
             )
         }
         try await waitUntil { await gate.isWaiting }
@@ -414,7 +414,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         let local = try await components.manager.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), camera: .systemDefault, microphone: .systemDefault
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), microphone: .systemDefault
         )
         let connect = Task { try await components.manager.connect(localStream: local) }
         try await waitUntil { await gate.isWaiting }
@@ -446,7 +446,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             errorListener: { _ in }, interactionListener: { _, _ in }
         )
         _ = try await media.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), camera: .systemDefault
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30)
         )
         await media.stopLocalCapture()
         await media.stopLocalCapture()
@@ -457,7 +457,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         XCTAssertEqual(capture.calls, [.start("camera"), .stop])
         XCTAssertEqual(rtc.calls.filter { $0 == .destroy }.count, 1)
         _ = try await media.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), camera: .systemDefault
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30)
         )
         await media.stopLocalCapture()
         await media.stopLocalStream()
@@ -476,7 +476,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         )
         let components = makeComponents(rtc: rtc, camera: camera)
         _ = try await components.manager.createLocalCameraStream(
-            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30), camera: .systemDefault
+            videoFormat: RealtimeVideoFormat(width: 4, height: 4, fps: 30)
         )
         try await components.manager.stopExternalVideoStream()
         let state = await components.manager.currentState
@@ -740,7 +740,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let initial = RealtimeModel.x2_1.defaultCameraVideoFormat
         let missing = await manager.currentCameraVideoFormat
         XCTAssertNil(missing)
-        let local = try await manager.createLocalCameraStream(videoFormat: initial, camera: .systemDefault)
+        let local = try await manager.createLocalCameraStream(videoFormat: initial)
         let track = try XCTUnwrap(local.videoTrack)
         let next = RealtimeVideoFormat(width: 1080, height: 1920, fps: 24)
         do { try await manager.updateCameraFormat(next); XCTFail("Expected preview readiness requirement") }
@@ -750,7 +750,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         try await waitUntil { await manager.currentState.connectionState == .ready }
         try await manager.updateCameraFormat(next)
         let applied = await manager.currentCameraVideoFormat
-        let preset = await manager.currentCameraPreset
+        let preset = await manager.currentCameraFormat
         XCTAssertEqual(applied, next)
         XCTAssertEqual(preset, .resolution1080x1920)
         XCTAssertTrue(camera.currentTrack === track)
@@ -780,7 +780,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         let components = makeComponents()
         _ = try await components.manager.createExternalVideoStream(source: ExternalSourceStub())
         let format = await components.manager.currentCameraVideoFormat
-        let preset = await components.manager.currentCameraPreset
+        let preset = await components.manager.currentCameraFormat
         XCTAssertNil(format)
         XCTAssertNil(preset)
         do {
@@ -931,7 +931,7 @@ final class ExternalVideoIntegrationTests: XCTestCase {
         await manager.close()
     }
 
-    func testPresetCreationSupportsEveryModelFormatAndKeepsLandscapeDefault() async throws {
+    func testPredefinedCameraFormatsSupportEveryModelAndKeepLandscapeDefault() async throws {
         for model in RealtimeModel.allCases {
             let rtc = RtcManagingStub()
             let device = CameraDevice(id: "usb", name: "USB", isDefault: true, position: .unspecified)
@@ -944,13 +944,13 @@ final class ExternalVideoIntegrationTests: XCTestCase {
             let components = makeComponents(rtc: rtc, camera: camera, options: RealtimeConfiguration(model: model))
             let manager: any XmaxRealtimeManaging = components.manager
             for expected in model.supportedVideoFormats {
-                let preset = try XCTUnwrap(RealtimeCameraPreset.allCases.first { $0.size == expected.size })
+                let preset = try XCTUnwrap(RealtimeCameraFormat.allCases.first { $0.size == expected.size })
                 let local = try await manager.createLocalCameraStream(
                     videoFormat: preset, camera: .device(id: "usb"), microphone: .systemDefault
                 )
                 XCTAssertEqual(local.videoTrack?.videoFormat, expected)
                 XCTAssertEqual(local.videoTrack?.device, device)
-                let currentPreset = await manager.currentCameraPreset
+                let currentPreset = await manager.currentCameraFormat
                 XCTAssertEqual(currentPreset, preset)
                 XCTAssertTrue(camera.useMicrophone)
                 try await manager.stopLocalCameraStream()

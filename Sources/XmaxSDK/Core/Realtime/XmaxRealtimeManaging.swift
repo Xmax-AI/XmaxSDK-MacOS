@@ -25,8 +25,8 @@ public protocol XmaxRealtimeManaging: Sendable {
         get async
     }
 
-    /// The preset matching the camera dimensions, or `nil` if no camera or matching preset exists.
-    var currentCameraPreset: RealtimeCameraPreset? {
+    /// The predefined format matching the camera dimensions, or `nil` without a matching camera format.
+    var currentCameraFormat: RealtimeCameraFormat? {
         get async
     }
 
@@ -97,7 +97,7 @@ public protocol XmaxRealtimeManaging: Sendable {
     /// - Throws: An error if the state or preset is invalid, another operation is active, or device
     ///   configuration fails.
     func updateCameraFormat(
-        _ preset: RealtimeCameraPreset
+        _ preset: RealtimeCameraFormat
     ) async throws
 
     /// Changes the uplink encoding level during generation without changing capture or generation

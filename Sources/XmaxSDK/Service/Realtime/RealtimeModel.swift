@@ -34,7 +34,7 @@ public enum RealtimeModel: String, CaseIterable, Sendable {
     /// ratio and use the closest generation canvas. An empty array allows variable canvas
     /// dimensions, resolved using pixel limits and alignment.
     public var supportedVideoFormats: [RealtimeVideoFormat] {
-        let presets: [RealtimeCameraPreset]
+        let presets: [RealtimeCameraFormat]
         switch self {
         case .x2_1:
             presets = [.resolution1920x1080, .resolution1080x1920, .resolution1408x1408,
@@ -79,7 +79,7 @@ public enum RealtimeModel: String, CaseIterable, Sendable {
 
     /// Converts a preset to the model's recommended capture format.
     private func videoFormat(
-        for preset: RealtimeCameraPreset
+        for preset: RealtimeCameraFormat
     ) -> RealtimeVideoFormat {
         let size = preset.size
         return RealtimeVideoFormat(

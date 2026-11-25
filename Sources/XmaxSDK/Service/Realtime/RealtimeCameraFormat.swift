@@ -1,5 +1,5 @@
 //
-//  RealtimeCameraPreset.swift
+//  RealtimeCameraFormat.swift
 //  XmaxSDK
 //
 //  Author: 翁跃庭 (Yueting Weng)
@@ -10,8 +10,8 @@
 
 import CoreGraphics
 
-/// A camera resolution preset whose availability depends on the selected model.
-public enum RealtimeCameraPreset: CaseIterable, Sendable {
+/// Predefined camera dimensions whose availability depends on the selected model.
+public enum RealtimeCameraFormat: CaseIterable, Sendable {
 
     /// A landscape 16:9 frame.
     case resolution1920x1080
